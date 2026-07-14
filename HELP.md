@@ -29,7 +29,10 @@ images — all **100% offline**.
 
 - **Mermaid**: fence a diagram with a ` ```mermaid ` block.
 - **Images**: `![alt](relative/path.png)` resolves against the document's own
-  folder.
+  folder. Raw HTML embeds work too, including Typora-style sizing —
+  `<img src="pics/a.png" style="zoom: 40%;" />`.
+- **Raw HTML**: inline/block HTML in a document is rendered (active content
+  such as `<script>` is stripped for safety).
 - **Code**: fenced blocks are syntax-highlighted (Pygments).
 - **Alerts**: a blockquote beginning with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
   `[!WARNING]`, or `[!CAUTION]` renders as a coloured GitHub callout box:

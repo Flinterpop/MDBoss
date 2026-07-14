@@ -69,6 +69,16 @@ _PH_BODY = "@@MDBOSS_BODY@@"
 
 _SLUG_STRIP = re.compile(r"[^\w\- ]+", re.UNICODE)
 
+# HTML sanitiser patterns (see _sanitize_html).
+_SCRIPT_RE = re.compile(r"<\s*script\b.*?<\s*/\s*script\s*>", re.I | re.S)
+_IFRAME_RE = re.compile(r"<\s*iframe\b.*?<\s*/\s*iframe\s*>", re.I | re.S)
+_ON_ATTR_RE = re.compile(
+    r"""\son[a-zA-Z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""", re.I
+)
+_JS_URL_RE = re.compile(
+    r"""(href|src)\s*=\s*("|')\s*javascript:[^"'>]*\2""", re.I
+)
+
 
 def _slug(text: str, seen: dict[str, int]) -> str:
     """GitHub-like heading slug, de-duplicated via ``seen`` (mutated).
@@ -198,12 +208,33 @@ def _github_alerts(state: StateCore) -> None:
 
 
 def _make_md() -> MarkdownIt:
-    """Build the shared MarkdownIt instance (GFM-ish, custom rules)."""
-    md = MarkdownIt("commonmark", {"html": False, "linkify": False})
+    """Build the shared MarkdownIt instance (GFM-ish, custom rules).
+
+    Raw HTML is enabled so embeds like ``<img src="pic.png" style="zoom:40%">``
+    render; :func:`_sanitize_html` then strips active content, and the preview
+    web view is network-locked, so this stays safe for local documents.
+    """
+    md = MarkdownIt("commonmark", {"html": True, "linkify": False})
     md.enable(["table", "strikethrough"])
     md.renderer.rules["fence"] = _render_fence  # type: ignore[attr-defined]
     md.core.ruler.before("inline", "github_alerts", _github_alerts)
     return md
+
+
+def _sanitize_html(body: str) -> str:
+    """Strip active/dangerous HTML from rendered output (defense-in-depth).
+
+    Removes ``<script>``/``<iframe>`` blocks, inline ``on*`` event-handler
+    attributes, and ``javascript:`` URLs.  Static formatting and media
+    (``img``, ``div``, ``span``, tables, inline styles) are preserved so
+    Typora/GitHub style HTML embeds render normally.
+    """
+    assert isinstance(body, str), "body must be str"
+    body = _SCRIPT_RE.sub("", body)
+    body = _IFRAME_RE.sub("", body)
+    body = _ON_ATTR_RE.sub("", body)
+    body = _JS_URL_RE.sub(r'\1="#"', body)
+    return body
 
 
 def strip_front_matter(md_text: str) -> str:
@@ -246,7 +277,7 @@ def _build(
         tok.attrSet("id", slug)
         level = int(tok.tag[1]) if tok.tag[1:].isdigit() else 1
         outline.append((level, text, slug))
-    body = md.renderer.render(tokens, md.options, {})
+    body = _sanitize_html(md.renderer.render(tokens, md.options, {}))
     assert isinstance(body, str), "renderer must return str"
     return body, outline
 

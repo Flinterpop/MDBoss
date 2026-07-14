@@ -133,3 +133,29 @@ def test_front_matter_stripped_when_requested() -> None:
 def test_horizontal_rule_not_treated_as_front_matter() -> None:
     md = "# A\n\ntext\n\n---\n\nmore\n"
     assert "<hr" in mdrender.render_body(md, strip_yaml=True)
+
+
+def test_raw_html_img_embed_renders() -> None:
+    md = (
+        '<img src="pics/a.png" alt="x" style="zoom: 40%;" />\n\n'
+        "and <b>inline</b> html\n"
+    )
+    body = mdrender.render_body(md)
+    assert '<img src="pics/a.png"' in body
+    assert "zoom: 40%" in body           # inline style preserved
+    assert "<b>inline</b>" in body
+
+
+def test_sanitizer_strips_active_content() -> None:
+    md = (
+        "<script>alert(1)</script>\n\n"
+        '<img src=x onerror="alert(2)">\n\n'
+        '<a href="javascript:alert(3)">x</a>\n\n'
+        '<iframe src="http://evil"></iframe>\n'
+    )
+    body = mdrender.render_body(md).lower()
+    assert "<script" not in body
+    assert "onerror" not in body
+    assert "javascript:" not in body
+    assert "<iframe" not in body
+    assert "<img src=x" in body          # the safe image survives
