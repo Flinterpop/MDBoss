@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# PyInstaller / build outputs
+build/
+dist/
+# Compiled installer -- published as a GitHub Release asset, not committed
+installer/
+
+# Local editor / tool settings
+.claude/
+
+# Third-party vendored assets are tracked (assets/); nothing here is ignored.

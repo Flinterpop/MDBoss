@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<title>@@MDBOSS_TITLE@@</title>
+<!-- base href = the document's own folder, so relative images resolve. -->
+<base href="@@MDBOSS_BASE_HREF@@">
+<!-- Bundled, absolute file:// URLs: unaffected by <base>. Offline only. -->
+<link rel="stylesheet" href="@@MDBOSS_GH_CSS@@">
+<link rel="stylesheet" href="@@MDBOSS_PYG_CSS@@">
+<style>
+  html, body { margin: 0; background: #ffffff; }
+  .markdown-body {
+    box-sizing: border-box;
+    min-width: 200px;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 28px 40px 96px;
+  }
+  pre.mermaid { background: transparent; text-align: center; }
+  /* Pygments blocks sit inside the GitHub code-block chrome. */
+  .highlight pre {
+    padding: 16px;
+    overflow: auto;
+    font-size: 85%;
+    line-height: 1.45;
+    background-color: #f6f8fa;
+    border-radius: 6px;
+  }
+  .highlight { margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<article class="markdown-body">
+@@MDBOSS_BODY@@
+</article>
+<script src="@@MDBOSS_MERMAID_JS@@"></script>
+<script>
+  (function () {
+    try {
+      if (window.mermaid) {
+        window.mermaid.initialize({
+          startOnLoad: true,
+          securityLevel: "strict",
+          theme: "default"
+        });
+      }
+    } catch (e) { /* diagram failures must never blank the page */ }
+  })();
+</script>
+</body>
+</html>
