@@ -78,3 +78,58 @@ def test_unknown_language_falls_back_to_plain_code() -> None:
     body = mdrender.render_body("```nosuchlang\nhi\n```\n")
     assert "<pre><code" in body
     assert "hi" in body
+
+
+ALERT = """> [!NOTE]
+>
+> Run this from an administrator prompt.
+
+> [!WARNING]
+> Careful with `rm`.
+"""
+
+
+def test_github_alerts_render_as_callouts() -> None:
+    body = mdrender.render_body(ALERT)
+    assert '<div class="markdown-alert markdown-alert-note">' in body
+    assert '<div class="markdown-alert markdown-alert-warning">' in body
+    assert '<p class="markdown-alert-title">Note</p>' in body
+    assert "Run this from an administrator prompt." in body
+    assert "<code>rm</code>" in body          # inline still parsed
+    assert "[!NOTE]" not in body              # marker removed
+    assert "<blockquote>" not in body         # not a plain blockquote
+
+
+def test_unknown_alert_type_stays_a_blockquote() -> None:
+    body = mdrender.render_body("> [!BOGUS]\n> text\n")
+    assert "markdown-alert" not in body
+    assert "<blockquote>" in body
+
+
+FRONT = """---
+title: My Doc
+tags: [a, b]
+---
+
+# Heading
+
+Body.
+"""
+
+
+def test_front_matter_kept_by_default() -> None:
+    body = mdrender.render_body(FRONT)
+    assert "title: My Doc" in body
+
+
+def test_front_matter_stripped_when_requested() -> None:
+    body = mdrender.render_body(FRONT, strip_yaml=True)
+    assert "title: My Doc" not in body
+    assert 'id="heading"' in body
+    outline = mdrender.extract_outline(FRONT, strip_yaml=True)
+    assert outline == [(1, "Heading", "heading")]
+
+
+def test_horizontal_rule_not_treated_as_front_matter() -> None:
+    md = "# A\n\ntext\n\n---\n\nmore\n"
+    assert "<hr" in mdrender.render_body(md, strip_yaml=True)

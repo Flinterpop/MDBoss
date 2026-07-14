@@ -31,6 +31,26 @@ images — all **100% offline**.
 - **Images**: `![alt](relative/path.png)` resolves against the document's own
   folder.
 - **Code**: fenced blocks are syntax-highlighted (Pygments).
+- **Alerts**: a blockquote beginning with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
+  `[!WARNING]`, or `[!CAUTION]` renders as a coloured GitHub callout box:
+
+  ```
+  > [!NOTE]
+  > This step must be run as administrator.
+  ```
+
+## Toolbar toggles
+
+- **Edit** — show/hide the source editor (preview-only reading mode).
+- **Files / Outline** — show/hide those panes.
+- **Hide YAML** — when on (the default), a leading YAML front-matter block
+  (`--- … ---` at the very top of the file) is not shown in the preview.
+
+## Scrolling
+
+The preview follows the editor: as you scroll or type in the source pane, the
+rendered preview keeps the same vertical position instead of jumping to the
+top.
 
 ## Keyboard shortcuts
 

@@ -480,6 +480,8 @@ class MainWindow(QMainWindow):
         self._current_path: str | None = None   # open document, or None
         self._suppress_dirty = False             # True while loading a file
         self._watched_roots: set[str] = set()
+        # Hide a leading YAML front-matter block in the preview (default on).
+        self._init_hide_yaml = bool(cfg.get("hide_front_matter", True))
 
         # --- Web view assets + network lock. ---
         self._gh_css = asset_url("github-markdown-light.css")
@@ -550,6 +552,12 @@ class MainWindow(QMainWindow):
                                 tip="Show or hide the outline pane")
         self._act_outline.setCheckable(True)
         self._act_outline.setChecked(True)
+        self._act_yaml = add(
+            "Hide YAML", self._toggle_yaml,
+            tip="Hide a YAML front-matter block at the top of the file",
+        )
+        self._act_yaml.setCheckable(True)
+        self._act_yaml.setChecked(self._init_hide_yaml)
         bar.addSeparator()
         add("Help", self._show_help, "F1", "About MDBoss")
 
@@ -613,8 +621,16 @@ class MainWindow(QMainWindow):
         self._editor.document().modificationChanged.connect(
             self._on_modified_changed
         )
+        self._editor.verticalScrollBar().valueChanged.connect(
+            self._sync_preview_scroll
+        )
         self._preview = QWebEngineView(self)
         self._preview.setPage(PreviewPage(self._preview))
+        # Re-apply the editor's scroll position after each re-render so the
+        # preview does not jump to the top while typing.
+        self._preview.loadFinished.connect(
+            lambda _ok: self._sync_preview_scroll()
+        )
         settings = self._preview.settings()
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
@@ -845,16 +861,20 @@ class MainWindow(QMainWindow):
         base = QUrl.fromLocalFile(os.path.join(doc_dir, "")).toString()
         if not base.endswith("/"):
             base += "/"
+        strip_yaml = self._act_yaml.isChecked()
         html = mdrender.render_document(
             text, base, self._gh_css, self._pyg_css, self._mermaid_js,
             title=os.path.basename(self._current_path or "MDBoss"),
+            strip_yaml=strip_yaml,
         )
         self._preview.setHtml(html, QUrl(base))
-        self._rebuild_outline(text)
+        self._rebuild_outline(text, strip_yaml)
 
-    def _rebuild_outline(self, text: str) -> None:
+    def _rebuild_outline(self, text: str, strip_yaml: bool) -> None:
         self._outline.clear()
-        for level, heading, slug in mdrender.extract_outline(text):
+        for level, heading, slug in mdrender.extract_outline(
+            text, strip_yaml
+        ):
             item = QListWidgetItem("  " * (level - 1) + heading)
             item.setData(int(Qt.ItemDataRole.UserRole), slug)
             self._outline.addItem(item)
@@ -1025,6 +1045,23 @@ class MainWindow(QMainWindow):
 
     def _toggle_outline(self) -> None:
         self._mid.setVisible(self._act_outline.isChecked())
+
+    def _toggle_yaml(self) -> None:
+        update_config({"hide_front_matter": self._act_yaml.isChecked()})
+        self._render_preview()
+
+    # ---- Editor -> preview scroll sync ---------------------------------- #
+    def _sync_preview_scroll(self) -> None:
+        """Scroll the preview to the editor's vertical position (fraction)."""
+        bar = self._editor.verticalScrollBar()
+        span = bar.maximum() - bar.minimum()
+        ratio = (bar.value() - bar.minimum()) / span if span > 0 else 0.0
+        script = (
+            "(function(r){var h=document.documentElement;"
+            "var max=h.scrollHeight-h.clientHeight;"
+            "window.scrollTo(0, max>0?r*max:0);})(%.6f);" % ratio
+        )
+        self._preview.page().runJavaScript(script)
 
     def _manage_folders(self) -> None:
         dialog = ManageFoldersDialog(self._roots, self)
