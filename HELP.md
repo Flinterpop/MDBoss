@@ -41,6 +41,18 @@ images — all **100% offline**.
   > [!NOTE]
   > This step must be run as administrator.
   ```
+- **Admonitions** (MkDocs / Material): `!!! type "Title"` renders a coloured
+  callout; `??? type "Title"` is collapsible (collapsed), `???+` opens by
+  default. Types include note, info, tip, success, question, warning, failure,
+  danger, bug, example, quote (and aliases). An empty `""` title hides the
+  title bar. The body is indented four spaces:
+
+  ```
+  !!! warning "Heads up"
+      Indented body with **Markdown**.
+  ```
+- **Math** (LaTeX): inline `$E = mc^2$` and display `$$ \int_0^1 x^2\,dx $$`,
+  rendered with the bundled KaTeX.
 
 ## Toolbar toggles
 

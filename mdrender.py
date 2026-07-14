@@ -22,12 +22,17 @@ from __future__ import annotations
 import html
 import os
 import re
+import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_block import StateBlock
 from markdown_it.rules_core import StateCore
 from markdown_it.token import Token
+from mdit_py_plugins.dollarmath import dollarmath_plugin
+from mdit_py_plugins.utils import is_code_block
 
 # A heading entry: (level 1..6, display text, slug id).
 Heading = tuple[int, str, str]
@@ -64,8 +69,29 @@ _PH_BASE = "@@MDBOSS_BASE_HREF@@"
 _PH_GH_CSS = "@@MDBOSS_GH_CSS@@"
 _PH_PYG_CSS = "@@MDBOSS_PYG_CSS@@"
 _PH_MERMAID = "@@MDBOSS_MERMAID_JS@@"
+_PH_KATEX_CSS = "@@MDBOSS_KATEX_CSS@@"
+_PH_KATEX_JS = "@@MDBOSS_KATEX_JS@@"
 _PH_TITLE = "@@MDBOSS_TITLE@@"
 _PH_BODY = "@@MDBOSS_BODY@@"
+
+# MkDocs / Material admonition type aliases -> canonical (styled) type.
+_ADMON_ALIASES = {
+    "note": "note",
+    "seealso": "note",
+    "abstract": "abstract", "summary": "abstract", "tldr": "abstract",
+    "info": "info", "todo": "info",
+    "tip": "tip", "hint": "tip", "important": "tip",
+    "success": "success", "check": "success", "done": "success",
+    "question": "question", "help": "question", "faq": "question",
+    "warning": "warning", "caution": "warning", "attention": "warning",
+    "failure": "failure", "fail": "failure", "missing": "failure",
+    "danger": "danger", "error": "danger",
+    "bug": "bug",
+    "example": "example",
+    "quote": "quote", "cite": "quote",
+}
+# A title wrapped in matching single or double quotes (empty -> no title bar).
+_ADMON_QUOTED = re.compile(r"""^(?P<q>["'])(?P<body>.*)(?P=q)\s*$""")
 
 _SLUG_STRIP = re.compile(r"[^\w\- ]+", re.UNICODE)
 
@@ -207,6 +233,147 @@ def _github_alerts(state: StateCore) -> None:
         i += 1
 
 
+def _admon_type_and_title(params: str) -> tuple[str, str]:
+    """Parse ``params`` after an admonition marker into (canonical, title).
+
+    Handles single- or double-quoted titles (``'x'`` / ``"x"``); an empty
+    quoted string suppresses the title bar; a bare type keyword defaults the
+    title to that keyword, capitalised (MkDocs/Material behaviour).
+    """
+    params = params.strip()
+    if not params:
+        return "note", "Note"
+    head, _sep, rest = params.partition(" ")
+    canonical = _ADMON_ALIASES.get(head.lower(), head.lower())
+    rest = rest.strip()
+    if not rest:
+        return canonical, head.strip().capitalize()
+    match = _ADMON_QUOTED.match(rest)
+    if match is not None:
+        return canonical, match.group("body")   # may be "" -> no title bar
+    return canonical, rest
+
+
+def _admonition_rule(
+    state: StateBlock, start_line: int, end_line: int, silent: bool
+) -> bool:
+    """Block rule for ``!!!`` / ``???`` / ``???+`` admonitions.
+
+    Adapted from ``mdit_py_plugins.admon`` (MIT).  The indented body is parsed
+    as Markdown; collapsible ``???``/``???+`` markers are rendered as native
+    ``<details>`` by :func:`_render_admonition`.
+    """
+    if is_code_block(state, start_line):
+        return False
+    start = state.bMarks[start_line] + state.tShift[start_line]
+    maximum = state.eMarks[start_line]
+    if state.src[start] not in "!?":
+        return False
+    marker = ""
+    for candidate in ("???+", "!!!", "???"):
+        if state.src[start:start + len(candidate)] == candidate:
+            marker = candidate
+            break
+    if not marker:
+        return False
+    marker_pos = start + len(marker)
+    params = state.src[marker_pos:maximum]
+    if not params.strip().split(" ", 1)[0]:
+        return False
+    if silent:
+        return True
+
+    old_parent = state.parentType
+    old_line_max = state.lineMax
+    old_indent = state.blkIndent
+
+    blk_start = marker_pos
+    while blk_start < maximum and state.src[blk_start] == " ":
+        blk_start += 1
+    state.parentType = "admonition"
+    state.blkIndent += blk_start - start + (3 - len(marker))
+
+    was_empty = False
+    next_line = start_line
+    bound = 0
+    while bound <= end_line + 1:              # bounded (Rule of 10)
+        bound += 1
+        next_line += 1
+        if next_line >= end_line:
+            break
+        pos = state.bMarks[next_line] + state.tShift[next_line]
+        line_end = state.eMarks[next_line]
+        is_empty = state.sCount[next_line] < state.blkIndent
+        if is_empty and was_empty:
+            break
+        was_empty = is_empty
+        if pos < line_end and state.sCount[next_line] < state.blkIndent:
+            break
+    state.lineMax = next_line
+
+    canonical, title = _admon_type_and_title(params)
+    token = state.push("admonition_open", "div", 1)
+    token.markup = marker
+    token.block = True
+    token.attrs = {"class": f"admonition {canonical}"}
+    token.map = [start_line, next_line]
+    if title:
+        t_open = state.push("admonition_title_open", "p", 1)
+        t_open.markup = marker
+        t_open.attrs = {"class": "admonition-title"}
+        t_inline = state.push("inline", "", 0)
+        t_inline.content = title
+        t_inline.map = [start_line, start_line + 1]
+        t_inline.children = []
+        state.push("admonition_title_close", "p", -1).markup = marker
+    state.md.block.tokenize(state, start_line + 1, next_line)
+    close = state.push("admonition_close", "div", -1)
+    close.markup = marker
+    close.block = True
+
+    state.parentType = old_parent
+    state.lineMax = old_line_max
+    state.blkIndent = old_indent
+    state.line = next_line
+    return True
+
+
+def _render_admonition(tokens: Sequence[Any], idx: int, options: Any,
+                       env: Any) -> str:
+    """Render admonition tokens as ``<div>`` or native ``<details>``."""
+    token = tokens[idx]
+    marker = token.markup
+    collapsible = marker.startswith("?")
+    kind = token.type
+    if kind == "admonition_open":
+        cls = html.escape(token.attrs.get("class", ""), quote=True)
+        if collapsible:
+            open_attr = " open" if marker.endswith("+") else ""
+            return f'<details class="{cls}"{open_attr}>\n'
+        return f'<div class="{cls}">\n'
+    if kind == "admonition_close":
+        return "</details>\n" if collapsible else "</div>\n"
+    if kind == "admonition_title_open":
+        if collapsible:
+            return '<summary class="admonition-title">'
+        return '<p class="admonition-title">'
+    return "</summary>\n" if collapsible else "</p>\n"
+
+
+def _render_math_inline(tokens: Sequence[Any], idx: int, options: Any,
+                        env: Any) -> str:
+    """Render an inline ``$...$`` math token for client-side KaTeX."""
+    body = html.escape(tokens[idx].content)
+    return f'<span class="math-inline">{body}</span>'
+
+
+def _render_math_block(tokens: Sequence[Any], idx: int, options: Any,
+                       env: Any) -> str:
+    """Render a ``$$...$$`` display-math token for client-side KaTeX."""
+    body = html.escape(tokens[idx].content)
+    return f'<div class="math-display">{body}</div>\n'
+
+
 def _make_md() -> MarkdownIt:
     """Build the shared MarkdownIt instance (GFM-ish, custom rules).
 
@@ -216,8 +383,21 @@ def _make_md() -> MarkdownIt:
     """
     md = MarkdownIt("commonmark", {"html": True, "linkify": False})
     md.enable(["table", "strikethrough"])
-    md.renderer.rules["fence"] = _render_fence  # type: ignore[attr-defined]
+    md.use(dollarmath_plugin, double_inline=True)
     md.core.ruler.before("inline", "github_alerts", _github_alerts)
+    md.block.ruler.before(
+        "fence", "admonition", _admonition_rule,
+        {"alt": ["paragraph", "reference", "blockquote", "list"]},
+    )
+    rules = md.renderer.rules  # type: ignore[attr-defined]
+    rules["fence"] = _render_fence
+    rules["math_inline"] = _render_math_inline
+    rules["math_block"] = _render_math_block
+    for name in (
+        "admonition_open", "admonition_close",
+        "admonition_title_open", "admonition_title_close",
+    ):
+        rules[name] = _render_admonition
     return md
 
 
@@ -294,44 +474,57 @@ def render_body(md_text: str, strip_yaml: bool = False) -> str:
     return body
 
 
+def _asset_dir() -> str:
+    """Directory holding bundled render assets (source tree or frozen exe)."""
+    base = getattr(
+        sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))
+    )
+    return os.path.join(base, "assets")
+
+
+def _asset_uri(name: str) -> str:
+    """A ``file:///`` URL to a bundled asset, for the web view."""
+    return Path(os.path.join(_asset_dir(), name)).as_uri()
+
+
 def _load_template() -> str:
-    """Read the bundled HTML template beside this module (or in assets/)."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    for candidate in (
-        os.path.join(here, "assets", "template.html"),
-        os.path.join(here, "template.html"),
-    ):
-        if os.path.isfile(candidate):
-            with open(candidate, "r", encoding="utf-8") as fh:
-                return fh.read()
-    raise FileNotFoundError("assets/template.html not found")
+    """Read the bundled HTML template from the assets directory."""
+    path = os.path.join(_asset_dir(), "template.html")
+    if not os.path.isfile(path):
+        raise FileNotFoundError("assets/template.html not found")
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
 
 
 def render_document(
     md_text: str,
     base_href: str,
-    gh_css_url: str,
-    pyg_css_url: str,
-    mermaid_js_url: str,
     title: str = "MDBoss",
     strip_yaml: bool = False,
 ) -> str:
     """Return a complete HTML page for ``md_text``.
 
     ``base_href`` is a ``file:///`` URL to the document's folder (with a
-    trailing slash) so relative images resolve; the ``*_url`` arguments are
-    ``file:///`` URLs to the bundled assets.  Assets are referenced by absolute
-    URL so ``<base>`` only affects the document's own relative links.  When
-    ``strip_yaml`` is true, a leading YAML front-matter block is not rendered.
+    trailing slash) so relative images resolve.  Bundled asset URLs (GitHub
+    CSS, Pygments CSS, mermaid, KaTeX) are resolved here and referenced by
+    absolute URL, so ``<base>`` only affects the document's own relative
+    links.  When ``strip_yaml`` is true, a leading YAML front-matter block is
+    not rendered.
     """
     assert base_href.endswith("/"), "base_href needs a trailing slash"
     assert md_text is not None, "md_text must not be None"
     body = render_body(md_text, strip_yaml)
     page = _load_template()
-    page = page.replace(_PH_BASE, html.escape(base_href, quote=True))
-    page = page.replace(_PH_GH_CSS, html.escape(gh_css_url, quote=True))
-    page = page.replace(_PH_PYG_CSS, html.escape(pyg_css_url, quote=True))
-    page = page.replace(_PH_MERMAID, html.escape(mermaid_js_url, quote=True))
+    replacements = {
+        _PH_BASE: base_href,
+        _PH_GH_CSS: _asset_uri("github-markdown-light.css"),
+        _PH_PYG_CSS: _asset_uri("pygments-github.css"),
+        _PH_MERMAID: _asset_uri("mermaid.min.js"),
+        _PH_KATEX_CSS: _asset_uri("katex/katex.min.css"),
+        _PH_KATEX_JS: _asset_uri("katex/katex.min.js"),
+    }
+    for placeholder, value in replacements.items():
+        page = page.replace(placeholder, html.escape(value, quote=True))
     page = page.replace(_PH_TITLE, html.escape(title))
     page = page.replace(_PH_BODY, body)
     assert _PH_BODY not in page, "body placeholder was substituted"

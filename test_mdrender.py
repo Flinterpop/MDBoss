@@ -52,14 +52,12 @@ def test_render_document_substitutes_all_placeholders() -> None:
     page = mdrender.render_document(
         SAMPLE,
         base_href="file:///c:/docs/",
-        gh_css_url="file:///a/github.css",
-        pyg_css_url="file:///a/pyg.css",
-        mermaid_js_url="file:///a/mermaid.min.js",
         title="Doc",
     )
     assert "@@MDBOSS" not in page
     assert 'href="file:///c:/docs/"' in page
-    assert "file:///a/mermaid.min.js" in page
+    assert "mermaid.min.js" in page          # asset URL resolved internally
+    assert "katex.min.css" in page           # KaTeX asset wired in
     assert "<title>Doc</title>" in page
 
 
@@ -144,6 +142,53 @@ def test_raw_html_img_embed_renders() -> None:
     assert '<img src="pics/a.png"' in body
     assert "zoom: 40%" in body           # inline style preserved
     assert "<b>inline</b>" in body
+
+
+ADMON = """!!! warning 'Optional Title'
+    Block-Styled Side Content with **Markdown support**
+
+!!! info ''
+    No-Heading Content
+
+??? bug 'Collapsed by default'
+    Collapsible Block-Styled Side Content
+
+???+ example "Open by default"
+    Open collapsible content
+"""
+
+
+def test_admonitions_static_and_collapsible() -> None:
+    body = mdrender.render_body(ADMON)
+    # Static admonition with a single-quoted title.
+    assert '<div class="admonition warning">' in body
+    assert '<p class="admonition-title">Optional Title</p>' in body
+    assert "<strong>Markdown support</strong>" in body
+    # Empty '' title suppresses the title bar.
+    info = body.split("admonition info")[1].split("admonition")[0]
+    assert "admonition-title" not in info
+    # Collapsible variants become native <details>.
+    assert '<details class="admonition bug">' in body
+    assert (
+        '<summary class="admonition-title">Collapsed by default</summary>'
+        in body
+    )
+    assert '<details class="admonition example" open>' in body
+
+
+def test_admonition_alias_maps_to_canonical_type() -> None:
+    body = mdrender.render_body("!!! hint\n    tipped\n")
+    assert '<div class="admonition tip">' in body      # hint -> tip
+    assert '<p class="admonition-title">Hint</p>' in body
+
+
+def test_inline_and_display_math() -> None:
+    body = mdrender.render_body(
+        "Inline $E=mc^2$ text.\n\n$$\\int_0^1 x^2\\,dx$$\n"
+    )
+    assert '<span class="math-inline">E=mc^2</span>' in body
+    assert '<div class="math-display">' in body
+    assert "x^2" in body
 
 
 def test_sanitizer_strips_active_content() -> None:

@@ -132,12 +132,6 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
-def asset_url(name: str) -> str:
-    """A ``file:///`` URL to a bundled ``assets/`` file, for the web view."""
-    path = resource_path(os.path.join("assets", name))
-    return QUrl.fromLocalFile(path).toString()
-
-
 def running_portable() -> bool:
     """True when this frozen exe is a loose portable copy (no uninstaller)."""
     if not getattr(sys, "frozen", False):
@@ -502,10 +496,7 @@ class MainWindow(QMainWindow):
         self._suppress_from_editor = False
         self._suppress_from_preview = False
 
-        # --- Web view assets + network lock. ---
-        self._gh_css = asset_url("github-markdown-light.css")
-        self._pyg_css = asset_url("pygments-github.css")
-        self._mermaid_js = asset_url("mermaid.min.js")
+        # --- Web view network lock (asset URLs resolved by mdrender). ---
         self._interceptor = LocalOnlyInterceptor(self)
         profile = QWebEngineProfile.defaultProfile()
         profile.setUrlRequestInterceptor(self._interceptor)
@@ -889,7 +880,7 @@ class MainWindow(QMainWindow):
             base += "/"
         strip_yaml = self._act_yaml.isChecked()
         html = mdrender.render_document(
-            text, base, self._gh_css, self._pyg_css, self._mermaid_js,
+            text, base,
             title=os.path.basename(self._current_path or "MDBoss"),
             strip_yaml=strip_yaml,
         )
@@ -1139,8 +1130,7 @@ class MainWindow(QMainWindow):
         ).toString()
         view.setHtml(
             mdrender.render_document(
-                text, base, self._gh_css, self._pyg_css, self._mermaid_js,
-                title=f"{DISPLAY_NAME} Help",
+                text, base, title=f"{DISPLAY_NAME} Help",
             ),
             QUrl(base),
         )

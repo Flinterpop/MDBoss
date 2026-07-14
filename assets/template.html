@@ -9,6 +9,7 @@
 <!-- Bundled, absolute file:// URLs: unaffected by <base>. Offline only. -->
 <link rel="stylesheet" href="@@MDBOSS_GH_CSS@@">
 <link rel="stylesheet" href="@@MDBOSS_PYG_CSS@@">
+<link rel="stylesheet" href="@@MDBOSS_KATEX_CSS@@">
 <style>
   html, body { margin: 0; background: #ffffff; }
   .markdown-body {
@@ -19,6 +20,37 @@
     padding: 28px 40px 96px;
   }
   pre.mermaid { background: transparent; text-align: center; }
+  /* LaTeX math (KaTeX). Display math scrolls horizontally if wide. */
+  .math-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; }
+  .katex-display { margin: 0 }
+  /* MkDocs / Material admonitions and collapsible (?) blocks. */
+  .admonition {
+    --admon: #9e9e9e;
+    margin: 1em 0; padding: .6rem .9rem;
+    border: 1px solid #d0d7de;
+    border-left: .3rem solid var(--admon);
+    border-radius: 6px; background: #fff;
+  }
+  .admonition > :first-child { margin-top: 0 }
+  .admonition > :last-child { margin-bottom: 0 }
+  .admonition > .admonition-title {
+    display: flex; align-items: center; gap: .5rem;
+    margin: -.6rem -.9rem .6rem; padding: .4rem .9rem;
+    font-weight: 700; color: #1f2328;
+    background: color-mix(in srgb, var(--admon) 12%, #fff);
+    border-bottom: 1px solid color-mix(in srgb, var(--admon) 30%, #fff);
+  }
+  .admonition > .admonition-title svg {
+    width: 1.05em; height: 1.05em; flex-shrink: 0; fill: var(--admon);
+  }
+  summary.admonition-title { cursor: pointer; list-style: none }
+  summary.admonition-title::-webkit-details-marker { display: none }
+  .admonition.note { --admon: #448aff } .admonition.abstract { --admon: #00b0ff }
+  .admonition.info { --admon: #00b8d4 } .admonition.tip { --admon: #00bfa5 }
+  .admonition.success { --admon: #00c853 } .admonition.question { --admon: #64dd17 }
+  .admonition.warning { --admon: #ff9100 } .admonition.failure { --admon: #ff5252 }
+  .admonition.danger { --admon: #ff1744 } .admonition.bug { --admon: #f50057 }
+  .admonition.example { --admon: #7c4dff } .admonition.quote { --admon: #9e9e9e }
   /* GitHub alert title: space the octicon from the label. */
   .markdown-alert-title { margin-bottom: 4px; }
   .markdown-alert-title svg {
@@ -109,6 +141,70 @@
         });
       }
     } catch (e) { /* diagram failures must never blank the page */ }
+  })();
+</script>
+<script>
+  // Inject Material-style icons into admonition titles, keyed by type.
+  (function () {
+    var P = {
+      note: "M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+      info: "M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+      abstract: "M14,17H7V15H14M17,13H7V11H17M17,9H7V7H17M19,3H5C3.89,3 3,3.89 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V5C21,3.89 20.1,3 19,3Z",
+      tip: "M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z",
+      success: "M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M11,16.5L18,9.5L16.59,8.09L11,13.67L7.91,10.59L6.5,12L11,16.5Z",
+      question: "M15.07,11.25L14.17,12.17C13.45,12.89 13,13.5 13,15H11V14.5C11,13.39 11.45,12.39 12.17,11.67L13.41,10.41C13.78,10.05 14,9.55 14,9C14,7.89 13.1,7 12,7A2,2 0 0,0 10,9H8A4,4 0 0,1 12,5A4,4 0 0,1 16,9C16,9.88 15.64,10.67 15.07,11.25M13,19H11V17H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+      warning: "M13,14H11V10H13M13,18H11V16H13M1,21H23L12,2L1,21Z",
+      failure: "M12,2C17.53,2 22,6.47 22,12C22,17.53 17.53,22 12,22C6.47,22 2,17.53 2,12C2,6.47 6.47,2 12,2M15.59,7L12,10.59L8.41,7L7,8.41L10.59,12L7,15.59L8.41,17L12,13.41L15.59,17L17,15.59L13.41,12L17,8.41L15.59,7Z",
+      danger: "M11,15H6L13,1V9H18L11,23V15Z",
+      bug: "M14,12H10V10H14M14,16H10V14H14M20,8H17.19C16.74,7.22 16.12,6.55 15.37,6.04L17,4.41L15.59,3L13.42,5.17C12.96,5.06 12.5,5 12,5C11.5,5 11.04,5.06 10.59,5.17L8.41,3L7,4.41L8.62,6.04C7.88,6.55 7.26,7.22 6.81,8H4V10H6.09C6.04,10.33 6,10.66 6,11V12H4V14H6V15C6,15.34 6.04,15.67 6.09,16H4V18H6.81C7.85,19.79 9.78,21 12,21C14.22,21 16.15,19.79 17.19,18H20V16H17.91C17.96,15.67 18,15.34 18,15V14H20V12H18V11C18,10.66 17.96,10.33 17.91,10H20V8Z",
+      example: "M5,19A1,1 0 0,0 6,20H18A1,1 0 0,0 19,19C19,18.79 18.93,18.59 18.82,18.43L13,8.35V4H11V8.35L5.18,18.43C5.07,18.59 5,18.79 5,19M6,22A3,3 0 0,1 3,19C3,18.4 3.18,17.84 3.5,17.37L9,7.81V6A1,1 0 0,1 8,5V4A2,2 0 0,1 10,2H14A2,2 0 0,1 16,4V5A1,1 0 0,1 15,6V7.81L20.5,17.37C20.82,17.84 21,18.4 21,19A3,3 0 0,1 18,22H6Z",
+      quote: "M14,17H17L19,13V7H13V13H16M6,17H9L11,13V7H5V13H8L6,17Z"
+    };
+    function addAdmonIcons() {
+      var titles = document.querySelectorAll(
+        ".admonition > .admonition-title"
+      );
+      for (var i = 0; i < titles.length; i++) {
+        var t = titles[i];
+        if (t.querySelector("svg")) { continue; }
+        var parent = t.parentElement;
+        for (var kind in P) {
+          if (parent.classList.contains(kind)) {
+            t.insertAdjacentHTML(
+              "afterbegin",
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="'
+                + P[kind] + '"></path></svg>'
+            );
+            break;
+          }
+        }
+      }
+    }
+    document.addEventListener("DOMContentLoaded", addAdmonIcons);
+    addAdmonIcons();
+  })();
+</script>
+<script src="@@MDBOSS_KATEX_JS@@"></script>
+<script>
+  // Render inline/display LaTeX with the bundled KaTeX (offline).
+  (function () {
+    if (!window.katex) { return; }
+    function renderMath() {
+      var nodes = document.querySelectorAll(".math-inline, .math-display");
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (el.dataset.mdbossRendered) { continue; }
+        try {
+          window.katex.render(el.textContent, el, {
+            displayMode: el.classList.contains("math-display"),
+            throwOnError: false
+          });
+          el.dataset.mdbossRendered = "1";
+        } catch (e) { /* leave the raw source on failure */ }
+      }
+    }
+    document.addEventListener("DOMContentLoaded", renderMath);
+    renderMath();
   })();
 </script>
 </body>
