@@ -14,4 +14,7 @@ installer/
 # Local editor / tool settings
 .claude/
 
+# Local reference screenshots (not part of the app)
+MD_Note.jpg
+
 # Third-party vendored assets are tracked (assets/); nothing here is ignored.
