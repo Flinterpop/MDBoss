@@ -196,6 +196,32 @@ def is_markdown(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in MARKDOWN_EXTS
 
 
+def _norm(path: str) -> str:
+    """Case/format-normalised absolute path, for use as a dict key."""
+    return os.path.normcase(os.path.abspath(path))
+
+
+def md_counts_for_root(root_path: str) -> dict[str, int]:
+    """Recursive Markdown-file count for every folder under ``root_path``.
+
+    Returns a map of normalised folder path -> number of Markdown files
+    anywhere beneath (and directly in) it.  A single bottom-up ``os.walk``
+    lets each folder sum its own files plus its children's totals.
+    """
+    assert os.path.isdir(root_path), "root must be a directory"
+    counts: dict[str, int] = {}
+    bound = 0
+    for dirpath, dirnames, filenames in os.walk(root_path, topdown=False):
+        bound += 1
+        if bound > 100000:                     # bounded (Rule of 10)
+            break
+        total = sum(1 for name in filenames if is_markdown(name))
+        for sub in dirnames:
+            total += counts.get(_norm(os.path.join(dirpath, sub)), 0)
+        counts[_norm(dirpath)] = total
+    return counts
+
+
 def _b64(data: QByteArray) -> str:
     """Base64-encode a QByteArray to an ASCII str for JSON config."""
     return bytes(data.toBase64().data()).decode("ascii")
@@ -490,6 +516,8 @@ class MainWindow(QMainWindow):
         self._current_path: str | None = None   # open document, or None
         self._suppress_dirty = False             # True while loading a file
         self._watched_roots: set[str] = set()
+        # Recursive Markdown counts per folder, shown beside folder names.
+        self._md_counts: dict[str, int] = {}
         # Hide a leading YAML front-matter block in the preview (default on).
         self._init_hide_yaml = bool(cfg.get("hide_front_matter", True))
         # Bidirectional scroll-sync echo guards (one flag per direction).
@@ -693,8 +721,15 @@ class MainWindow(QMainWindow):
 
     def _reload_tree(self) -> None:
         self._tree.clear()
+        self._md_counts = {}
         for root in self._roots:
-            item = QTreeWidgetItem(self._tree, [root["name"]])
+            try:
+                self._md_counts.update(md_counts_for_root(root["path"]))
+            except OSError:
+                pass
+        for root in self._roots:
+            count = self._md_counts.get(_norm(root["path"]), 0)
+            item = QTreeWidgetItem(self._tree, [f"{root['name']}  ({count})"])
             item.setData(0, ROLE_PATH, root["path"])
             item.setData(0, ROLE_KIND, "root")
             item.setForeground(0, QColor("#0a58ca"))
@@ -734,7 +769,8 @@ class MainWindow(QMainWindow):
             if count > 20000:                      # bounded (Rule of 10)
                 break
             if entry.is_dir():
-                child = QTreeWidgetItem(item, [entry.name])
+                sub = self._md_counts.get(_norm(entry.path), 0)
+                child = QTreeWidgetItem(item, [f"{entry.name}  ({sub})"])
                 child.setData(0, ROLE_PATH, entry.path)
                 child.setData(0, ROLE_KIND, "dir")
                 self._add_placeholder(child)

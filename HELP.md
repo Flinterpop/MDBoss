@@ -16,9 +16,10 @@ images — all **100% offline**.
 
 ## Panes
 
-- **Files** (left) — your roots as a combined tree. Filter with the box at the
-  top. Right-click for New file/folder, Rename, Delete (to Recycle Bin),
-  Reveal in Explorer, Copy path, and Favorite.
+- **Files** (left) — your roots as a combined tree. Each folder shows the
+  number of Markdown files within it (counted recursively). Filter with the
+  box at the top. Right-click for New file/folder, Rename, Delete (to Recycle
+  Bin), Reveal in Explorer, Copy path, and Favorite.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it. **Favorites** below it hold up to ten documents.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
