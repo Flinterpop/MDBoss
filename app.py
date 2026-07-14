@@ -26,7 +26,7 @@ from collections.abc import Callable
 from typing import TypedDict
 
 from PySide6.QtCore import (
-    QByteArray, QObject, QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal,
+    QByteArray, QObject, QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal, Slot,
 )
 from PySide6.QtGui import (
     QAction, QCloseEvent, QColor, QFont, QIcon, QKeySequence, QPaintEvent,
@@ -36,6 +36,7 @@ from PySide6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineProfile, QWebEngineSettings,
     QWebEngineUrlRequestInfo, QWebEngineUrlRequestInterceptor,
 )
+from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
@@ -224,6 +225,21 @@ class LocalOnlyInterceptor(QWebEngineUrlRequestInterceptor):
         scheme = info.requestUrl().scheme().lower()
         if scheme not in self._ALLOWED:
             info.block(True)
+
+
+class ScrollBridge(QObject):
+    """JS-exposed object: the preview reports its scroll ratio through here.
+
+    Registered on the preview's QWebChannel as ``mdbossBridge``; the page's
+    scroll handler calls ``previewScrolled(ratio)``, which is re-emitted as a
+    Qt signal the main window connects to.
+    """
+
+    scrolled = Signal(float)
+
+    @Slot(float)
+    def previewScrolled(self, ratio: float) -> None:  # noqa: N802 (JS name)
+        self.scrolled.emit(ratio)
 
 
 class PreviewPage(QWebEnginePage):
@@ -482,6 +498,9 @@ class MainWindow(QMainWindow):
         self._watched_roots: set[str] = set()
         # Hide a leading YAML front-matter block in the preview (default on).
         self._init_hide_yaml = bool(cfg.get("hide_front_matter", True))
+        # Bidirectional scroll-sync echo guards (one flag per direction).
+        self._suppress_from_editor = False
+        self._suppress_from_preview = False
 
         # --- Web view assets + network lock. ---
         self._gh_css = asset_url("github-markdown-light.css")
@@ -626,6 +645,13 @@ class MainWindow(QMainWindow):
         )
         self._preview = QWebEngineView(self)
         self._preview.setPage(PreviewPage(self._preview))
+        # Web channel: the page reports its own scroll position back to Qt for
+        # preview -> editor sync (editor -> preview is driven from Qt).
+        self._bridge = ScrollBridge(self)
+        self._bridge.scrolled.connect(self._on_preview_scrolled)
+        self._channel = QWebChannel(self)
+        self._channel.registerObject("mdbossBridge", self._bridge)
+        self._preview.page().setWebChannel(self._channel)
         # Re-apply the editor's scroll position after each re-render so the
         # preview does not jump to the top while typing.
         self._preview.loadFinished.connect(
@@ -1050,18 +1076,41 @@ class MainWindow(QMainWindow):
         update_config({"hide_front_matter": self._act_yaml.isChecked()})
         self._render_preview()
 
-    # ---- Editor -> preview scroll sync ---------------------------------- #
+    # ---- Bidirectional editor <-> preview scroll sync ------------------- #
     def _sync_preview_scroll(self) -> None:
         """Scroll the preview to the editor's vertical position (fraction)."""
+        if self._suppress_from_editor:
+            return
         bar = self._editor.verticalScrollBar()
         span = bar.maximum() - bar.minimum()
         ratio = (bar.value() - bar.minimum()) / span if span > 0 else 0.0
+        # Ignore the scroll echo the preview will report back for ~120 ms.
+        self._suppress_from_preview = True
         script = (
             "(function(r){var h=document.documentElement;"
             "var max=h.scrollHeight-h.clientHeight;"
             "window.scrollTo(0, max>0?r*max:0);})(%.6f);" % ratio
         )
         self._preview.page().runJavaScript(script)
+        QTimer.singleShot(120, self._clear_preview_suppress)
+
+    def _clear_preview_suppress(self) -> None:
+        self._suppress_from_preview = False
+
+    def _on_preview_scrolled(self, ratio: float) -> None:
+        """Scroll the editor to match a user scroll in the preview."""
+        if self._suppress_from_preview:
+            return
+        bar = self._editor.verticalScrollBar()
+        span = bar.maximum() - bar.minimum()
+        if span <= 0:
+            return
+        clamped = min(1.0, max(0.0, ratio))
+        # The resulting valueChanged echo is suppressed synchronously so it
+        # does not bounce straight back to the preview.
+        self._suppress_from_editor = True
+        bar.setValue(bar.minimum() + round(clamped * span))
+        self._suppress_from_editor = False
 
     def _manage_folders(self) -> None:
         dialog = ManageFoldersDialog(self._roots, self)

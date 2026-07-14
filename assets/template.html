@@ -71,6 +71,32 @@
     addIcons();
   })();
 </script>
+<!-- Web channel: report preview scrolling back to Qt (bidirectional sync).
+     Loads from Qt's built-in qrc resource; no-ops when no channel is set
+     (e.g. the Help window). -->
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script>
+  (function () {
+    if (!(window.QWebChannel && window.qt && qt.webChannelTransport)) {
+      return;
+    }
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+      var bridge = channel.objects.mdbossBridge;
+      if (!bridge || !bridge.previewScrolled) { return; }
+      var ticking = false;
+      window.addEventListener("scroll", function () {
+        if (ticking) { return; }
+        ticking = true;
+        window.requestAnimationFrame(function () {
+          ticking = false;
+          var h = document.documentElement;
+          var max = h.scrollHeight - h.clientHeight;
+          bridge.previewScrolled(max > 0 ? window.scrollY / max : 0);
+        });
+      }, { passive: true });
+    });
+  })();
+</script>
 <script src="@@MDBOSS_MERMAID_JS@@"></script>
 <script>
   (function () {

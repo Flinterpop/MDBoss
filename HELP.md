@@ -48,9 +48,10 @@ images — all **100% offline**.
 
 ## Scrolling
 
-The preview follows the editor: as you scroll or type in the source pane, the
-rendered preview keeps the same vertical position instead of jumping to the
-top.
+The editor and preview scroll together in both directions: scroll or type in
+the source pane and the preview follows; scroll the preview and the editor
+follows. The position is matched proportionally, so it stays roughly aligned
+even though the source and rendered document differ in height.
 
 ## Keyboard shortcuts
 
