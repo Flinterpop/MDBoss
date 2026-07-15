@@ -9,22 +9,42 @@ A local Markdown manager, editor, and GitHub-style viewer for Windows.
 
 MD Boss browses Markdown files across up to **five root folders**, edits them
 in a source pane, and renders a **live preview** using the **GitHub-light**
-theme with **mermaid** diagrams and embedded images. Rendering is **100%
-offline** — mermaid, the GitHub stylesheet, and syntax highlighting are all
-bundled — and the preview web view is **network-locked** so document content
-can never reach the network.
+theme. Rendering is **100% offline** — mermaid, KaTeX, the GitHub stylesheet,
+and syntax highlighting are all bundled — and the preview web view is
+**network-locked** so document content can never reach the network.
 
 It is a PySide6 sibling of [PDF Sherpa](https://github.com/Flinterpop/PDF_Sherpa)
 and shares its conventions and release pipeline.
 
 ## Features
 
-- Up to five root folders in one combined file tree, with filter and full
-  right-click file management (new, rename, delete-to-Recycle-Bin, reveal).
-- Source editor with line numbers beside a live GitHub-rendered preview.
-- Mermaid diagrams, embedded local images, Pygments-highlighted code.
-- Document outline that scrolls the preview; favorites (up to ten).
-- Remembers your roots, window layout, and favorites between runs.
+**Browse & manage**
+- Up to five root folders in one combined file tree; each folder shows its
+  recursive Markdown-file count. Filter box, and full right-click file
+  management (new from template, new folder, rename, delete-to-Recycle-Bin,
+  reveal in Explorer, copy path).
+- Favorites pinned at the top of the left pane (resizable): newest-first,
+  up to ten, with a right-click menu and export / import / clear.
+- New-file templates (`%APPDATA%\MDBoss\templates`, `{{title}}`/`{{date}}`
+  placeholders).
+
+**Edit & preview**
+- Source editor with line numbers beside a live GitHub-rendered preview,
+  synced scrolling in both directions, and a document outline that jumps the
+  preview to a heading.
+- Optional hiding of a leading YAML front-matter block; full file path in the
+  title bar.
+
+**Rendering** (all offline)
+- Mermaid diagrams, embedded images, raw HTML embeds (sanitized).
+- GitHub alerts (`> [!NOTE]` …) and MkDocs/Material admonitions
+  (`!!!` / `???` / `???+`).
+- LaTeX math (`$…$`, `$$…$$`) via KaTeX; Pygments-highlighted code.
+
+**Distribution**
+- Per-user installer and portable zip; **in-app auto-update** that downloads
+  and installs new releases in place.
+- Remembers your roots, window layout, favorites, and preferences.
 
 ## Install
 
@@ -42,13 +62,14 @@ python app.py
 ## Build a release
 
 ```
-.\release.ps1 0.1.0
+.\release.ps1 <version>       # e.g. .\release.ps1 0.1.11
 ```
 
 This bumps the version, builds the one-file exe (PyInstaller), the installer
 (Inno Setup 6), and the portable zip, commits and pushes, then publishes a
 GitHub release with both assets. Requires `python` (with PyInstaller), Inno
-Setup 6, `gh` (authenticated), and `git`.
+Setup 6, `gh` (authenticated), and `git`. Installed copies then pick up the
+new release via the in-app updater.
 
 ## License
 

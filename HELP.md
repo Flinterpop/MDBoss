@@ -24,10 +24,11 @@ images — all **100% offline**.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
 - **Favorites** (top of the left pane) — pin up to ten documents, newest first
-  (adding an 11th drops the oldest). Right-click a file in the tree to add or
-  remove it; right-click a favorite to open, remove, reveal, or copy its path;
-  and use the **⋯** menu in the Favorites header to export, import, or clear
-  the list. Missing files show in red.
+  (adding an 11th drops the oldest). Drag the divider below it to make the
+  panel taller or shorter. Rows show the filename (hover for the full path);
+  missing files show in red. Right-click a file in the tree to add or remove
+  it; right-click a favorite to open, remove, reveal, or copy its path; and use
+  the **⋯** menu in the Favorites header to export, import, or clear the list.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.
@@ -63,8 +64,11 @@ images — all **100% offline**.
 
 ## Toolbar toggles
 
+Ordered to match the columns — **Files**, **Outline**, **Edit**:
+
+- **Files** — show/hide the left pane (Favorites + file list).
+- **Outline** — show/hide the outline column.
 - **Edit** — show/hide the source editor (preview-only reading mode).
-- **Files / Outline** — show/hide those panes.
 - **Hide YAML** — when on (the default), a leading YAML front-matter block
   (`--- … ---` at the very top of the file) is not shown in the preview.
 
@@ -105,9 +109,18 @@ file is created:
 | F5       | Refresh the tree |
 | F1       | This help |
 
+## Updates
+
+MD Boss checks its own GitHub releases page on launch. When a newer version is
+available it offers to **download and install it now** — it fetches the
+installer, quits, installs silently, and restarts on the new version. You can
+also check any time from **Help → Check for updates**. Choose *No* to skip a
+version or *Cancel* to be reminded next launch.
+
 ## Privacy
 
 The preview's web view is **network-locked**: any remote image, script, or
 link inside a document is blocked, so document content never leaves your
-machine. The only network request MD Boss ever makes is an optional version
-check against its own GitHub releases page.
+machine. The only network requests MD Boss makes are the optional update check
+(and downloading an update if you accept one) against its own GitHub releases
+page — never anything from your documents.
