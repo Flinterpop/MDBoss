@@ -71,10 +71,12 @@ def test_list_templates_ignores_non_markdown(
 def test_installer_batch_installs_and_relaunches() -> None:
     batch = app._installer_batch(r"C:\t\MDBoss-Setup.exe", r"C:\a\MDBoss.exe")
     assert "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" in batch
-    assert r'"C:\t\MDBoss-Setup.exe"' in batch      # runs the installer
-    assert r'start "" "C:\a\MDBoss.exe"' in batch    # relaunches the app
-    assert 'del /q "%~f0"' in batch                  # self-cleanup
-    assert batch.startswith("timeout /t 2")          # waits for exe unlock
+    assert r'"C:\t\MDBoss-Setup.exe"' in batch       # runs the installer
+    assert r'start "" "C:\a\MDBoss.exe"' in batch     # relaunches the app
+    assert 'del /q "%~f0"' in batch                   # self-cleanup
+    # Waits for every MDBoss.exe to exit before installing (not a fixed delay).
+    assert 'tasklist /FI "IMAGENAME eq MDBoss.exe"' in batch
+    assert "goto mdwait" in batch
 
 
 def test_portable_batch_swaps_exe() -> None:
@@ -84,3 +86,4 @@ def test_portable_batch_swaps_exe() -> None:
     assert r'move /y "C:\t\new.exe" "C:\a\MDBoss.exe"' in batch
     assert r'start "" "C:\a\MDBoss.exe"' in batch
     assert r'del /q "C:\t\up.zip"' in batch
+    assert 'tasklist /FI "IMAGENAME eq MDBoss.exe"' in batch

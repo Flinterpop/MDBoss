@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
 
 import mdrender
 
-APP_VERSION = "0.1.6"
+APP_VERSION = "0.1.7"
 APP_NAME = "MDBoss"            # config folder, exe name, process name
 DISPLAY_NAME = "MD Boss"       # human-facing name (installer, window title)
 
@@ -201,26 +201,47 @@ def is_markdown(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in MARKDOWN_EXTS
 
 
+# Header for update-handoff batches: wait until every MDBoss.exe process has
+# exited (up to ~60s) before touching the on-disk exe.  A fixed delay is not
+# enough -- the large one-file bundle can take several seconds to unpack-clean
+# and release the exe lock, which would make the installer fail and the old
+# version relaunch (an update loop).
+_WAIT_FOR_EXIT = (
+    "@echo off\r\n"
+    "timeout /t 2 /nobreak >nul\r\n"
+    "set /a _n=0\r\n"
+    ":mdwait\r\n"
+    'tasklist /FI "IMAGENAME eq MDBoss.exe" 2>nul | '
+    'find /I "MDBoss.exe" >nul\r\n'
+    "if errorlevel 1 goto mdgo\r\n"
+    "set /a _n+=1\r\n"
+    "if %_n% GEQ 60 goto mdgo\r\n"
+    "timeout /t 1 /nobreak >nul\r\n"
+    "goto mdwait\r\n"
+    ":mdgo\r\n"
+)
+
+
 def _installer_batch(setup_path: str, app_exe: str) -> str:
     """Batch that installs an update and relaunches, run after we exit.
 
-    Waits ~2s for this process to release the exe lock, installs silently,
-    relaunches, then cleans up.  Each line runs even if an earlier one failed,
-    so a failed install still relaunches the intact old exe.
+    Waits for every MDBoss.exe to exit (so the exe lock is released), installs
+    silently, relaunches, then cleans up.  Each line runs even if an earlier
+    one failed, so a failed install still relaunches the intact old exe.
     """
     return (
-        "timeout /t 2 /nobreak >nul\r\n"
-        f'"{setup_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES\r\n'
-        f'start "" "{app_exe}"\r\n'
-        f'del /q "{setup_path}"\r\n'
-        'del /q "%~f0"\r\n'
+        _WAIT_FOR_EXIT
+        + f'"{setup_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES\r\n'
+        + f'start "" "{app_exe}"\r\n'
+        + f'del /q "{setup_path}"\r\n'
+        + 'del /q "%~f0"\r\n'
     )
 
 
 def _portable_batch(zip_exe: str, app_exe: str, cleanup: list[str]) -> str:
     """Batch that swaps a portable exe with a freshly unpacked one."""
     lines = [
-        "timeout /t 2 /nobreak >nul\r\n",
+        _WAIT_FOR_EXIT,
         f'move /y "{zip_exe}" "{app_exe}"\r\n',
         f'start "" "{app_exe}"\r\n',
     ]
