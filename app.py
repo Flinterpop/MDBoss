@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
 
 import mdrender
 
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.1.6"
 APP_NAME = "MDBoss"            # config folder, exe name, process name
 DISPLAY_NAME = "MD Boss"       # human-facing name (installer, window title)
 
