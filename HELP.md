@@ -21,7 +21,11 @@ images — all **100% offline**.
   box at the top. Right-click for New file/folder, Rename, Delete (to Recycle
   Bin), Reveal in Explorer, Copy path, and Favorite.
 - **Outline** (middle) — headings of the current document. Click a heading to
-  scroll the preview to it. **Favorites** below it hold up to ten documents.
+  scroll the preview to it. **Favorites** below it pin up to ten documents,
+  newest first (adding an 11th drops the oldest). Right-click a file in the
+  tree to add or remove it; right-click a favorite to open, remove, reveal, or
+  copy its path; and use the **⋯** menu in the Favorites header to export,
+  import, or clear the list. Missing files show in red.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.

@@ -42,7 +42,8 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
-    QTextEdit, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 import mdrender
@@ -642,10 +643,28 @@ class MainWindow(QMainWindow):
         fav_box = QWidget(self)
         fb_layout = QVBoxLayout(fav_box)
         fb_layout.setContentsMargins(4, 4, 4, 4)
-        fb_layout.addWidget(QLabel("Favorites"))
+        fav_header = QHBoxLayout()
+        fav_header.addWidget(QLabel("Favorites"))
+        fav_header.addStretch(1)
+        fav_manage = QToolButton(self)
+        fav_manage.setText("⋯")
+        fav_manage.setToolTip("Clear, export, or import your favorites")
+        fav_manage.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        fav_menu = QMenu(fav_manage)
+        fav_menu.addAction("Export favorites…", self._export_favorites)
+        fav_menu.addAction("Import favorites…", self._import_favorites)
+        fav_menu.addSeparator()
+        fav_menu.addAction("Clear all favorites", self._clear_favorites)
+        fav_manage.setMenu(fav_menu)
+        fav_header.addWidget(fav_manage)
+        fb_layout.addLayout(fav_header)
         self._fav_list = QListWidget(self)
         self._fav_list.itemActivated.connect(self._on_favorite_activated)
         self._fav_list.itemClicked.connect(self._on_favorite_activated)
+        self._fav_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._fav_list.customContextMenuRequested.connect(self._fav_menu)
         fb_layout.addWidget(self._fav_list, 1)
         mid.addWidget(fav_box)
         self._mid = mid
@@ -944,30 +963,189 @@ class MainWindow(QMainWindow):
         self._preview.page().runJavaScript(script)
 
     # ---- Favorites ------------------------------------------------------- #
+    # Favorites are pinned documents, newest first, capped at MAX_FAVORITES;
+    # adding an 11th drops the oldest.  Stored as absolute paths and persisted.
+    def _is_favorite(self, path: str) -> bool:
+        want = _norm(path)
+        return any(_norm(f) == want for f in self._favorites)
+
+    def _fav_display(self, path: str) -> str:
+        """Show a favorite as ``Root/rel/path`` when under a root, else abs."""
+        for root in self._roots:
+            try:
+                rel = os.path.relpath(path, root["path"])
+            except ValueError:
+                continue                          # different drive (Windows)
+            if not rel.startswith(".."):
+                return f"{root['name']}/{rel}".replace(os.sep, "/")
+        return path
+
     def _reload_favorites(self) -> None:
         self._fav_list.clear()
+        if not self._favorites:
+            hint = QListWidgetItem("(right-click a file to add)")
+            hint.setForeground(QColor("#999"))
+            hint.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._fav_list.addItem(hint)
+            return
         for path in self._favorites:
-            item = QListWidgetItem(os.path.basename(path))
+            item = QListWidgetItem(self._fav_display(path))
             item.setToolTip(path)
             item.setData(int(Qt.ItemDataRole.UserRole), path)
+            if not os.path.isfile(path):
+                item.setForeground(QColor("#c01c28"))   # missing file
             self._fav_list.addItem(item)
 
     def _on_favorite_activated(self, item: QListWidgetItem) -> None:
-        self._open_file(item.data(int(Qt.ItemDataRole.UserRole)))
+        path = item.data(int(Qt.ItemDataRole.UserRole))
+        if isinstance(path, str):
+            self._open_file(path)
 
-    def _toggle_favorite(self, path: str) -> None:
-        if path in self._favorites:
-            self._favorites.remove(path)
-        elif len(self._favorites) < MAX_FAVORITES:
-            self._favorites.append(path)
-        else:
-            QMessageBox.information(
-                self, DISPLAY_NAME,
-                f"Favorites are limited to {MAX_FAVORITES}.",
-            )
-            return
+    def _add_favorite(self, path: str) -> None:
+        """Pin ``path`` to the top of the list (deduped, capped)."""
+        want = _norm(path)
+        self._favorites = [f for f in self._favorites if _norm(f) != want]
+        self._favorites.insert(0, os.path.abspath(path))
+        del self._favorites[MAX_FAVORITES:]          # drop the oldest
         update_config({"favorites": self._favorites})
         self._reload_favorites()
+
+    def _remove_favorite(self, path: str) -> None:
+        want = _norm(path)
+        kept = [f for f in self._favorites if _norm(f) != want]
+        if len(kept) == len(self._favorites):
+            return
+        self._favorites = kept
+        update_config({"favorites": self._favorites})
+        self._reload_favorites()
+
+    def _toggle_favorite(self, path: str) -> None:
+        if self._is_favorite(path):
+            self._remove_favorite(path)
+        else:
+            self._add_favorite(path)
+
+    def _fav_menu(self, pos: QPoint) -> None:
+        item = self._fav_list.itemAt(pos)
+        path = item.data(int(Qt.ItemDataRole.UserRole)) if item else None
+        menu = QMenu(self)
+        if isinstance(path, str):
+            menu.addAction("Open", lambda: self._open_file(path))
+            menu.addAction("Remove from favorites",
+                           lambda: self._remove_favorite(path))
+            menu.addAction("Reveal in Explorer",
+                           lambda: self._reveal(path))
+            menu.addAction("Copy path",
+                           lambda: QApplication.clipboard().setText(path))
+            menu.addSeparator()
+        menu.addAction("Export favorites…", self._export_favorites)
+        menu.addAction("Import favorites…", self._import_favorites)
+        menu.addSeparator()
+        menu.addAction("Clear all favorites", self._clear_favorites)
+        menu.exec(self._fav_list.viewport().mapToGlobal(pos))
+
+    def _clear_favorites(self) -> None:
+        count = len(self._favorites)
+        if count == 0:
+            QMessageBox.information(
+                self, DISPLAY_NAME, "You have no favorites."
+            )
+            return
+        plural = "s" if count != 1 else ""
+        if QMessageBox.question(
+            self, DISPLAY_NAME, f"Remove all {count} favorite{plural}?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self._favorites = []
+        update_config({"favorites": self._favorites})
+        self._reload_favorites()
+
+    def _export_favorites(self) -> None:
+        if not self._favorites:
+            QMessageBox.information(
+                self, DISPLAY_NAME, "You have no favorites to export."
+            )
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export favorites", "mdboss-favorites.json",
+            "JSON files (*.json)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"favorites": self._favorites}, fh, indent=2)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not write file:\n{exc}"
+            )
+            return
+        QMessageBox.information(
+            self, DISPLAY_NAME,
+            f"Exported {len(self._favorites)} favorite(s) to:\n{path}",
+        )
+
+    def _import_favorites(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import favorites", "", "JSON files (*.json);;All files (*)"
+        )
+        if not path:
+            return
+        imported = self._read_favorites_file(path)
+        if imported is None:
+            return
+        merge = True
+        if self._favorites:
+            answer = QMessageBox.question(
+                self, DISPLAY_NAME,
+                "Merge with your current favorites?\n\n"
+                "Yes — add the imported files to your list\n"
+                "No — replace your current favorites",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                | QMessageBox.StandardButton.Cancel,
+            )
+            if answer == QMessageBox.StandardButton.Cancel:
+                return
+            merge = answer == QMessageBox.StandardButton.Yes
+        combined = (self._favorites + imported) if merge else imported
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for entry in combined:
+            key = _norm(entry)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(entry)
+        self._favorites = deduped[:MAX_FAVORITES]
+        update_config({"favorites": self._favorites})
+        self._reload_favorites()
+        QMessageBox.information(
+            self, DISPLAY_NAME,
+            f"Your favorites list now has {len(self._favorites)} item(s).",
+        )
+
+    def _read_favorites_file(self, path: str) -> list[str] | None:
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not read file:\n{exc}"
+            )
+            return None
+        raw = data.get("favorites") if isinstance(data, dict) else data
+        if not isinstance(raw, list):
+            QMessageBox.warning(
+                self, DISPLAY_NAME,
+                "That file doesn't contain a favorites list.",
+            )
+            return None
+        paths = [p for p in raw if isinstance(p, str) and p.strip()]
+        if not paths:
+            QMessageBox.information(
+                self, DISPLAY_NAME, "No favorites were found in that file."
+            )
+            return None
+        return paths
 
     # ---- Tree context menu + file operations ----------------------------- #
     def _tree_menu(self, pos: QPoint) -> None:
@@ -980,8 +1158,8 @@ class MainWindow(QMainWindow):
             kind = item.data(0, ROLE_KIND)
             if kind == "file":
                 menu.addAction("Open", lambda: self._open_file(path))
-                fav = ("Remove favorite" if path in self._favorites
-                       else "Add favorite")
+                fav = ("Remove from favorites" if self._is_favorite(path)
+                       else "Add to favorites")
                 menu.addAction(fav, lambda: self._toggle_favorite(path))
             menu.addAction("New file…", lambda: self._new_in(path, kind))
             menu.addAction("New folder…",
