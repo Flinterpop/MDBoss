@@ -16,16 +16,18 @@ images — all **100% offline**.
 
 ## Panes
 
-- **Files** (left) — your roots as a combined tree. Each folder shows the
+- **Left pane** — **Favorites** are pinned at the top (see below), above the
+  **Files** list: your roots as a combined tree, where each folder shows the
   number of Markdown files within it (counted recursively). Filter with the
-  box at the top. Right-click for New file/folder, Rename, Delete (to Recycle
-  Bin), Reveal in Explorer, Copy path, and Favorite.
+  box above the tree. Right-click a file for New file/folder, Rename, Delete
+  (to Recycle Bin), Reveal in Explorer, Copy path, and Favorite.
 - **Outline** (middle) — headings of the current document. Click a heading to
-  scroll the preview to it. **Favorites** below it pin up to ten documents,
-  newest first (adding an 11th drops the oldest). Right-click a file in the
-  tree to add or remove it; right-click a favorite to open, remove, reveal, or
-  copy its path; and use the **⋯** menu in the Favorites header to export,
-  import, or clear the list. Missing files show in red.
+  scroll the preview to it.
+- **Favorites** (top of the left pane) — pin up to ten documents, newest first
+  (adding an 11th drops the oldest). Right-click a file in the tree to add or
+  remove it; right-click a favorite to open, remove, reveal, or copy its path;
+  and use the **⋯** menu in the Favorites header to export, import, or clear
+  the list. Missing files show in red.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.

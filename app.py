@@ -46,8 +46,8 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressDialog,
-    QPushButton, QSplitter, QTextEdit, QToolBar, QToolButton, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QSplitter, QTextEdit, QToolBar, QToolButton,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import mdrender
@@ -763,10 +763,40 @@ class MainWindow(QMainWindow):
         add("Help", self._show_help, "F1", "About MDBoss")
 
     def _build_panes(self) -> None:
-        # Pane 1: filter box + multi-root file tree.
+        # Pane 1: Favorites (pinned on top) over the file filter + tree.
         left = QWidget(self)
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(4, 4, 4, 4)
+
+        fav_header = QHBoxLayout()
+        fav_header.addWidget(QLabel("Favorites"))
+        fav_header.addStretch(1)
+        fav_manage = QToolButton(self)
+        fav_manage.setText("⋯")
+        fav_manage.setToolTip("Clear, export, or import your favorites")
+        fav_manage.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        fav_menu = QMenu(fav_manage)
+        fav_menu.addAction("Export favorites…", self._export_favorites)
+        fav_menu.addAction("Import favorites…", self._import_favorites)
+        fav_menu.addSeparator()
+        fav_menu.addAction("Clear all favorites", self._clear_favorites)
+        fav_manage.setMenu(fav_menu)
+        fav_header.addWidget(fav_manage)
+        left_layout.addLayout(fav_header)
+        self._fav_list = QListWidget(self)
+        self._fav_list.itemActivated.connect(self._on_favorite_activated)
+        self._fav_list.itemClicked.connect(self._on_favorite_activated)
+        self._fav_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._fav_list.customContextMenuRequested.connect(self._fav_menu)
+        # Height tracks the number of favorites (see _resize_fav_list).
+        self._fav_list.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
+        left_layout.addWidget(self._fav_list)
+
+        left_layout.addWidget(QLabel("Files"))
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("\U0001F50D"))
         self._filter = QLineEdit(self)
@@ -790,8 +820,7 @@ class MainWindow(QMainWindow):
         self._tree.itemClicked.connect(self._on_item_activated)
         left_layout.addWidget(self._tree, 1)
 
-        # Pane 2: outline over favorites.
-        mid = QSplitter(Qt.Orientation.Vertical, self)
+        # Pane 2: document outline.
         outline_box = QWidget(self)
         ob_layout = QVBoxLayout(outline_box)
         ob_layout.setContentsMargins(4, 4, 4, 4)
@@ -800,41 +829,7 @@ class MainWindow(QMainWindow):
         self._outline.itemActivated.connect(self._on_outline_activated)
         self._outline.itemClicked.connect(self._on_outline_activated)
         ob_layout.addWidget(self._outline, 1)
-        mid.addWidget(outline_box)
-
-        fav_box = QWidget(self)
-        fb_layout = QVBoxLayout(fav_box)
-        fb_layout.setContentsMargins(4, 4, 4, 4)
-        fav_header = QHBoxLayout()
-        fav_header.addWidget(QLabel("Favorites"))
-        fav_header.addStretch(1)
-        fav_manage = QToolButton(self)
-        fav_manage.setText("⋯")
-        fav_manage.setToolTip("Clear, export, or import your favorites")
-        fav_manage.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        fav_menu = QMenu(fav_manage)
-        fav_menu.addAction("Export favorites…", self._export_favorites)
-        fav_menu.addAction("Import favorites…", self._import_favorites)
-        fav_menu.addSeparator()
-        fav_menu.addAction("Clear all favorites", self._clear_favorites)
-        fav_manage.setMenu(fav_menu)
-        fav_header.addWidget(fav_manage)
-        fb_layout.addLayout(fav_header)
-        self._fav_list = QListWidget(self)
-        self._fav_list.itemActivated.connect(self._on_favorite_activated)
-        self._fav_list.itemClicked.connect(self._on_favorite_activated)
-        self._fav_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
-        self._fav_list.customContextMenuRequested.connect(self._fav_menu)
-        fb_layout.addWidget(self._fav_list, 1)
-        mid.addWidget(fav_box)
-        # Keep the outline and favorites both visible; they can't be dragged
-        # (or restored) to zero height.
-        outline_box.setMinimumHeight(70)
-        fav_box.setMinimumHeight(70)
-        mid.setChildrenCollapsible(False)
-        self._mid = mid
+        self._mid = outline_box
 
         # Pane 3: editor | preview.
         self._editor = CodeEditor(self)
@@ -878,18 +873,17 @@ class MainWindow(QMainWindow):
         self._right.addWidget(self._preview)
         self._right.setSizes([500, 700])
 
-        # Minimum widths so no column (in particular the Outline/Favorites
-        # pane) can be dragged or restored to zero and vanish.
-        left.setMinimumWidth(140)
-        mid.setMinimumWidth(150)
+        # Minimum widths so no column can be dragged or restored to zero.
+        left.setMinimumWidth(160)
+        outline_box.setMinimumWidth(150)
         self._right.setChildrenCollapsible(False)
         self._main_split = QSplitter(Qt.Orientation.Horizontal, self)
         self._main_split.addWidget(left)
-        self._main_split.addWidget(mid)
+        self._main_split.addWidget(outline_box)
         self._main_split.addWidget(self._right)
         self._main_split.setStretchFactor(2, 1)
         self._main_split.setChildrenCollapsible(False)
-        self._main_split.setSizes([260, 220, 800])
+        self._main_split.setSizes([300, 200, 780])
         self._left = left
         self.setCentralWidget(self._main_split)
 
@@ -1216,14 +1210,26 @@ class MainWindow(QMainWindow):
             hint.setForeground(QColor("#999"))
             hint.setFlags(Qt.ItemFlag.NoItemFlags)
             self._fav_list.addItem(hint)
-            return
-        for path in self._favorites:
-            item = QListWidgetItem(self._fav_display(path))
-            item.setToolTip(path)
-            item.setData(int(Qt.ItemDataRole.UserRole), path)
-            if not os.path.isfile(path):
-                item.setForeground(QColor("#c01c28"))   # missing file
-            self._fav_list.addItem(item)
+        else:
+            for path in self._favorites:
+                item = QListWidgetItem(self._fav_display(path))
+                item.setToolTip(path)
+                item.setData(int(Qt.ItemDataRole.UserRole), path)
+                if not os.path.isfile(path):
+                    item.setForeground(QColor("#c01c28"))   # missing file
+                self._fav_list.addItem(item)
+        self._resize_fav_list()
+
+    def _resize_fav_list(self) -> None:
+        """Size the favorites list to its contents (up to MAX_FAVORITES rows)
+        so it stays compact above the file list instead of eating its space."""
+        rows = min(MAX_FAVORITES, max(1, self._fav_list.count()))
+        row_h = self._fav_list.sizeHintForRow(0)
+        if row_h <= 0:
+            row_h = self._fav_list.fontMetrics().height() + 2
+        self._fav_list.setFixedHeight(
+            rows * row_h + 2 * self._fav_list.frameWidth() + 4
+        )
 
     def _on_favorite_activated(self, item: QListWidgetItem) -> None:
         path = item.data(int(Qt.ItemDataRole.UserRole))
@@ -1773,8 +1779,7 @@ class MainWindow(QMainWindow):
         if isinstance(geo, str):
             self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
         for key, split in (("split_main", self._main_split),
-                           ("split_right", self._right),
-                           ("split_mid", self._mid)):
+                           ("split_right", self._right)):
             state = cfg.get(key)
             if isinstance(state, str):
                 split.restoreState(
@@ -1794,7 +1799,6 @@ class MainWindow(QMainWindow):
             "geometry": _b64(self.saveGeometry()),
             "split_main": _b64(self._main_split.saveState()),
             "split_right": _b64(self._right.saveState()),
-            "split_mid": _b64(self._mid.saveState()),
         })
         event.accept()
 
