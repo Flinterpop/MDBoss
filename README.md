@@ -1,5 +1,10 @@
 # MD Boss
 
+[![Latest release](https://img.shields.io/github/v/release/Flinterpop/MDBoss?sort=semver)](https://github.com/Flinterpop/MDBoss/releases/latest)
+[![Release date](https://img.shields.io/github/release-date/Flinterpop/MDBoss)](https://github.com/Flinterpop/MDBoss/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Flinterpop/MDBoss/total)](https://github.com/Flinterpop/MDBoss/releases)
+[![License: MIT](https://img.shields.io/github/license/Flinterpop/MDBoss)](LICENSE)
+
 A local Markdown manager, editor, and GitHub-style viewer for Windows.
 
 MD Boss browses Markdown files across up to **five root folders**, edits them
