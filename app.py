@@ -46,8 +46,8 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressDialog,
-    QPushButton, QSizePolicy, QSplitter, QTextEdit, QToolBar, QToolButton,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QSplitter, QTextEdit, QToolBar, QToolButton, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import mdrender
@@ -741,10 +741,7 @@ class MainWindow(QMainWindow):
             tip="Create a new file from a template")
         add("Save", self._save_file, "Ctrl+S", "Save the current document")
         bar.addSeparator()
-        self._act_editor = add("Edit", self._toggle_editor,
-                               tip="Show or hide the source editor")
-        self._act_editor.setCheckable(True)
-        self._act_editor.setChecked(True)
+        # Toggles ordered to match the columns: Files | Outline | Edit.
         self._act_tree = add("Files", self._toggle_tree,
                              tip="Show or hide the file tree")
         self._act_tree.setCheckable(True)
@@ -753,6 +750,10 @@ class MainWindow(QMainWindow):
                                 tip="Show or hide the outline pane")
         self._act_outline.setCheckable(True)
         self._act_outline.setChecked(True)
+        self._act_editor = add("Edit", self._toggle_editor,
+                               tip="Show or hide the source editor")
+        self._act_editor.setCheckable(True)
+        self._act_editor.setChecked(True)
         self._act_yaml = add(
             "Hide YAML", self._toggle_yaml,
             tip="Hide a YAML front-matter block at the top of the file",
@@ -763,11 +764,13 @@ class MainWindow(QMainWindow):
         add("Help", self._show_help, "F1", "About MDBoss")
 
     def _build_panes(self) -> None:
-        # Pane 1: Favorites (pinned on top) over the file filter + tree.
-        left = QWidget(self)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(4, 4, 4, 4)
+        # Pane 1: Favorites over the file list, in a vertical splitter so the
+        # Favorites area can be dragged taller or shorter.
+        left = QSplitter(Qt.Orientation.Vertical, self)
 
+        fav_box = QWidget(self)
+        fav_layout = QVBoxLayout(fav_box)
+        fav_layout.setContentsMargins(4, 4, 4, 2)
         fav_header = QHBoxLayout()
         fav_header.addWidget(QLabel("Favorites"))
         fav_header.addStretch(1)
@@ -782,7 +785,7 @@ class MainWindow(QMainWindow):
         fav_menu.addAction("Clear all favorites", self._clear_favorites)
         fav_manage.setMenu(fav_menu)
         fav_header.addWidget(fav_manage)
-        left_layout.addLayout(fav_header)
+        fav_layout.addLayout(fav_header)
         self._fav_list = QListWidget(self)
         self._fav_list.itemActivated.connect(self._on_favorite_activated)
         self._fav_list.itemClicked.connect(self._on_favorite_activated)
@@ -790,13 +793,13 @@ class MainWindow(QMainWindow):
             Qt.ContextMenuPolicy.CustomContextMenu
         )
         self._fav_list.customContextMenuRequested.connect(self._fav_menu)
-        # Height tracks the number of favorites (see _resize_fav_list).
-        self._fav_list.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
-        )
-        left_layout.addWidget(self._fav_list)
+        fav_layout.addWidget(self._fav_list, 1)
+        left.addWidget(fav_box)
 
-        left_layout.addWidget(QLabel("Files"))
+        files_box = QWidget(self)
+        files_layout = QVBoxLayout(files_box)
+        files_layout.setContentsMargins(4, 2, 4, 4)
+        files_layout.addWidget(QLabel("Files"))
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel("\U0001F50D"))
         self._filter = QLineEdit(self)
@@ -807,8 +810,7 @@ class MainWindow(QMainWindow):
         clear.setFixedWidth(28)
         clear.clicked.connect(self._filter.clear)
         filter_row.addWidget(clear)
-        left_layout.addLayout(filter_row)
-
+        files_layout.addLayout(filter_row)
         self._tree = QTreeWidget(self)
         self._tree.setHeaderHidden(True)
         self._tree.setContextMenuPolicy(
@@ -818,7 +820,14 @@ class MainWindow(QMainWindow):
         self._tree.itemExpanded.connect(self._on_item_expanded)
         self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.itemClicked.connect(self._on_item_activated)
-        left_layout.addWidget(self._tree, 1)
+        files_layout.addWidget(self._tree, 1)
+        left.addWidget(files_box)
+
+        fav_box.setMinimumHeight(56)
+        files_box.setMinimumHeight(120)
+        left.setChildrenCollapsible(False)
+        left.setStretchFactor(1, 1)          # the file list takes extra space
+        left.setSizes([150, 520])
 
         # Pane 2: document outline.
         outline_box = QWidget(self)
@@ -1192,17 +1201,6 @@ class MainWindow(QMainWindow):
         want = _norm(path)
         return any(_norm(f) == want for f in self._favorites)
 
-    def _fav_display(self, path: str) -> str:
-        """Show a favorite as ``Root/rel/path`` when under a root, else abs."""
-        for root in self._roots:
-            try:
-                rel = os.path.relpath(path, root["path"])
-            except ValueError:
-                continue                          # different drive (Windows)
-            if not rel.startswith(".."):
-                return f"{root['name']}/{rel}".replace(os.sep, "/")
-        return path
-
     def _reload_favorites(self) -> None:
         self._fav_list.clear()
         if not self._favorites:
@@ -1210,26 +1208,14 @@ class MainWindow(QMainWindow):
             hint.setForeground(QColor("#999"))
             hint.setFlags(Qt.ItemFlag.NoItemFlags)
             self._fav_list.addItem(hint)
-        else:
-            for path in self._favorites:
-                item = QListWidgetItem(self._fav_display(path))
-                item.setToolTip(path)
-                item.setData(int(Qt.ItemDataRole.UserRole), path)
-                if not os.path.isfile(path):
-                    item.setForeground(QColor("#c01c28"))   # missing file
-                self._fav_list.addItem(item)
-        self._resize_fav_list()
-
-    def _resize_fav_list(self) -> None:
-        """Size the favorites list to its contents (up to MAX_FAVORITES rows)
-        so it stays compact above the file list instead of eating its space."""
-        rows = min(MAX_FAVORITES, max(1, self._fav_list.count()))
-        row_h = self._fav_list.sizeHintForRow(0)
-        if row_h <= 0:
-            row_h = self._fav_list.fontMetrics().height() + 2
-        self._fav_list.setFixedHeight(
-            rows * row_h + 2 * self._fav_list.frameWidth() + 4
-        )
+            return
+        for path in self._favorites:
+            item = QListWidgetItem(os.path.basename(path))  # filename only
+            item.setToolTip(path)                           # full path (hover)
+            item.setData(int(Qt.ItemDataRole.UserRole), path)
+            if not os.path.isfile(path):
+                item.setForeground(QColor("#c01c28"))        # missing file
+            self._fav_list.addItem(item)
 
     def _on_favorite_activated(self, item: QListWidgetItem) -> None:
         path = item.data(int(Qt.ItemDataRole.UserRole))
@@ -1779,6 +1765,7 @@ class MainWindow(QMainWindow):
         if isinstance(geo, str):
             self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
         for key, split in (("split_main", self._main_split),
+                           ("split_left", self._left),
                            ("split_right", self._right)):
             state = cfg.get(key)
             if isinstance(state, str):
@@ -1798,6 +1785,7 @@ class MainWindow(QMainWindow):
             "favorites": self._favorites,
             "geometry": _b64(self.saveGeometry()),
             "split_main": _b64(self._main_split.saveState()),
+            "split_left": _b64(self._left.saveState()),
             "split_right": _b64(self._right.saveState()),
         })
         event.accept()
