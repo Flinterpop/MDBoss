@@ -17,4 +17,7 @@ installer/
 # Local reference screenshots (not part of the app)
 MD_Note.jpg
 
+# Intermediate icon renders (source is mdboss.svg; runtime uses mdboss.ico)
+mdboss_*.png
+
 # Third-party vendored assets are tracked (assets/); nothing here is ignored.

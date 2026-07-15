@@ -1,0 +1,37 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#22467A"/><stop offset="1" stop-color="#0B1A30"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F7CE4E"/><stop offset="1" stop-color="#Dd9E17"/>
+    </linearGradient>
+    <clipPath id="round"><rect x="2" y="2" width="252" height="252" rx="48" ry="48"/></clipPath>
+</defs>
+  <rect x="2" y="2" width="252" height="252" rx="48" ry="48" fill="url(#bg)"/>
+  <g clip-path="url(#round)">
+    <g stroke="#7C93B5" stroke-width="6" stroke-linecap="round" stroke-opacity="0.22">
+      <line x1="40" y1="196" x2="216" y2="196"/><line x1="40" y1="214" x2="176" y2="214"/>
+    </g>
+  </g>
+  
+  <!-- sunglasses: dark lenses with gold frames -->
+  <g>
+    <rect x="52" y="61" width="11" height="5" rx="2" fill="#E0A21B"/>
+    <rect x="129" y="61" width="11" height="5" rx="2" fill="#E0A21B"/>
+    <rect x="89" y="63" width="14" height="5" rx="2" fill="#E8AE2A"/>
+    <rect x="59" y="59" width="31" height="20" rx="5" fill="#14171F" stroke="#E8AE2A" stroke-width="3"/>
+    <rect x="102" y="59" width="31" height="20" rx="5" fill="#14171F" stroke="#E8AE2A" stroke-width="3"/>
+    <path d="M 65 74 L 75 63" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" opacity="0.6"/>
+    <path d="M 108 74 L 118 63" stroke="#FFFFFF" stroke-width="2.6" stroke-linecap="round" opacity="0.6"/>
+  </g>
+
+  
+  <g fill="none" stroke="#FFFFFF" stroke-width="21" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="48,178 48,104 96,150 144,104 144,178"/>
+    <line x1="194" y1="104" x2="194" y2="164"/>
+  </g>
+  <path d="M 172 142 L 194 168 L 216 142" fill="none" stroke="#FFFFFF"
+        stroke-width="21" stroke-linecap="round" stroke-linejoin="round"/>
+
+</svg>

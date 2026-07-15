@@ -702,7 +702,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{DISPLAY_NAME} - v{APP_VERSION}")
         self.resize(1280, 800)
-        icon = resource_path("mdbossicon.ico")
+        icon = resource_path("mdboss.ico")
         if os.path.isfile(icon):
             self.setWindowIcon(QIcon(icon))
 
@@ -829,6 +829,11 @@ class MainWindow(QMainWindow):
         self._fav_list.customContextMenuRequested.connect(self._fav_menu)
         fb_layout.addWidget(self._fav_list, 1)
         mid.addWidget(fav_box)
+        # Keep the outline and favorites both visible; they can't be dragged
+        # (or restored) to zero height.
+        outline_box.setMinimumHeight(70)
+        fav_box.setMinimumHeight(70)
+        mid.setChildrenCollapsible(False)
         self._mid = mid
 
         # Pane 3: editor | preview.
@@ -873,11 +878,17 @@ class MainWindow(QMainWindow):
         self._right.addWidget(self._preview)
         self._right.setSizes([500, 700])
 
+        # Minimum widths so no column (in particular the Outline/Favorites
+        # pane) can be dragged or restored to zero and vanish.
+        left.setMinimumWidth(140)
+        mid.setMinimumWidth(150)
+        self._right.setChildrenCollapsible(False)
         self._main_split = QSplitter(Qt.Orientation.Horizontal, self)
         self._main_split.addWidget(left)
         self._main_split.addWidget(mid)
         self._main_split.addWidget(self._right)
         self._main_split.setStretchFactor(2, 1)
+        self._main_split.setChildrenCollapsible(False)
         self._main_split.setSizes([260, 220, 800])
         self._left = left
         self.setCentralWidget(self._main_split)

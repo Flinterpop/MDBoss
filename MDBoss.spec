@@ -9,7 +9,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('mdbossicon.ico', '.'),
+        ('mdboss.ico', '.'),
         ('HELP.md', '.'),
         ('assets', 'assets'),
     ],
@@ -42,5 +42,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['mdbossicon.ico'],
+    icon=['mdboss.ico'],
 )
