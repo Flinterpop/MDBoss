@@ -18,11 +18,14 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import urllib.request
 import webbrowser
+import zipfile
 from collections.abc import Callable
 from typing import TypedDict
 
@@ -42,9 +45,9 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
     QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
-    QTextEdit, QToolBar, QToolButton, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressDialog,
+    QPushButton, QSplitter, QTextEdit, QToolBar, QToolButton, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import mdrender
@@ -196,6 +199,34 @@ def fetch_latest_release() -> ReleaseInfo:
 def is_markdown(path: str) -> bool:
     """True when ``path`` has a recognised Markdown extension."""
     return os.path.splitext(path)[1].lower() in MARKDOWN_EXTS
+
+
+def _installer_batch(setup_path: str, app_exe: str) -> str:
+    """Batch that installs an update and relaunches, run after we exit.
+
+    Waits ~2s for this process to release the exe lock, installs silently,
+    relaunches, then cleans up.  Each line runs even if an earlier one failed,
+    so a failed install still relaunches the intact old exe.
+    """
+    return (
+        "timeout /t 2 /nobreak >nul\r\n"
+        f'"{setup_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES\r\n'
+        f'start "" "{app_exe}"\r\n'
+        f'del /q "{setup_path}"\r\n'
+        'del /q "%~f0"\r\n'
+    )
+
+
+def _portable_batch(zip_exe: str, app_exe: str, cleanup: list[str]) -> str:
+    """Batch that swaps a portable exe with a freshly unpacked one."""
+    lines = [
+        "timeout /t 2 /nobreak >nul\r\n",
+        f'move /y "{zip_exe}" "{app_exe}"\r\n',
+        f'start "" "{app_exe}"\r\n',
+    ]
+    lines += [f'del /q "{path}"\r\n' for path in cleanup]
+    lines.append('del /q "%~f0"\r\n')
+    return "".join(lines)
 
 
 def _norm(path: str) -> str:
@@ -569,6 +600,37 @@ class UpdateChecker(QObject):
         self.ready.emit(info)
 
 
+class Downloader(QObject):
+    """Downloads a URL to ``dest`` off-thread and reports via signals."""
+
+    done = Signal(str)      # emits the completed destination path
+    failed = Signal(str)
+
+    def __init__(self, url: str, dest: str,
+                 parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._url = url
+        self._dest = dest
+
+    def start(self) -> None:
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self) -> None:
+        part = self._dest + ".part"
+        try:
+            req = urllib.request.Request(
+                self._url, headers={"User-Agent": APP_NAME}
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp, \
+                    open(part, "wb") as out:
+                shutil.copyfileobj(resp, out, 256 * 1024)
+            os.replace(part, self._dest)
+        except (OSError, ValueError) as exc:
+            self.failed.emit(str(exc))
+            return
+        self.done.emit(self._dest)
+
+
 # --------------------------------------------------------------------------- #
 # Main window.
 # --------------------------------------------------------------------------- #
@@ -611,6 +673,11 @@ class MainWindow(QMainWindow):
         self._updater.ready.connect(self._on_update_ready)
         self._updater.failed.connect(self._on_update_failed)
         self._update_manual = False
+        # Auto-update download state.
+        self._downloader: Downloader | None = None
+        self._dl_dialog: QProgressDialog | None = None
+        self._dl_portable = False
+        self._updating = False                   # skip close-time re-ask
 
         self.setWindowTitle(f"{DISPLAY_NAME} - v{APP_VERSION}")
         self.resize(1280, 800)
@@ -1516,20 +1583,157 @@ class MainWindow(QMainWindow):
                     f"You are up to date (v{APP_VERSION}).",
                 )
             return
-        answer = QMessageBox.question(
-            self, DISPLAY_NAME,
-            f"MDBoss v{info['version_str']} is available "
-            f"(you have v{APP_VERSION}).\n\nOpen the download page?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            webbrowser.open(info.get("html_url", RELEASES_URL))
+        if (not self._update_manual
+                and load_config().get("skip_version") == info["version_str"]):
+            return
+        self._prompt_update(info)
 
     def _on_update_failed(self, message: str) -> None:
         if self._update_manual:
             QMessageBox.warning(
                 self, DISPLAY_NAME, f"Update check failed:\n{message}"
             )
+
+    def _prompt_update(self, info: ReleaseInfo) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle(DISPLAY_NAME)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(
+            f"{DISPLAY_NAME} v{info['version_str']} is available "
+            f"(you have v{APP_VERSION})."
+        )
+        box.setInformativeText(
+            "Yes — download and install it now\n"
+            "No — skip this version (won't ask again)\n"
+            "Cancel — remind me next time"
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        choice = box.exec()
+        if choice == QMessageBox.StandardButton.Cancel:
+            return
+        if choice == QMessageBox.StandardButton.No:
+            update_config({"skip_version": info["version_str"]})
+            return
+        portable = running_portable()
+        url = info["portable_url"] if portable else info["asset_url"]
+        if getattr(sys, "frozen", False) and isinstance(url, str) and url:
+            self._begin_download(info, url, portable)
+        else:
+            # Source checkout or no matching asset: don't install over a dev
+            # tree -- just open the releases page.
+            webbrowser.open(info.get("html_url") or RELEASES_URL)
+
+    def _begin_download(
+        self, info: ReleaseInfo, url: str, portable: bool
+    ) -> None:
+        self._dl_portable = portable
+        stem = ("MDBoss-Portable-%s.zip" if portable
+                else "MDBoss-Setup-%s.exe") % info["version_str"]
+        dest = os.path.join(tempfile.gettempdir(), stem)
+        dialog = QProgressDialog(
+            f"Downloading update… {DISPLAY_NAME} will restart when ready.",
+            "", 0, 0, self,
+        )
+        dialog.setWindowTitle(f"Updating {DISPLAY_NAME}")
+        dialog.setCancelButton(None)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.show()
+        self._dl_dialog = dialog
+        self._downloader = Downloader(url, dest, self)
+        self._downloader.done.connect(self._on_download_done)
+        self._downloader.failed.connect(self._on_download_failed)
+        self._downloader.start()
+
+    def _on_download_done(self, dest: str) -> None:
+        if self._dl_dialog is not None:
+            self._dl_dialog.close()
+        if self._dl_portable:
+            self._swap_portable_and_exit(dest)
+        else:
+            self._launch_installer_and_exit(dest)
+
+    def _on_download_failed(self, message: str) -> None:
+        if self._dl_dialog is not None:
+            self._dl_dialog.close()
+        QMessageBox.warning(
+            self, DISPLAY_NAME,
+            f"The download failed:\n{message}\n\nYou can download the update "
+            "manually from the releases page on GitHub.",
+        )
+
+    def _launch_installer_and_exit(self, setup_path: str) -> None:
+        if not self._confirm_discard():
+            return
+        batch_path = setup_path + ".cmd"
+        try:
+            with open(batch_path, "w", encoding="ascii",
+                      errors="replace") as fh:
+                fh.write(_installer_batch(setup_path, sys.executable))
+        except OSError as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not start the update:\n{exc}"
+            )
+            return
+        self._spawn_handoff_batch(batch_path)
+        self._updating = True
+        self.close()
+
+    def _swap_portable_and_exit(self, zip_path: str) -> None:
+        new_exe = zip_path + ".new.exe"
+        try:
+            with zipfile.ZipFile(zip_path) as archive:
+                member = next(
+                    (n for n in archive.namelist()
+                     if n.lower().endswith(".exe")), None
+                )
+                if member is None:
+                    raise ValueError("no exe inside the update zip")
+                with archive.open(member) as src, open(new_exe, "wb") as out:
+                    shutil.copyfileobj(src, out)
+        except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not unpack the update:\n{exc}"
+            )
+            return
+        if not self._confirm_discard():
+            return
+        batch_path = zip_path + ".cmd"
+        try:
+            with open(batch_path, "w", encoding="ascii",
+                      errors="replace") as fh:
+                fh.write(_portable_batch(new_exe, sys.executable, [zip_path]))
+        except OSError as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not start the update:\n{exc}"
+            )
+            return
+        self._spawn_handoff_batch(batch_path)
+        self._updating = True
+        self.close()
+
+    def _spawn_handoff_batch(self, batch_path: str) -> None:
+        """Run the update-handoff batch hidden and detached.
+
+        PyInstaller's ``_PYI_*`` / ``_MEIPASS2`` env vars must be stripped, or
+        the relaunched exe reuses this process's extraction dir (deleted on
+        exit) and fails to start.
+        """
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("_PYI_") and k != "_MEIPASS2"}
+        flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                 | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        try:
+            subprocess.Popen(
+                ["cmd", "/c", batch_path], creationflags=flags,
+                close_fds=True, env=env, cwd=os.path.dirname(batch_path),
+            )
+        except OSError:
+            pass
 
     # ---- Geometry persistence ------------------------------------------- #
     def _restore_geometry(self, cfg: ConfigDict) -> None:
@@ -1548,7 +1752,8 @@ class MainWindow(QMainWindow):
     def closeEvent(  # noqa: N802 (Qt override)
         self, event: QCloseEvent
     ) -> None:
-        if not self._confirm_discard():
+        # During an update the discard prompt already ran; don't ask twice.
+        if not self._updating and not self._confirm_discard():
             event.ignore()
             return
         update_config({

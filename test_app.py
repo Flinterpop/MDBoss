@@ -66,3 +66,21 @@ def test_list_templates_ignores_non_markdown(
     Path(app.templates_dir(), "ok.md").write_text("x", encoding="utf-8")
     Path(app.templates_dir(), "note.txt").write_text("x", encoding="utf-8")
     assert [n for n, _ in app.list_templates()] == ["ok"]
+
+
+def test_installer_batch_installs_and_relaunches() -> None:
+    batch = app._installer_batch(r"C:\t\MDBoss-Setup.exe", r"C:\a\MDBoss.exe")
+    assert "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" in batch
+    assert r'"C:\t\MDBoss-Setup.exe"' in batch      # runs the installer
+    assert r'start "" "C:\a\MDBoss.exe"' in batch    # relaunches the app
+    assert 'del /q "%~f0"' in batch                  # self-cleanup
+    assert batch.startswith("timeout /t 2")          # waits for exe unlock
+
+
+def test_portable_batch_swaps_exe() -> None:
+    batch = app._portable_batch(
+        r"C:\t\new.exe", r"C:\a\MDBoss.exe", [r"C:\t\up.zip"]
+    )
+    assert r'move /y "C:\t\new.exe" "C:\a\MDBoss.exe"' in batch
+    assert r'start "" "C:\a\MDBoss.exe"' in batch
+    assert r'del /q "C:\t\up.zip"' in batch
