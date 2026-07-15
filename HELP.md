@@ -73,6 +73,27 @@ the source pane and the preview follows; scroll the preview and the editor
 follows. The position is matched proportionally, so it stays roughly aligned
 even though the source and rendered document differ in height.
 
+## Templates
+
+New files can start from a template:
+
+- **New from template…** on the toolbar opens a template as a new (unsaved)
+  buffer.
+- Right-click a folder → **New file ▸** and pick **Blank** or a template; the
+  file is created in that folder.
+
+Templates are plain `.md` files in `%APPDATA%\MDBoss\templates` (use **New
+file ▸ Manage templates…** to open the folder). A couple of starters are
+created on first run. Templates may use these placeholders, filled in when the
+file is created:
+
+| Placeholder | Becomes |
+|-------------|---------|
+| `{{title}}` | the new file's name (or "New document") |
+| `{{date}}`  | today's date, `YYYY-MM-DD` |
+| `{{time}}`  | the current time, `HH:MM` |
+| `{{datetime}}` | date and time |
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |

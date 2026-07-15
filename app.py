@@ -15,6 +15,7 @@ so a stray remote image or link in a document can never reach the network.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import subprocess
@@ -226,6 +227,77 @@ def md_counts_for_root(root_path: str) -> dict[str, int]:
 def _b64(data: QByteArray) -> str:
     """Base64-encode a QByteArray to an ASCII str for JSON config."""
     return bytes(data.toBase64().data()).decode("ascii")
+
+
+def templates_dir() -> str:
+    """Per-user folder holding new-file templates (``*.md``)."""
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, APP_NAME, "templates")
+
+
+# Starter templates written on first run.  Support {{title}}, {{date}},
+# {{time}}, {{datetime}} placeholders (see apply_template).
+_STARTER_TEMPLATES: dict[str, str] = {
+    "Meeting Notes": (
+        "# {{title}}\n\n"
+        "- **Date:** {{date}}\n"
+        "- **Attendees:** \n\n"
+        "## Agenda\n\n"
+        "## Notes\n\n"
+        "## Action items\n\n"
+        "- [ ] \n"
+    ),
+    "Document": (
+        "---\n"
+        "title: {{title}}\n"
+        "date: {{date}}\n"
+        "---\n\n"
+        "# {{title}}\n\n"
+    ),
+}
+
+
+def seed_templates() -> None:
+    """On first run, create the templates folder with a couple of starters."""
+    directory = templates_dir()
+    if os.path.exists(directory):
+        return
+    try:
+        os.makedirs(directory, exist_ok=True)
+        for name, body in _STARTER_TEMPLATES.items():
+            with open(os.path.join(directory, f"{name}.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(body)
+    except OSError:
+        pass                                  # templates are a convenience
+
+
+def list_templates() -> list[tuple[str, str]]:
+    """Return ``(name, path)`` for each Markdown template, sorted by name."""
+    try:
+        entries = sorted(os.scandir(templates_dir()),
+                         key=lambda e: e.name.lower())
+    except OSError:
+        return []
+    result: list[tuple[str, str]] = []
+    count = 0
+    for entry in entries:
+        count += 1
+        if count > 1000:                      # bounded (Rule of 10)
+            break
+        if entry.is_file() and is_markdown(entry.name):
+            result.append((os.path.splitext(entry.name)[0], entry.path))
+    return result
+
+
+def apply_template(text: str, title: str) -> str:
+    """Substitute {{title}}, {{date}}, {{time}}, {{datetime}} placeholders."""
+    assert isinstance(text, str), "template text must be str"
+    now = datetime.datetime.now()
+    return (text.replace("{{title}}", title)
+                .replace("{{date}}", now.strftime("%Y-%m-%d"))
+                .replace("{{time}}", now.strftime("%H:%M"))
+                .replace("{{datetime}}", now.strftime("%Y-%m-%d %H:%M")))
 
 
 # --------------------------------------------------------------------------- #
@@ -577,6 +649,8 @@ class MainWindow(QMainWindow):
         add("Refresh", self._reload_tree, "F5", "Rescan all roots")
         bar.addSeparator()
         add("New", self._new_file, "Ctrl+N", "Create a new Markdown file")
+        add("New from template…", self._new_from_template_dialog,
+            tip="Create a new file from a template")
         add("Save", self._save_file, "Ctrl+S", "Save the current document")
         bar.addSeparator()
         self._act_editor = add("Edit", self._toggle_editor,
@@ -907,15 +981,71 @@ class MainWindow(QMainWindow):
         return answer == QMessageBox.StandardButton.Discard
 
     def _new_file(self) -> None:
+        self._load_new_buffer("# New document\n\n")
+
+    def _load_new_buffer(self, content: str) -> None:
+        """Replace the editor with a fresh unsaved buffer of ``content``."""
         if not self._confirm_discard():
             return
         self._suppress_dirty = True
-        self._editor.setPlainText("# New document\n\n")
+        self._editor.setPlainText(content)
         self._editor.document().setModified(True)
         self._suppress_dirty = False
         self._current_path = None
         self._render_preview()
         self._update_title()
+
+    def _template_content(self, template_path: str | None, title: str) -> str:
+        """Body for a new file: blank heading, or a template with placeholders
+        substituted."""
+        if template_path is None:
+            return f"# {title}\n\n"
+        try:
+            with open(template_path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Cannot read template:\n{exc}"
+            )
+            return f"# {title}\n\n"
+        return apply_template(text, title)
+
+    def _new_from_template_dialog(self) -> None:
+        """Toolbar action: pick a template and open it as a new buffer."""
+        templates = list_templates()
+        if not templates:
+            self._no_templates_prompt()
+            return
+        names = [name for name, _path in templates]
+        name, ok = QInputDialog.getItem(
+            self, "New from template", "Template:", names, 0, False
+        )
+        if not ok or not name:
+            return
+        path = dict(templates)[name]
+        self._load_new_buffer(self._template_content(path, "New document"))
+
+    def _no_templates_prompt(self) -> None:
+        answer = QMessageBox.question(
+            self, DISPLAY_NAME,
+            "You have no templates yet.\n\n"
+            f"Templates are .md files in:\n{templates_dir()}\n\n"
+            "Open that folder now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._open_templates_folder()
+
+    def _open_templates_folder(self) -> None:
+        directory = templates_dir()
+        try:
+            os.makedirs(directory, exist_ok=True)
+            if sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", os.path.normpath(directory)])
+            else:
+                webbrowser.open(QUrl.fromLocalFile(directory).toString())
+        except OSError:
+            pass
 
     def _update_title(self) -> None:
         shown = (os.path.normpath(self._current_path)
@@ -1161,7 +1291,19 @@ class MainWindow(QMainWindow):
                 fav = ("Remove from favorites" if self._is_favorite(path)
                        else "Add to favorites")
                 menu.addAction(fav, lambda: self._toggle_favorite(path))
-            menu.addAction("New file…", lambda: self._new_in(path, kind))
+            new_menu = menu.addMenu("New file")
+            new_menu.addAction(
+                "Blank", lambda: self._new_in(path, kind, None)
+            )
+            for tname, tpath in list_templates():
+                new_menu.addAction(
+                    tname,
+                    lambda checked=False, tp=tpath:
+                    self._new_in(path, kind, tp),
+                )
+            new_menu.addSeparator()
+            new_menu.addAction("Manage templates…",
+                               self._open_templates_folder)
             menu.addAction("New folder…",
                            lambda: self._new_folder_in(path, kind))
             menu.addAction("Rename…", lambda: self._rename_path(path))
@@ -1179,7 +1321,8 @@ class MainWindow(QMainWindow):
     def _dir_of(path: str, kind: str) -> str:
         return path if kind in ("root", "dir") else os.path.dirname(path)
 
-    def _new_in(self, path: str, kind: str) -> None:
+    def _new_in(self, path: str, kind: str,
+                template_path: str | None = None) -> None:
         folder = self._dir_of(path, kind)
         name, ok = QInputDialog.getText(self, "New file", "File name:",
                                         text="untitled.md")
@@ -1188,9 +1331,11 @@ class MainWindow(QMainWindow):
         if os.path.splitext(name)[1] == "":
             name += ".md"
         target = os.path.join(folder, name)
+        stem = os.path.splitext(os.path.basename(name))[0]
+        content = self._template_content(template_path, stem)
         try:
             with open(target, "x", encoding="utf-8") as fh:
-                fh.write(f"# {os.path.splitext(name)[0]}\n\n")
+                fh.write(content)
         except OSError as exc:
             QMessageBox.warning(self, DISPLAY_NAME, f"Cannot create:\n{exc}")
             return
@@ -1421,6 +1566,7 @@ def main() -> None:
     """Create the application and show the main window."""
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    seed_templates()
     window = MainWindow()
     window.show()
     # Open a file passed on the command line, if any.
