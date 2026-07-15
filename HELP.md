@@ -33,6 +33,16 @@ images — all **100% offline**.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.
 
+## Drag and drop
+
+Create a folder named **`MD_Inbox`** in one of your root folders (or add a root
+that is itself named `MD_Inbox`), and MD Boss becomes a drop target for Markdown
+files. Drag one or more `.md` files from Explorer onto the window and they are
+**copied into `MD_Inbox`** (the originals stay put), the tree refreshes, and the
+first dropped file opens. A name that already exists in the inbox is kept — the
+copy is saved as `name (2).md` rather than overwriting. Without an `MD_Inbox`
+folder, drops are ignored.
+
 ## Rendering
 
 - **Mermaid**: fence a diagram with a ` ```mermaid ` block.

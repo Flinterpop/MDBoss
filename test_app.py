@@ -68,6 +68,46 @@ def test_list_templates_ignores_non_markdown(
     assert [n for n, _ in app.list_templates()] == ["ok"]
 
 
+def test_find_inbox_as_subfolder(tmp_path: Path) -> None:
+    inbox = tmp_path / "MD_Inbox"
+    inbox.mkdir()
+    roots = [{"name": "Docs", "path": str(tmp_path)}]
+    assert app.find_inbox(roots) == str(inbox)
+
+
+def test_find_inbox_root_named_inbox(tmp_path: Path) -> None:
+    inbox = tmp_path / "md_inbox"           # case-insensitive match
+    inbox.mkdir()
+    roots = [{"name": "Inbox", "path": str(inbox)}]
+    assert app.find_inbox(roots) == str(inbox)
+
+
+def test_find_inbox_absent(tmp_path: Path) -> None:
+    (tmp_path / "notes").mkdir()
+    roots = [{"name": "Docs", "path": str(tmp_path)}]
+    assert app.find_inbox(roots) is None
+
+
+def test_find_inbox_no_roots() -> None:
+    assert app.find_inbox([]) is None
+
+
+def test_unique_dest_no_collision(tmp_path: Path) -> None:
+    dest = app.unique_dest(str(tmp_path), "note.md")
+    assert dest == str(tmp_path / "note.md")
+
+
+def test_unique_dest_collision_increments(tmp_path: Path) -> None:
+    (tmp_path / "note.md").write_text("x", encoding="utf-8")
+    assert app.unique_dest(str(tmp_path), "note.md") == str(
+        tmp_path / "note (2).md"
+    )
+    (tmp_path / "note (2).md").write_text("x", encoding="utf-8")
+    assert app.unique_dest(str(tmp_path), "note.md") == str(
+        tmp_path / "note (3).md"
+    )
+
+
 def test_installer_batch_installs_and_relaunches() -> None:
     batch = app._installer_batch(r"C:\t\MDBoss-Setup.exe", r"C:\a\MDBoss.exe")
     assert "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" in batch

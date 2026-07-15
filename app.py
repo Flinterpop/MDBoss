@@ -30,11 +30,13 @@ from collections.abc import Callable
 from typing import TypedDict
 
 from PySide6.QtCore import (
-    QByteArray, QObject, QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal, Slot,
+    QByteArray, QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal,
+    Slot,
 )
 from PySide6.QtGui import (
-    QAction, QCloseEvent, QColor, QFont, QIcon, QKeySequence, QPaintEvent,
-    QPainter, QResizeEvent, QTextCharFormat, QTextFormat,
+    QAction, QCloseEvent, QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent,
+    QFont, QIcon, QKeySequence, QPaintEvent, QPainter, QResizeEvent,
+    QTextCharFormat, QTextFormat,
 )
 from PySide6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineProfile, QWebEngineSettings,
@@ -68,6 +70,16 @@ RELEASES_URL = "https://github.com/Flinterpop/MDBoss/releases/latest"
 MAX_ROOTS = 5
 MAX_FAVORITES = 10
 MARKDOWN_EXTS = (".md", ".markdown", ".mdown", ".mkd", ".mdwn")
+# Drag-and-drop ingest: dropped Markdown files are copied here.  Drops are only
+# accepted when a folder of this name exists at the top level of a root folder
+# (or a root is itself named this), giving them a defined home.
+INBOX_NAME = "MD_Inbox"
+# Drag/drop event types routed through the app-level filter so a drop lands in
+# MD_Inbox no matter which widget is under the cursor (the preview's native web
+# widget would otherwise swallow it).
+_DND_EVENT_TYPES = frozenset({
+    QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop,
+})
 PREVIEW_DEBOUNCE_MS = 300
 
 # Item-data roles on tree items.
@@ -199,6 +211,52 @@ def fetch_latest_release() -> ReleaseInfo:
 def is_markdown(path: str) -> bool:
     """True when ``path`` has a recognised Markdown extension."""
     return os.path.splitext(path)[1].lower() in MARKDOWN_EXTS
+
+
+def find_inbox(roots: list[Root]) -> str | None:
+    """Return the path of an ``MD_Inbox`` drop folder among ``roots``.
+
+    A root may itself be named ``MD_Inbox``, or hold one as a top-level
+    subfolder.  Matching is case-insensitive; the first match wins.  Returns
+    ``None`` when no such folder exists, which disables drag-and-drop ingest.
+    """
+    assert isinstance(roots, list), "roots must be a list"
+    target = INBOX_NAME.lower()
+    for root in roots:
+        path = root.get("path", "")
+        if not path or not os.path.isdir(path):
+            continue
+        if os.path.basename(os.path.normpath(path)).lower() == target:
+            return path
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            continue
+        count = 0
+        for entry in entries:
+            count += 1
+            if count > 20000:                      # bounded (Rule of 10)
+                break
+            if entry.is_dir() and entry.name.lower() == target:
+                return entry.path
+    return None
+
+
+def unique_dest(dest_dir: str, filename: str) -> str:
+    """A path in ``dest_dir`` for ``filename`` that will not overwrite.
+
+    On collision, inserts ``" (2)"``, ``" (3)"`` … before the extension so an
+    ingested file never clobbers one already in the inbox.
+    """
+    assert dest_dir, "dest_dir must be non-empty"
+    assert filename, "filename must be non-empty"
+    stem, ext = os.path.splitext(filename)
+    candidate = os.path.join(dest_dir, filename)
+    counter = 2
+    while os.path.exists(candidate) and counter < 10000:   # bounded (Rule of 10)
+        candidate = os.path.join(dest_dir, f"{stem} ({counter}){ext}")
+        counter += 1
+    return candidate
 
 
 # Header for update-handoff batches: wait until every MDBoss.exe process has
@@ -462,6 +520,32 @@ class CodeEditor(QPlainTextEdit):
             QRect(cr.left(), cr.top(), self.gutter_width(), cr.height())
         )
 
+    # External file drops are for the window's MD_Inbox ingest, not for
+    # pasting a path into the text -- ignore them so they bubble to the parent.
+    def dragEnterEvent(  # noqa: N802 (Qt override)
+        self, event: QDragEnterEvent
+    ) -> None:
+        if event.mimeData().hasUrls():
+            event.ignore()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(  # noqa: N802 (Qt override)
+        self, event: QDragMoveEvent
+    ) -> None:
+        if event.mimeData().hasUrls():
+            event.ignore()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(  # noqa: N802 (Qt override)
+        self, event: QDropEvent
+    ) -> None:
+        if event.mimeData().hasUrls():
+            event.ignore()
+            return
+        super().dropEvent(event)
+
     def _highlight_current_line(self) -> None:
         selection = QTextEdit.ExtraSelection()
         fmt = QTextCharFormat()
@@ -672,6 +756,9 @@ class MainWindow(QMainWindow):
         self._current_path: str | None = None   # open document, or None
         self._suppress_dirty = False             # True while loading a file
         self._watched_roots: set[str] = set()
+        # Path of the MD_Inbox drop folder, or None.  Recomputed on every tree
+        # reload; gates whether dragged-in Markdown files are accepted.
+        self._inbox_path: str | None = None
         # Recursive Markdown counts per folder, shown beside folder names.
         self._md_counts: dict[str, int] = {}
         # Hide a leading YAML front-matter block in the preview (default on).
@@ -701,6 +788,12 @@ class MainWindow(QMainWindow):
         self._updating = False                   # skip close-time re-ask
 
         self.setWindowTitle(f"{DISPLAY_NAME} - v{APP_VERSION}")
+        self.setAcceptDrops(True)                # MD_Inbox drag-and-drop ingest
+        # An app-wide filter also catches drops over the preview's native web
+        # widget, which does not forward them to the window on its own.
+        instance = QApplication.instance()
+        if instance is not None:
+            instance.installEventFilter(self)
         self.resize(1280, 800)
         icon = resource_path("mdboss.ico")
         if os.path.isfile(icon):
@@ -853,6 +946,7 @@ class MainWindow(QMainWindow):
             self._sync_preview_scroll
         )
         self._preview = QWebEngineView(self)
+        self._preview.setAcceptDrops(False)      # drops belong to MD_Inbox
         self._preview.setPage(PreviewPage(self._preview))
         # Web channel: the page reports its own scroll position back to Qt for
         # preview -> editor sync (editor -> preview is driven from Qt).
@@ -930,6 +1024,7 @@ class MainWindow(QMainWindow):
             item.setForeground(0, QColor("#0a58ca"))
             self._add_placeholder(item)
         self._refresh_watcher()
+        self._inbox_path = find_inbox(self._roots)
         if not self._roots:
             self._tree.addTopLevelItem(
                 QTreeWidgetItem(["(no folders — use Manage folders…)"])
@@ -1006,6 +1101,99 @@ class MainWindow(QMainWindow):
         # A light refresh hook; full recursive watching is intentionally
         # avoided.  Refresh (F5) rescans on demand.
         self._watched_roots = {r["path"] for r in self._roots}
+
+    # ---- Drag-and-drop ingest into MD_Inbox ------------------------------ #
+    def _accepts_drop(self, event: QDropEvent) -> bool:
+        """True when the drag carries at least one Markdown file and an
+        MD_Inbox folder currently exists to receive it."""
+        inbox = self._inbox_path
+        if not inbox or not os.path.isdir(inbox):
+            return False
+        data = event.mimeData()
+        if not data.hasUrls():
+            return False
+        return any(
+            url.isLocalFile() and is_markdown(url.toLocalFile())
+            for url in data.urls()
+        )
+
+    def eventFilter(  # noqa: N802 (Qt override)
+        self, watched: QObject, event: QEvent
+    ) -> bool:
+        # App-wide catch for Markdown-file drags so they reach MD_Inbox even
+        # over the preview's native web widget.  Non-file drags fall through to
+        # normal handling (e.g. moving text within the editor).
+        if (event.type() in _DND_EVENT_TYPES
+                and isinstance(event, QDropEvent)
+                and self._accepts_drop(event)):
+            if event.type() == QEvent.Type.Drop:
+                self._perform_drop(event)
+            else:
+                event.acceptProposedAction()
+            return True
+        return super().eventFilter(watched, event)
+
+    def dragEnterEvent(  # noqa: N802 (Qt override)
+        self, event: QDragEnterEvent
+    ) -> None:
+        if self._accepts_drop(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(  # noqa: N802 (Qt override)
+        self, event: QDragMoveEvent
+    ) -> None:
+        if self._accepts_drop(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802 (Qt override)
+        if not self._accepts_drop(event):
+            event.ignore()
+            return
+        self._perform_drop(event)
+
+    def _perform_drop(self, event: QDropEvent) -> None:
+        """Accept ``event`` and ingest the Markdown files it carries."""
+        event.acceptProposedAction()
+        files = [
+            url.toLocalFile() for url in event.mimeData().urls()
+            if url.isLocalFile() and is_markdown(url.toLocalFile())
+        ]
+        self._ingest_dropped(files)
+
+    def _ingest_dropped(self, files: list[str]) -> None:
+        """Copy dropped Markdown ``files`` into MD_Inbox, refresh the tree, and
+        open the first.  A file already inside the inbox is opened in place."""
+        inbox = self._inbox_path
+        if not inbox or not os.path.isdir(inbox):
+            return
+        copied: list[str] = []
+        failed: list[str] = []
+        for src in files[:1000]:                   # bounded (Rule of 10)
+            if not os.path.isfile(src):
+                continue
+            if _norm(os.path.dirname(src)) == _norm(inbox):
+                copied.append(src)                 # already here; don't dup
+                continue
+            dest = unique_dest(inbox, os.path.basename(src))
+            try:
+                shutil.copy2(src, dest)
+            except OSError:
+                failed.append(src)
+                continue
+            copied.append(dest)
+        self._reload_tree()
+        if failed:
+            QMessageBox.warning(
+                self, DISPLAY_NAME,
+                "Could not copy these files into MD_Inbox:\n"
+                + "\n".join(os.path.basename(f) for f in failed),
+            )
+        if copied:
+            self._open_file(copied[0])
 
     # ---- Open / edit / save ---------------------------------------------- #
     def _open_file(self, path: str) -> None:

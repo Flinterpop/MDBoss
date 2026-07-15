@@ -27,6 +27,8 @@ and shares its conventions and release pipeline.
   up to ten, with a right-click menu and export / import / clear.
 - New-file templates (`%APPDATA%\MDBoss\templates`, `{{title}}`/`{{date}}`
   placeholders).
+- Drag-and-drop ingest: create an `MD_Inbox` folder in a root and dropped `.md`
+  files are copied into it (collision-safe), then opened.
 
 **Edit & preview**
 - Source editor with line numbers beside a live GitHub-rendered preview,
