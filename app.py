@@ -918,10 +918,10 @@ class MainWindow(QMainWindow):
         self._update_title()
 
     def _update_title(self) -> None:
-        name = (os.path.basename(self._current_path)
-                if self._current_path else "Untitled")
+        shown = (os.path.normpath(self._current_path)
+                 if self._current_path else "Untitled")
         dirty = "*" if self._editor.document().isModified() else ""
-        self.setWindowTitle(f"{dirty}{name} - {DISPLAY_NAME} v{APP_VERSION}")
+        self.setWindowTitle(f"{dirty}{shown} - {DISPLAY_NAME} v{APP_VERSION}")
 
     # ---- Preview + outline ---------------------------------------------- #
     def _render_preview(self) -> None:
