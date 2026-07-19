@@ -127,3 +127,21 @@ def test_portable_batch_swaps_exe() -> None:
     assert r'start "" "C:\a\MDBoss.exe"' in batch
     assert r'del /q "C:\t\up.zip"' in batch
     assert 'tasklist /FI "IMAGENAME eq MDBoss.exe"' in batch
+
+
+def test_translate_windows_path_reanchors_known_folder() -> None:
+    home = os.path.expanduser("~")
+    out = app.translate_windows_path(r"J:\Dropbox\03_Work\note.md")
+    assert out == os.path.join(home, "Dropbox", "03_Work", "note.md")
+    out = app.translate_windows_path(r"C:\Users\me\Documents\a\b.md")
+    assert out == os.path.join(home, "Documents", "a", "b.md")
+
+
+def test_translate_windows_path_leaves_posix_untouched() -> None:
+    for p in ("/home/me/notes/a.md", "relative/note.md", "note.md"):
+        assert app.translate_windows_path(p) == p
+
+
+def test_translate_windows_path_unknown_root_becomes_absolute() -> None:
+    out = app.translate_windows_path(r"D:\Projects\x\y.md")
+    assert out == "/Projects/x/y.md"

@@ -166,6 +166,39 @@ def resource_path(name: str) -> str:
     return os.path.join(base, name)
 
 
+# Well-known Windows user folders whose Linux counterparts sit under $HOME.
+_WIN_HOME_ANCHORS = {
+    "dropbox": "Dropbox", "onedrive": "OneDrive", "documents": "Documents",
+    "desktop": "Desktop", "downloads": "Downloads",
+}
+
+
+def translate_windows_path(path: str) -> str:
+    """Best-effort remap of a Windows favorite path onto this machine.
+
+    The Windows build stores favorites like ``J:\\Dropbox\\03_Work\\note.md``.
+    On Linux/macOS the same tree usually lives under ``$HOME``, so convert the
+    separators and, when the path passes through a well-known user folder
+    (Dropbox, OneDrive, Documents, ...), re-anchor it there.  Paths that
+    already look POSIX -- or that we cannot place -- are returned unchanged, so
+    calling this on native favorites is a no-op."""
+    looks_windows = "\\" in path or (
+        len(path) >= 2 and path[1] == ":" and path[0].isalpha()
+    )
+    if not looks_windows:
+        return path
+    posix = path.replace("\\", "/")
+    if len(posix) >= 2 and posix[1] == ":" and posix[0].isalpha():
+        posix = posix[2:]                        # drop the drive letter
+    parts = [p for p in posix.split("/") if p]
+    home = os.path.expanduser("~")
+    for i, part in enumerate(parts):
+        anchor = _WIN_HOME_ANCHORS.get(part.lower())
+        if anchor:
+            return os.path.join(home, anchor, *parts[i + 1:])
+    return "/" + "/".join(parts)                 # last resort: make absolute
+
+
 def running_portable() -> bool:
     """True when this frozen exe is a loose portable copy (no uninstaller)."""
     if not getattr(sys, "frozen", False):
@@ -1592,6 +1625,10 @@ class MainWindow(QMainWindow):
                 self, DISPLAY_NAME, "No favorites were found in that file."
             )
             return None
+        # A favorites file exported on Windows carries drive-letter paths; map
+        # them onto this machine so they resolve after import.
+        if not sys.platform.startswith("win"):
+            paths = [translate_windows_path(p) for p in paths]
         return paths
 
     # ---- Tree context menu + file operations ----------------------------- #
