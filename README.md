@@ -5,7 +5,7 @@
 [![Downloads](https://img.shields.io/github/downloads/Flinterpop/MDBoss/total)](https://github.com/Flinterpop/MDBoss/releases)
 [![License: MIT](https://img.shields.io/github/license/Flinterpop/MDBoss)](LICENSE)
 
-A local Markdown manager, editor, and GitHub-style viewer for Windows.
+A local Markdown manager, editor, and GitHub-style viewer for Windows and Linux.
 
 MD Boss browses Markdown files across up to **five root folders**, edits them
 in a source pane, and renders a **live preview** using the **GitHub-light**
@@ -21,12 +21,14 @@ and shares its conventions and release pipeline.
 **Browse & manage**
 - Up to five root folders in one combined file tree; each folder shows its
   recursive Markdown-file count. Filter box, and full right-click file
-  management (new from template, new folder, rename, delete-to-Recycle-Bin,
-  reveal in Explorer, copy path).
+  management (new from template, new folder, rename, delete (to the Recycle
+  Bin / Trash), reveal in your file manager, copy path).
 - Favorites pinned at the top of the left pane (resizable): newest-first,
-  up to ten, with a right-click menu and export / import / clear.
-- New-file templates (`%APPDATA%\MDBoss\templates`, `{{title}}`/`{{date}}`
-  placeholders).
+  up to ten, with a right-click menu and export / import / clear. Importing a
+  favorites file exported on Windows remaps its drive-letter paths (e.g.
+  `J:\Dropbox\…`) onto your home folder on Linux.
+- New-file templates (`%APPDATA%\MDBoss\templates` on Windows,
+  `~/.config/MDBoss/templates` on Linux; `{{title}}`/`{{date}}` placeholders).
 - Drag-and-drop ingest: create an `MD_Inbox` folder in a root and dropped `.md`
   files are copied into it (collision-safe), then opened.
 
@@ -44,8 +46,9 @@ and shares its conventions and release pipeline.
 - LaTeX math (`$…$`, `$$…$$`) via KaTeX; Pygments-highlighted code.
 
 **Distribution**
-- Per-user installer and portable zip; **in-app auto-update** that downloads
-  and installs new releases in place.
+- Windows per-user installer + portable zip, and a self-contained Linux
+  **AppImage**. **In-app auto-update** downloads and installs new releases in
+  place on both platforms (the AppImage replaces itself and relaunches).
 - Remembers your roots, window layout, favorites, and preferences.
 
 ## Install
@@ -94,6 +97,10 @@ This bumps the version, builds the one-file exe (PyInstaller), the installer
 GitHub release with both assets. Requires `python` (with PyInstaller), Inno
 Setup 6, `gh` (authenticated), and `git`. Installed copies then pick up the
 new release via the in-app updater.
+
+On Linux, `./build-appimage.sh` produces `dist/MDBoss-x86_64.AppImage` and its
+companion `dist/MDBoss-x86_64.AppImage.zsync`; upload both to the release
+alongside the Windows assets. Existing AppImages then self-update to it.
 
 ## License
 
