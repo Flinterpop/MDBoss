@@ -104,9 +104,26 @@ class ReleaseInfo(TypedDict):
 # --------------------------------------------------------------------------- #
 # Pure helpers (config, resources, updater) -- mirror PDF Sherpa's patterns.
 # --------------------------------------------------------------------------- #
+def _user_data_base() -> str:
+    """Root under which per-user data (config, templates) lives.
+
+    Windows keeps everything under ``%APPDATA%``.  On Linux/macOS we follow
+    the XDG base-dir spec (``$XDG_CONFIG_HOME`` or ``~/.config``) so MDBoss's
+    settings sit beside every other app's rather than dumped in the home
+    directory.  ``APPDATA`` is still honoured first if it happens to be set
+    (e.g. under Wine) to keep behaviour identical to the Windows build."""
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return appdata
+    if sys.platform.startswith("win"):
+        return os.path.expanduser("~")
+    return (os.environ.get("XDG_CONFIG_HOME")
+            or os.path.join(os.path.expanduser("~"), ".config"))
+
+
 def config_path() -> str:
     """Per-user settings file, stable across source and frozen runs."""
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    base = _user_data_base()
     return os.path.join(base, APP_NAME, "config.json")
 
 
@@ -341,7 +358,7 @@ def _b64(data: QByteArray) -> str:
 
 def templates_dir() -> str:
     """Per-user folder holding new-file templates (``*.md``)."""
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    base = _user_data_base()
     return os.path.join(base, APP_NAME, "templates")
 
 
@@ -790,9 +807,13 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{DISPLAY_NAME} - v{APP_VERSION}")
         self.setAcceptDrops(True)                # MD_Inbox drag-and-drop ingest
         # An app-wide filter also catches drops over the preview's native web
-        # widget, which does not forward them to the window on its own.
+        # widget, which does not forward them to the window on its own.  On
+        # Linux/macOS an application-wide filter makes PySide try to wrap every
+        # QObject QtWebEngine posts events for (including internal ones whose
+        # lifetime it does not own), which segfaults; there we install a
+        # narrow filter on the preview widget instead (see _build_panes).
         instance = QApplication.instance()
-        if instance is not None:
+        if instance is not None and sys.platform.startswith("win"):
             instance.installEventFilter(self)
         self.resize(1280, 800)
         icon = resource_path("mdboss.ico")
@@ -806,7 +827,8 @@ class MainWindow(QMainWindow):
         self._reload_favorites()
         self._render_preview()
 
-        if cfg.get("check_updates", True):
+        # The in-app updater installs a Windows .exe, so it only runs there.
+        if cfg.get("check_updates", True) and sys.platform.startswith("win"):
             QTimer.singleShot(2000, self._start_update_check)
 
     # ---- UI construction ------------------------------------------------- #
@@ -948,6 +970,22 @@ class MainWindow(QMainWindow):
         self._preview = QWebEngineView(self)
         self._preview.setAcceptDrops(False)      # drops belong to MD_Inbox
         self._preview.setPage(PreviewPage(self._preview))
+        # On non-Windows an app-wide event filter crashes (see __init__), so
+        # watch just the preview and its lazily-created native child so a
+        # Markdown file dropped over the preview still reaches MD_Inbox.
+        if not sys.platform.startswith("win"):
+            self._preview.installEventFilter(self)
+
+            def _watch_preview_child() -> None:
+                child = self._preview.focusProxy()
+                if child is not None:
+                    child.setAcceptDrops(True)
+                    child.installEventFilter(self)
+
+            QTimer.singleShot(0, _watch_preview_child)
+            self._preview.loadFinished.connect(
+                lambda _ok: _watch_preview_child()
+            )
         # Web channel: the page reports its own scroll position back to Qt for
         # preview -> editor sync (editor -> preview is driven from Qt).
         self._bridge = ScrollBridge(self)
@@ -1783,6 +1821,25 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _start_update_check(self, manual: bool = False) -> None:
+        # The bundled updater downloads and swaps a Windows .exe; on other
+        # platforms send the user to the Releases page instead.
+        if not sys.platform.startswith("win"):
+            if manual:
+                box = QMessageBox(self)
+                box.setWindowTitle(DISPLAY_NAME)
+                box.setIcon(QMessageBox.Icon.Information)
+                box.setText(
+                    "Automatic updates are Windows-only.\n\n"
+                    "On Linux, update by pulling the latest source "
+                    "(git pull) or download a release from the project page."
+                )
+                open_btn = box.addButton("Open Releases page",
+                                         QMessageBox.ButtonRole.AcceptRole)
+                box.addButton(QMessageBox.StandardButton.Close)
+                box.exec()
+                if box.clickedButton() is open_btn:
+                    webbrowser.open(RELEASES_URL)
+            return
         self._update_manual = manual
         self._updater.start()
 
