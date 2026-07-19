@@ -105,7 +105,7 @@ rm -rf "$APPDIR/usr/lib/python${PYVER}/test" \
        "$APPDIR/usr/lib/python${PYVER}/tkinter" \
        "$APPDIR/usr/lib/python${PYVER}/turtledemo" 2>/dev/null || true
 
-# -- 7. appimagetool -------------------------------------------------------- #
+# -- 7. appimagetool + zsync ------------------------------------------------ #
 TOOL="$BUILD/appimagetool-${ARCH}.AppImage"
 if [[ ! -x "$TOOL" ]]; then
     echo ">> Fetching appimagetool ..."
@@ -114,8 +114,37 @@ if [[ ! -x "$TOOL" ]]; then
     chmod +x "$TOOL"
 fi
 
+# zsyncmake builds the .zsync index that lets AppImageUpdate / appimaged patch
+# the AppImage in place.  Use the system binary if present; otherwise borrow
+# the one bundled inside the classic AppImageKit appimagetool -- no install.
+ZSYNCMAKE="$(command -v zsyncmake || true)"
+if [[ -z "$ZSYNCMAKE" ]]; then
+    echo ">> Fetching zsyncmake (from AppImageKit) ..."
+    AITOOL="$BUILD/appimagekit-${ARCH}.AppImage"
+    [[ -x "$AITOOL" ]] || {
+        wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${ARCH}.AppImage" \
+            -O "$AITOOL" && chmod +x "$AITOOL"; }
+    ( cd "$BUILD" && rm -rf squashfs-root \
+        && env APPIMAGE_EXTRACT_AND_RUN=1 "$AITOOL" \
+             --appimage-extract 'usr/bin/zsyncmake' >/dev/null 2>&1 || true )
+    ZSYNCMAKE="$BUILD/squashfs-root/usr/bin/zsyncmake"
+    [[ -x "$ZSYNCMAKE" ]] || ZSYNCMAKE=""
+fi
+# appimagetool only emits the .zsync when zsyncmake is on PATH.
+[[ -n "$ZSYNCMAKE" ]] && export PATH="$(dirname "$ZSYNCMAKE"):$PATH"
+
 echo ">> Packaging ..."
-rm -f "$OUT"
-env APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$ARCH" "$TOOL" "$APPDIR" "$OUT"
+rm -f "$OUT" "$OUT.zsync"
+# Embed AppImage update information so the app (and external tools) can update
+# in place from the GitHub releases.
+UPDATE_INFO="gh-releases-zsync|Flinterpop|MDBoss|latest|MDBoss-*${ARCH}.AppImage.zsync"
+env APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$ARCH" "$TOOL" -u "$UPDATE_INFO" "$APPDIR" "$OUT"
+
+# Fallback so the build is deterministic regardless of appimagetool's behaviour.
+if [[ ! -f "$OUT.zsync" && -n "$ZSYNCMAKE" ]]; then
+    "$ZSYNCMAKE" -u "$(basename "$OUT")" -o "$OUT.zsync" "$OUT"
+fi
 
 echo ">> Done: $OUT ($(du -h "$OUT" | cut -f1))"
+[[ -f "$OUT.zsync" ]] && echo ">> zsync: $OUT.zsync" \
+    || echo ">> warning: no .zsync (install zsync for AppImageUpdate delta updates)"

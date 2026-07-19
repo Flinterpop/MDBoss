@@ -65,6 +65,12 @@ The AppImage is self-contained (bundled Python + Qt), so nothing else is
 needed. It runs the renderer with `QTWEBENGINE_DISABLE_SANDBOX=1` because an
 AppImage cannot ship the setuid chrome-sandbox helper.
 
+It **updates itself**: on launch it checks the GitHub releases and, when a
+newer version is available, offers to download it and replace the running
+AppImage in place, then relaunch. Update information is embedded and a
+companion `.zsync` is published, so external tools (AppImageUpdate,
+appimaged) can update it too.
+
 ## Run from source
 
 ```

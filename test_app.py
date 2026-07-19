@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import os
 from pathlib import Path
 
@@ -145,3 +146,48 @@ def test_translate_windows_path_leaves_posix_untouched() -> None:
 def test_translate_windows_path_unknown_root_becomes_absolute() -> None:
     out = app.translate_windows_path(r"D:\Projects\x\y.md")
     assert out == "/Projects/x/y.md"
+
+
+def test_running_appimage_detects_env(tmp_path: Path, monkeypatch) -> None:
+    fake = tmp_path / "MDBoss-x86_64.AppImage"
+    fake.write_bytes(b"\x7fELF")
+    monkeypatch.setenv("APPIMAGE", str(fake))
+    assert app.running_appimage() == str(fake)
+    monkeypatch.setenv("APPIMAGE", str(tmp_path / "does-not-exist.AppImage"))
+    assert app.running_appimage() is None
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    assert app.running_appimage() is None
+
+
+def test_fetch_latest_release_parses_appimage_asset(monkeypatch) -> None:
+    import io
+    import urllib.request
+
+    payload = {
+        "tag_name": "v0.2.0",
+        "html_url": "https://example/rel",
+        "assets": [
+            {"name": "MDBoss-Setup.exe", "browser_download_url": "u/exe"},
+            {"name": "MDBoss-Portable.zip", "browser_download_url": "u/zip"},
+            {"name": "MDBoss-x86_64.AppImage", "browser_download_url": "u/aim"},
+            {"name": "MDBoss-x86_64.AppImage.zsync",
+             "browser_download_url": "u/zsync"},
+        ],
+    }
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen",
+        lambda *a, **k: _Resp(json.dumps(payload).encode()),
+    )
+    info = app.fetch_latest_release()
+    assert info["version"] == (0, 2, 0)
+    assert info["appimage_url"] == "u/aim"
+    assert info["asset_url"] == "u/exe"
+    assert info["portable_url"] == "u/zip"
