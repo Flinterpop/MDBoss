@@ -50,9 +50,20 @@ and shares its conventions and release pipeline.
 
 ## Install
 
-Download **MDBoss-Setup.exe** (per-user installer) or **MDBoss-Portable.zip**
-(just the exe) from the
+**Windows** — download **MDBoss-Setup.exe** (per-user installer) or
+**MDBoss-Portable.zip** (just the exe) from the
 [Releases](https://github.com/Flinterpop/MDBoss/releases/latest) page.
+
+**Linux** — download **MDBoss-x86_64.AppImage** from the same page, then:
+
+```
+chmod +x MDBoss-x86_64.AppImage
+./MDBoss-x86_64.AppImage
+```
+
+The AppImage is self-contained (bundled Python + Qt), so nothing else is
+needed. It runs the renderer with `QTWEBENGINE_DISABLE_SANDBOX=1` because an
+AppImage cannot ship the setuid chrome-sandbox helper.
 
 ## Run from source
 
@@ -60,6 +71,11 @@ Download **MDBoss-Setup.exe** (per-user installer) or **MDBoss-Portable.zip**
 pip install -r requirements.txt
 python app.py
 ```
+
+On Linux/macOS you can instead use **`./run.sh`**, which creates a local
+`.venv`, installs the requirements on first run, and launches the app;
+**`./install-linux.sh`** adds a menu entry, and **`./build-appimage.sh`**
+builds the AppImage.
 
 ## Build a release
 
