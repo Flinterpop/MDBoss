@@ -65,6 +65,7 @@ UPDATE_API_URL = (
 )
 UPDATE_ASSET_NAME = "MDBoss-Setup.exe"
 UPDATE_PORTABLE_ASSET_NAME = "MDBoss-Portable.zip"
+UPDATE_APPIMAGE_ASSET_NAME = "MDBoss-x86_64.AppImage"
 RELEASES_URL = "https://github.com/Flinterpop/MDBoss/releases/latest"
 
 MAX_ROOTS = 5
@@ -98,6 +99,7 @@ class ReleaseInfo(TypedDict):
     version_str: str
     asset_url: str | None
     portable_url: str | None
+    appimage_url: str | None
     html_url: str
 
 
@@ -199,6 +201,16 @@ def translate_windows_path(path: str) -> str:
     return "/" + "/".join(parts)                 # last resort: make absolute
 
 
+def running_appimage() -> str | None:
+    """Path to the running AppImage, or None when not launched from one.
+
+    The AppImage runtime exports ``APPIMAGE`` (the outer .AppImage path) to the
+    program it launches; its presence is how we know an in-place self-update is
+    possible on Linux."""
+    path = os.environ.get("APPIMAGE")
+    return path if path and os.path.isfile(path) else None
+
+
 def running_portable() -> bool:
     """True when this frozen exe is a loose portable copy (no uninstaller)."""
     if not getattr(sys, "frozen", False):
@@ -242,6 +254,7 @@ def fetch_latest_release() -> ReleaseInfo:
         raise ValueError("unrecognized release tag")
     asset = None
     portable = None
+    appimage = None
     for entry in data.get("assets", []):
         name = str(entry.get("name", ""))
         url = entry.get("browser_download_url")
@@ -249,11 +262,14 @@ def fetch_latest_release() -> ReleaseInfo:
             asset = url
         elif name == UPDATE_PORTABLE_ASSET_NAME:
             portable = url
+        elif name == UPDATE_APPIMAGE_ASSET_NAME:
+            appimage = url
     return {
         "version": version,
         "version_str": str(data.get("tag_name", "")).lstrip("vV"),
         "asset_url": asset,
         "portable_url": portable,
+        "appimage_url": appimage,
         "html_url": data.get("html_url", RELEASES_URL),
     }
 
@@ -835,6 +851,7 @@ class MainWindow(QMainWindow):
         self._downloader: Downloader | None = None
         self._dl_dialog: QProgressDialog | None = None
         self._dl_portable = False
+        self._appimage_target: str | None = None  # AppImage self-update target
         self._updating = False                   # skip close-time re-ask
 
         self.setWindowTitle(f"{DISPLAY_NAME} - v{APP_VERSION}")
@@ -861,7 +878,8 @@ class MainWindow(QMainWindow):
         self._render_preview()
 
         # The in-app updater installs a Windows .exe, so it only runs there.
-        if cfg.get("check_updates", True) and sys.platform.startswith("win"):
+        if cfg.get("check_updates", True) and (
+                sys.platform.startswith("win") or running_appimage()):
             QTimer.singleShot(2000, self._start_update_check)
 
     # ---- UI construction ------------------------------------------------- #
@@ -1858,17 +1876,20 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _start_update_check(self, manual: bool = False) -> None:
-        # The bundled updater downloads and swaps a Windows .exe; on other
-        # platforms send the user to the Releases page instead.
-        if not sys.platform.startswith("win"):
+        # The updater can self-install two ways: swap a Windows .exe, or
+        # replace the running Linux AppImage.  A plain source/venv run on a
+        # non-Windows box has nothing to self-replace, so there we just point
+        # the user at the Releases page.
+        if not sys.platform.startswith("win") and not running_appimage():
             if manual:
                 box = QMessageBox(self)
                 box.setWindowTitle(DISPLAY_NAME)
                 box.setIcon(QMessageBox.Icon.Information)
                 box.setText(
-                    "Automatic updates are Windows-only.\n\n"
-                    "On Linux, update by pulling the latest source "
-                    "(git pull) or download a release from the project page."
+                    "This looks like a source or virtualenv run, which can't "
+                    "self-update.\n\nUpdate by pulling the latest source "
+                    "(git pull), or use the AppImage build, which updates "
+                    "itself.  You can also download a release below."
                 )
                 open_btn = box.addButton("Open Releases page",
                                          QMessageBox.ButtonRole.AcceptRole)
@@ -1924,6 +1945,14 @@ class MainWindow(QMainWindow):
         if choice == QMessageBox.StandardButton.No:
             update_config({"skip_version": info["version_str"]})
             return
+        appimage = running_appimage()
+        if appimage:
+            url = info.get("appimage_url")
+            if isinstance(url, str) and url:
+                self._begin_appimage_download(info, url, appimage)
+            else:
+                webbrowser.open(info.get("html_url") or RELEASES_URL)
+            return
         portable = running_portable()
         url = info["portable_url"] if portable else info["asset_url"]
         if getattr(sys, "frozen", False) and isinstance(url, str) and url:
@@ -1954,6 +1983,68 @@ class MainWindow(QMainWindow):
         self._downloader.done.connect(self._on_download_done)
         self._downloader.failed.connect(self._on_download_failed)
         self._downloader.start()
+
+    def _begin_appimage_download(
+        self, info: ReleaseInfo, url: str, current_path: str
+    ) -> None:
+        """Download the new AppImage beside the running one, then swap it in.
+
+        The download lands in the target's own directory so the final swap is
+        an atomic same-filesystem rename onto a fresh inode -- the running
+        (mounted) AppImage keeps its old inode until this process exits."""
+        self._appimage_target = current_path
+        dest = os.path.join(
+            os.path.dirname(current_path),
+            f".MDBoss-update-{info['version_str']}.AppImage",
+        )
+        dialog = QProgressDialog(
+            f"Downloading update… {DISPLAY_NAME} will restart when ready.",
+            "", 0, 0, self,
+        )
+        dialog.setWindowTitle(f"Updating {DISPLAY_NAME}")
+        dialog.setCancelButton(None)
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.show()
+        self._dl_dialog = dialog
+        self._downloader = Downloader(url, dest, self)
+        self._downloader.done.connect(self._on_appimage_download_done)
+        self._downloader.failed.connect(self._on_download_failed)
+        self._downloader.start()
+
+    def _on_appimage_download_done(self, dest: str) -> None:
+        if self._dl_dialog is not None:
+            self._dl_dialog.close()
+        self._swap_appimage_and_exit(dest)
+
+    def _swap_appimage_and_exit(self, new_path: str) -> None:
+        target = self._appimage_target
+        if not target:
+            return
+        if not self._confirm_discard():
+            try:
+                os.remove(new_path)
+            except OSError:
+                pass
+            return
+        try:
+            os.chmod(new_path, 0o755)
+            os.replace(new_path, target)         # atomic, same filesystem
+        except OSError as exc:
+            try:
+                os.remove(new_path)
+            except OSError:
+                pass
+            QMessageBox.warning(
+                self, DISPLAY_NAME,
+                f"Could not install the update:\n{exc}\n\nYou can download it "
+                "manually from the releases page on GitHub.",
+            )
+            return
+        # Relaunch the freshly-installed AppImage once this process exits.
+        subprocess.Popen([target], start_new_session=True)
+        self._updating = True
+        self.close()
 
     def _on_download_done(self, dest: str) -> None:
         if self._dl_dialog is not None:
