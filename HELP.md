@@ -20,7 +20,8 @@ images — all **100% offline**.
   **Files** list: your roots as a combined tree, where each folder shows the
   number of Markdown files within it (counted recursively). Filter with the
   box above the tree. Right-click a file for New file/folder, Rename, Delete
-  (to Recycle Bin), Reveal in Explorer, Copy path, and Favorite.
+  (to the Recycle Bin / Trash), Reveal in Explorer / Show in file manager,
+  Copy path, and Favorite.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
 - **Favorites** (top of the left pane) — pin up to ten documents, newest first
@@ -29,6 +30,8 @@ images — all **100% offline**.
   missing files show in red. Right-click a file in the tree to add or remove
   it; right-click a favorite to open, remove, reveal, or copy its path; and use
   the **⋯** menu in the Favorites header to export, import, or clear the list.
+  Importing a favorites file exported on Windows remaps its drive-letter paths
+  (e.g. `J:\Dropbox\…`) onto your home folder when you're on Linux.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.
@@ -37,7 +40,7 @@ images — all **100% offline**.
 
 Create a folder named **`MD_Inbox`** in one of your root folders (or add a root
 that is itself named `MD_Inbox`), and MD Boss becomes a drop target for Markdown
-files. Drag one or more `.md` files from Explorer onto the window and they are
+files. Drag one or more `.md` files from your file manager onto the window and they are
 **copied into `MD_Inbox`** (the originals stay put), the tree refreshes, and the
 first dropped file opens. A name that already exists in the inbox is kept — the
 copy is saved as `name (2).md` rather than overwriting. Without an `MD_Inbox`
@@ -98,8 +101,9 @@ New files can start from a template:
 - Right-click a folder → **New file ▸** and pick **Blank** or a template; the
   file is created in that folder.
 
-Templates are plain `.md` files in `%APPDATA%\MDBoss\templates` (use **New
-file ▸ Manage templates…** to open the folder). A couple of starters are
+Templates are plain `.md` files in `%APPDATA%\MDBoss\templates` on Windows
+(`~/.config/MDBoss/templates` on Linux); use **New file ▸ Manage templates…**
+to open the folder. A couple of starters are
 created on first run. Templates may use these placeholders, filled in when the
 file is created:
 
@@ -121,11 +125,15 @@ file is created:
 
 ## Updates
 
-MD Boss checks its own GitHub releases page on launch. When a newer version is
-available it offers to **download and install it now** — it fetches the
-installer, quits, installs silently, and restarts on the new version. You can
+MD Boss checks its own GitHub releases page on launch (on Windows, and on
+Linux when run as the AppImage). When a newer version is available it offers to
+**download and install it now**: on Windows it fetches the installer, quits,
+installs silently, and restarts on the new version; the Linux AppImage
+downloads the new AppImage, replaces itself in place, and relaunches. You can
 also check any time from **Help → Check for updates**. Choose *No* to skip a
-version or *Cancel* to be reminded next launch.
+version or *Cancel* to be reminded next launch. A source or virtualenv run
+can't self-update, so there the manual check just points you at the releases
+page.
 
 ## Privacy
 
