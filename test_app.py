@@ -36,6 +36,56 @@ def test_md_counts_empty_folder(tmp_path: Path) -> None:
     assert counts[app._norm(str(tmp_path))] == 0
 
 
+def test_push_recent_newest_first_and_capped() -> None:
+    recents: list[str] = []
+    for name in ("a", "b", "c", "d", "e", "f", "g"):
+        recents = app.push_recent(recents, rf"C:\docs\{name}.md")
+    assert len(recents) == app.MAX_RECENTS
+    assert [os.path.basename(p) for p in recents] == [
+        "g.md", "f.md", "e.md", "d.md", "c.md", "b.md"
+    ]                                          # a.md fell off the end
+
+
+def test_push_recent_promotes_instead_of_duplicating() -> None:
+    recents = app.push_recent(
+        app.push_recent([], r"C:\docs\a.md"), r"C:\docs\b.md"
+    )
+    recents = app.push_recent(recents, r"C:\DOCS\A.MD")   # same file, any case
+    assert len(recents) == 2
+    assert os.path.basename(recents[0]).lower() == "a.md"
+
+
+def test_push_recent_stores_absolute_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    recents = app.push_recent([], "note.md")
+    assert os.path.isabs(recents[0])
+    assert os.path.basename(recents[0]) == "note.md"
+
+
+def test_cli_path_takes_first_argument() -> None:
+    assert app.cli_path(["MDBoss.exe", r"C:\docs\a note.md"]) == (
+        r"C:\docs\a note.md"                   # spaces arrive as one argv entry
+    )
+
+
+def test_cli_path_none_without_arguments() -> None:
+    assert app.cli_path(["MDBoss.exe"]) is None
+    assert app.cli_path([]) is None
+
+
+def test_cli_path_ignores_qt_switches() -> None:
+    assert app.cli_path(["MDBoss.exe", "-platform", "windows"]) is None
+    assert app.cli_path(["MDBoss.exe", ""]) is None
+
+
+def test_sanitize_paths_filters_and_caps() -> None:
+    assert app.sanitize_paths(["a", 3, None, "b", "c"], 2) == ["a", "b"]
+    assert app.sanitize_paths("not a list", 5) == []
+    assert app.sanitize_paths(None, 5) == []
+
+
 def test_apply_template_placeholders() -> None:
     out = app.apply_template("# {{title}}\nOn {{date}}.", "My Doc")
     assert "# My Doc" in out

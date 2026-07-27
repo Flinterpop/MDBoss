@@ -20,17 +20,23 @@ and shares its conventions and release pipeline.
 
 **Browse & manage**
 - Up to five root folders in one combined file tree; each folder shows its
-  recursive Markdown-file count. Filter box, and full right-click file
-  management (new from template, new folder, rename, delete (to the Recycle
-  Bin / Trash), reveal in your file manager, copy path).
-- Favorites pinned at the top of the left pane (resizable): newest-first,
-  up to ten, with a right-click menu and export / import / clear. Importing a
-  favorites file exported on Windows remaps its drive-letter paths (e.g.
-  `J:\Dropbox\…`) onto your home folder on Linux.
+  recursive Markdown-file count, and folders holding no Markdown are hidden.
+  Filter box, and full right-click file management (new from template, new
+  folder, rename, delete (to the Recycle Bin / Trash), reveal in your file
+  manager, copy path).
+- Recent documents at the top of the left pane: the last six you opened,
+  newest-first, maintained automatically.
+- Favorites below Recent (both resizable): newest-first, up to ten, with a
+  right-click menu and export / import / clear. Importing a favorites file
+  exported on Windows remaps its drive-letter paths (e.g. `J:\Dropbox\…`) onto
+  your home folder on Linux.
 - New-file templates (`%APPDATA%\MDBoss\templates` on Windows,
   `~/.config/MDBoss/templates` on Linux; `{{title}}`/`{{date}}` placeholders).
-- Drag-and-drop ingest: create an `MD_Inbox` folder in a root and dropped `.md`
-  files are copied into it (collision-safe), then opened.
+- Works as a plain Markdown viewer too: **Ctrl+O**, drag-and-drop, or a path on
+  the command line opens any file on disk, root folder or not. A second launch
+  hands its document to the running window instead of starting another copy.
+- `MD_Inbox`: create a folder of that name in a root and use **Import files
+  into MD_Inbox…** to copy documents in, collision-safe.
 
 **Edit & preview**
 - Source editor with line numbers beside a live GitHub-rendered preview,
@@ -49,7 +55,8 @@ and shares its conventions and release pipeline.
 - Windows per-user installer + portable zip, and a self-contained Linux
   **AppImage**. **In-app auto-update** downloads and installs new releases in
   place on both platforms (the AppImage replaces itself and relaunches).
-- Remembers your roots, window layout, favorites, and preferences.
+- Remembers your roots, window layout, recent documents, favorites, and
+  preferences.
 
 ## Install
 

@@ -38,6 +38,7 @@ from PySide6.QtGui import (
     QFont, QIcon, QKeySequence, QPaintEvent, QPainter, QResizeEvent,
     QTextCharFormat, QTextFormat,
 )
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineProfile, QWebEngineSettings,
     QWebEngineUrlRequestInfo, QWebEngineUrlRequestInterceptor,
@@ -70,7 +71,12 @@ RELEASES_URL = "https://github.com/Flinterpop/MDBoss/releases/latest"
 
 MAX_ROOTS = 5
 MAX_FAVORITES = 10
+MAX_RECENTS = 6                # documents listed in the Recent panel
 MARKDOWN_EXTS = (".md", ".markdown", ".mdown", ".mkd", ".mdwn")
+# File-dialog filter, kept in step with MARKDOWN_EXTS.
+MARKDOWN_FILTER = (
+    "Markdown (" + " ".join("*" + ext for ext in MARKDOWN_EXTS) + ")"
+)
 # Drag-and-drop ingest: dropped Markdown files are copied here.  Drops are only
 # accepted when a folder of this name exists at the top level of a root folder
 # (or a root is itself named this), giving them a defined home.
@@ -82,6 +88,12 @@ _DND_EVENT_TYPES = frozenset({
     QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop,
 })
 PREVIEW_DEBOUNCE_MS = 300
+# Named pipe used to keep one window per user session.  As the default handler
+# for .md files, MD Boss is launched once per double-clicked document; without
+# this each launch would be a separate process, and the last one to close would
+# overwrite the others' recents, favorites and window layout.
+IPC_SERVER_NAME = "MDBoss.instance"
+IPC_TIMEOUT_MS = 1000
 
 # Item-data roles on tree items.
 ROLE_PATH = int(Qt.ItemDataRole.UserRole)
@@ -377,6 +389,34 @@ def _portable_batch(zip_exe: str, app_exe: str, cleanup: list[str]) -> str:
 def _norm(path: str) -> str:
     """Case/format-normalised absolute path, for use as a dict key."""
     return os.path.normcase(os.path.abspath(path))
+
+
+def push_recent(recents: list[str], path: str,
+                limit: int = MAX_RECENTS) -> list[str]:
+    """``recents`` with ``path`` moved to the front, deduped and capped.
+
+    Most-recently-viewed first.  Re-opening a document already in the list
+    promotes it rather than adding a second entry; the oldest falls off the
+    end once the list is full.  Pure: the caller persists the result.
+    """
+    assert isinstance(recents, list), "recents must be a list"
+    assert path, "path must be non-empty"
+    assert limit > 0, "limit must be positive"
+    want = _norm(path)
+    kept = [p for p in recents if _norm(p) != want]
+    return [os.path.abspath(path)] + kept[:limit - 1]
+
+
+def sanitize_paths(raw: object, limit: int) -> list[str]:
+    """The first ``limit`` strings in ``raw``, or ``[]`` if it isn't a list.
+
+    Config files are user-editable, so a stored path list may be missing,
+    the wrong type, or hold non-strings.
+    """
+    assert limit > 0, "limit must be positive"
+    if not isinstance(raw, list):
+        return []
+    return [p for p in raw if isinstance(p, str)][:limit]
 
 
 def md_counts_for_root(root_path: str) -> dict[str, int]:
@@ -814,11 +854,13 @@ class MainWindow(QMainWindow):
 
         # --- Persistent + transient state, declared up front. ---
         self._roots: list[Root] = self._sanitize_roots(cfg.get("roots", []))
-        fav_raw = cfg.get("favorites", [])
-        self._favorites: list[str] = (
-            [p for p in fav_raw if isinstance(p, str)]
-            if isinstance(fav_raw, list) else []
-        )[:MAX_FAVORITES]
+        self._favorites: list[str] = sanitize_paths(
+            cfg.get("favorites", []), MAX_FAVORITES
+        )
+        # Documents viewed, most recent first.  Written on every open.
+        self._recents: list[str] = sanitize_paths(
+            cfg.get("recents", []), MAX_RECENTS
+        )
         self._current_path: str | None = None   # open document, or None
         self._suppress_dirty = False             # True while loading a file
         self._watched_roots: set[str] = set()
@@ -872,9 +914,11 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self._build_panes()
+        self._start_ipc_server()
         self._restore_geometry(cfg)
         self._reload_tree()
         self._reload_favorites()
+        self._reload_recents()
         self._render_preview()
 
         # The in-app updater installs a Windows .exe, so it only runs there.
@@ -902,6 +946,8 @@ class MainWindow(QMainWindow):
             tip="Add, remove, or reorder root folders")
         add("Refresh", self._reload_tree, "F5", "Rescan all roots")
         bar.addSeparator()
+        add("Open…", self._open_dialog, "Ctrl+O",
+            "Open a Markdown file from anywhere on disk")
         add("New", self._new_file, "Ctrl+N", "Create a new Markdown file")
         add("New from template…", self._new_from_template_dialog,
             tip="Create a new file from a template")
@@ -929,29 +975,64 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         add("Help", self._show_help, "F1", "About MDBoss")
 
+    def _panel_header(
+        self, title: str, tip: str,
+        actions: list[tuple[str, Callable[[], None]] | None],
+    ) -> QHBoxLayout:
+        """A ``title`` row with a ``⋯`` menu button.  ``None`` = separator."""
+        assert title, "title must be non-empty"
+        assert actions, "actions must be non-empty"
+        row = QHBoxLayout()
+        row.addWidget(QLabel(title))
+        row.addStretch(1)
+        button = QToolButton(self)
+        button.setText("⋯")
+        button.setToolTip(tip)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(button)
+        for action in actions:
+            if action is None:
+                menu.addSeparator()
+            else:
+                menu.addAction(action[0], action[1])
+        button.setMenu(menu)
+        row.addWidget(button)
+        return row
+
     def _build_panes(self) -> None:
-        # Pane 1: Favorites over the file list, in a vertical splitter so the
-        # Favorites area can be dragged taller or shorter.
+        # Pane 1: Recent over Favorites over the file list, in a vertical
+        # splitter so each area can be dragged taller or shorter.
         left = QSplitter(Qt.Orientation.Vertical, self)
+
+        recent_box = QWidget(self)
+        recent_layout = QVBoxLayout(recent_box)
+        recent_layout.setContentsMargins(4, 4, 4, 2)
+        recent_layout.addLayout(self._panel_header(
+            "Recent", "Clear the recent documents list",
+            [("Clear recent documents", self._clear_recents)],
+        ))
+        self._recent_list = QListWidget(self)
+        self._recent_list.itemActivated.connect(self._on_recent_activated)
+        self._recent_list.itemClicked.connect(self._on_recent_activated)
+        self._recent_list.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self._recent_list.customContextMenuRequested.connect(
+            self._recent_menu
+        )
+        recent_layout.addWidget(self._recent_list, 1)
+        left.addWidget(recent_box)
 
         fav_box = QWidget(self)
         fav_layout = QVBoxLayout(fav_box)
         fav_layout.setContentsMargins(4, 4, 4, 2)
-        fav_header = QHBoxLayout()
-        fav_header.addWidget(QLabel("Favorites"))
-        fav_header.addStretch(1)
-        fav_manage = QToolButton(self)
-        fav_manage.setText("⋯")
-        fav_manage.setToolTip("Clear, export, or import your favorites")
-        fav_manage.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        fav_menu = QMenu(fav_manage)
-        fav_menu.addAction("Export favorites…", self._export_favorites)
-        fav_menu.addAction("Import favorites…", self._import_favorites)
-        fav_menu.addSeparator()
-        fav_menu.addAction("Clear all favorites", self._clear_favorites)
-        fav_manage.setMenu(fav_menu)
-        fav_header.addWidget(fav_manage)
-        fav_layout.addLayout(fav_header)
+        fav_layout.addLayout(self._panel_header(
+            "Favorites", "Clear, export, or import your favorites",
+            [("Export favorites…", self._export_favorites),
+             ("Import favorites…", self._import_favorites),
+             None,
+             ("Clear all favorites", self._clear_favorites)],
+        ))
         self._fav_list = QListWidget(self)
         self._fav_list.itemActivated.connect(self._on_favorite_activated)
         self._fav_list.itemClicked.connect(self._on_favorite_activated)
@@ -989,11 +1070,12 @@ class MainWindow(QMainWindow):
         files_layout.addWidget(self._tree, 1)
         left.addWidget(files_box)
 
+        recent_box.setMinimumHeight(56)
         fav_box.setMinimumHeight(56)
         files_box.setMinimumHeight(120)
         left.setChildrenCollapsible(False)
-        left.setStretchFactor(1, 1)          # the file list takes extra space
-        left.setSizes([150, 520])
+        left.setStretchFactor(2, 1)          # the file list takes extra space
+        left.setSizes([130, 150, 460])
 
         # Pane 2: document outline.
         outline_box = QWidget(self)
@@ -1197,13 +1279,12 @@ class MainWindow(QMainWindow):
         # avoided.  Refresh (F5) rescans on demand.
         self._watched_roots = {r["path"] for r in self._roots}
 
-    # ---- Drag-and-drop ingest into MD_Inbox ------------------------------ #
+    # ---- Drag-and-drop ---------------------------------------------------- #
+    # A dropped Markdown file is opened where it lies, from anywhere on disk --
+    # it need not be under a root folder.  Copying files into MD_Inbox is a
+    # deliberate act now, on the Files context menu.
     def _accepts_drop(self, event: QDropEvent) -> bool:
-        """True when the drag carries at least one Markdown file and an
-        MD_Inbox folder currently exists to receive it."""
-        inbox = self._inbox_path
-        if not inbox or not os.path.isdir(inbox):
-            return False
+        """True when the drag carries at least one Markdown file."""
         data = event.mimeData()
         if not data.hasUrls():
             return False
@@ -1215,9 +1296,9 @@ class MainWindow(QMainWindow):
     def eventFilter(  # noqa: N802 (Qt override)
         self, watched: QObject, event: QEvent
     ) -> bool:
-        # App-wide catch for Markdown-file drags so they reach MD_Inbox even
-        # over the preview's native web widget.  Non-file drags fall through to
-        # normal handling (e.g. moving text within the editor).
+        # App-wide catch for Markdown-file drags so a drop lands even over the
+        # preview's native web widget.  Non-file drags fall through to normal
+        # handling (e.g. moving text within the editor).
         if (event.type() in _DND_EVENT_TYPES
                 and isinstance(event, QDropEvent)
                 and self._accepts_drop(event)):
@@ -1251,17 +1332,35 @@ class MainWindow(QMainWindow):
         self._perform_drop(event)
 
     def _perform_drop(self, event: QDropEvent) -> None:
-        """Accept ``event`` and ingest the Markdown files it carries."""
+        """Accept ``event`` and open the first Markdown file it carries."""
         event.acceptProposedAction()
         files = [
             url.toLocalFile() for url in event.mimeData().urls()
             if url.isLocalFile() and is_markdown(url.toLocalFile())
         ]
-        self._ingest_dropped(files)
+        if files:
+            self.open_path(files[0])       # extra files stay where they are
 
-    def _ingest_dropped(self, files: list[str]) -> None:
-        """Copy dropped Markdown ``files`` into MD_Inbox, refresh the tree, and
-        open the first.  A file already inside the inbox is opened in place."""
+    def _import_to_inbox_dialog(self) -> None:
+        """Pick Markdown files to copy into MD_Inbox."""
+        inbox = self._inbox_path
+        if not inbox or not os.path.isdir(inbox):
+            QMessageBox.information(
+                self, DISPLAY_NAME,
+                f"No {INBOX_NAME} folder was found.\n\n"
+                f"Create a folder named {INBOX_NAME} inside one of your root "
+                "folders (or add one as a root), then try again.",
+            )
+            return
+        files, _ = QFileDialog.getOpenFileNames(
+            self, f"Import files into {INBOX_NAME}", "", MARKDOWN_FILTER
+        )
+        if files:
+            self._import_to_inbox(files)
+
+    def _import_to_inbox(self, files: list[str]) -> None:
+        """Copy Markdown ``files`` into MD_Inbox, refresh the tree, and open the
+        first.  A file already inside the inbox is opened in place."""
         inbox = self._inbox_path
         if not inbox or not os.path.isdir(inbox):
             return
@@ -1291,11 +1390,56 @@ class MainWindow(QMainWindow):
             self._open_file(copied[0])
 
     # ---- Open / edit / save ---------------------------------------------- #
-    def _open_file(self, path: str) -> None:
+    def open_path(self, path: str) -> bool:
+        """Open ``path`` from anywhere on disk, saying why if it cannot be.
+
+        The entry point for callers outside the file tree -- the command line
+        (file associations), drops, and Open file.  Unlike ``_open_file`` it
+        never fails silently, because those callers have no other feedback.
+        """
+        assert isinstance(path, str), "path must be a string"
+        if not path:
+            return False
+        full = os.path.abspath(path)
+        if not os.path.isfile(full):
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"File not found:\n{full}"
+            )
+            return False
+        if not is_markdown(full) and not self._confirm_non_markdown(full):
+            return False
+        return self._open_file(full)
+
+    def _confirm_non_markdown(self, path: str) -> bool:
+        """Ask before treating a file without a Markdown extension as one."""
+        assert path, "path must be non-empty"
+        ext = os.path.splitext(path)[1] or "no extension"
+        return QMessageBox.question(
+            self, DISPLAY_NAME,
+            f"{os.path.basename(path)} has {ext}, which is not a Markdown "
+            "file type.\n\nOpen it as Markdown anyway?",
+        ) == QMessageBox.StandardButton.Yes
+
+    def _open_dialog(self) -> None:
+        """Open file: browse for a document anywhere on disk."""
+        if self._current_path:
+            start = os.path.dirname(self._current_path)
+        elif self._roots:
+            start = self._roots[0]["path"]
+        else:
+            start = os.path.expanduser("~")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Markdown file", start,
+            f"{MARKDOWN_FILTER};;All files (*)",
+        )
+        if path:
+            self.open_path(path)
+
+    def _open_file(self, path: str) -> bool:
         if not path or not os.path.isfile(path):
-            return
+            return False
         if not self._confirm_discard():
-            return
+            return False
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 text = fh.read()
@@ -1303,14 +1447,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, DISPLAY_NAME, f"Cannot open file:\n{exc}"
             )
-            return
+            return False
         self._suppress_dirty = True
         self._editor.setPlainText(text)
         self._editor.document().setModified(False)
         self._suppress_dirty = False
         self._current_path = path
+        self._add_recent(path)
         self._render_preview()
         self._update_title()
+        return True
 
     def _on_text_changed(self) -> None:
         if not self._suppress_dirty:
@@ -1477,6 +1623,75 @@ class MainWindow(QMainWindow):
         )
         self._preview.page().runJavaScript(script)
 
+    # ---- Recent documents ------------------------------------------------ #
+    # The last MAX_RECENTS documents opened, newest first, maintained
+    # automatically by _open_file and persisted like favorites.
+    @staticmethod
+    def _fill_path_list(widget: QListWidget, paths: list[str],
+                        hint: str) -> None:
+        """Show ``paths`` as filename-only rows, or a greyed ``hint`` if empty.
+
+        The full path goes in the tooltip and UserRole.  A path that no longer
+        resolves to a file is drawn in red rather than dropped, so a moved or
+        deleted document is visible instead of silently vanishing.
+        """
+        assert hint, "hint must be non-empty"
+        widget.clear()
+        if not paths:
+            item = QListWidgetItem(hint)
+            item.setForeground(QColor("#999"))
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
+            widget.addItem(item)
+            return
+        for path in paths:
+            item = QListWidgetItem(os.path.basename(path))   # filename only
+            item.setToolTip(path)                            # full path (hover)
+            item.setData(int(Qt.ItemDataRole.UserRole), path)
+            if not os.path.isfile(path):
+                item.setForeground(QColor("#c01c28"))        # missing file
+            widget.addItem(item)
+
+    def _reload_recents(self) -> None:
+        self._fill_path_list(self._recent_list, self._recents,
+                             "(documents you open appear here)")
+
+    def _on_recent_activated(self, item: QListWidgetItem) -> None:
+        path = item.data(int(Qt.ItemDataRole.UserRole))
+        if isinstance(path, str):
+            self._open_file(path)
+
+    def _add_recent(self, path: str) -> None:
+        """Record ``path`` as the most recently viewed document."""
+        self._recents = push_recent(self._recents, path)
+        update_config({"recents": self._recents})
+        self._reload_recents()
+
+    def _clear_recents(self) -> None:
+        if not self._recents:
+            QMessageBox.information(
+                self, DISPLAY_NAME, "Your recent list is already empty."
+            )
+            return
+        self._recents = []
+        update_config({"recents": self._recents})
+        self._reload_recents()
+
+    def _recent_menu(self, pos: QPoint) -> None:
+        item = self._recent_list.itemAt(pos)
+        path = item.data(int(Qt.ItemDataRole.UserRole)) if item else None
+        menu = QMenu(self)
+        if isinstance(path, str):
+            menu.addAction("Open", lambda: self._open_file(path))
+            fav = ("Remove from favorites" if self._is_favorite(path)
+                   else "Add to favorites")
+            menu.addAction(fav, lambda: self._toggle_favorite(path))
+            menu.addAction("Reveal in Explorer", lambda: self._reveal(path))
+            menu.addAction("Copy path",
+                           lambda: QApplication.clipboard().setText(path))
+            menu.addSeparator()
+        menu.addAction("Clear recent documents", self._clear_recents)
+        menu.exec(self._recent_list.viewport().mapToGlobal(pos))
+
     # ---- Favorites ------------------------------------------------------- #
     # Favorites are pinned documents, newest first, capped at MAX_FAVORITES;
     # adding an 11th drops the oldest.  Stored as absolute paths and persisted.
@@ -1485,20 +1700,8 @@ class MainWindow(QMainWindow):
         return any(_norm(f) == want for f in self._favorites)
 
     def _reload_favorites(self) -> None:
-        self._fav_list.clear()
-        if not self._favorites:
-            hint = QListWidgetItem("(right-click a file to add)")
-            hint.setForeground(QColor("#999"))
-            hint.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._fav_list.addItem(hint)
-            return
-        for path in self._favorites:
-            item = QListWidgetItem(os.path.basename(path))  # filename only
-            item.setToolTip(path)                           # full path (hover)
-            item.setData(int(Qt.ItemDataRole.UserRole), path)
-            if not os.path.isfile(path):
-                item.setForeground(QColor("#c01c28"))        # missing file
-            self._fav_list.addItem(item)
+        self._fill_path_list(self._fav_list, self._favorites,
+                             "(right-click a file to add)")
 
     def _on_favorite_activated(self, item: QListWidgetItem) -> None:
         path = item.data(int(Qt.ItemDataRole.UserRole))
@@ -1692,6 +1895,8 @@ class MainWindow(QMainWindow):
             menu.addAction("Copy path",
                            lambda: QApplication.clipboard().setText(path))
         menu.addSeparator()
+        menu.addAction(f"Import files into {INBOX_NAME}…",
+                       self._import_to_inbox_dialog)
         menu.addAction("Manage folders…", self._manage_folders)
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
@@ -2138,13 +2343,45 @@ class MainWindow(QMainWindow):
         except OSError:
             pass
 
+    # ---- Single instance -------------------------------------------------- #
+    def _start_ipc_server(self) -> None:
+        """Listen for later launches so one window serves every document."""
+        self._ipc = QLocalServer(self)
+        self._ipc.newConnection.connect(self._on_ipc_connection)
+        if not self._ipc.listen(IPC_SERVER_NAME):
+            # A crashed instance can leave the name behind; take it over.
+            QLocalServer.removeServer(IPC_SERVER_NAME)
+            self._ipc.listen(IPC_SERVER_NAME)
+
+    def _on_ipc_connection(self) -> None:
+        """Open the document another launch handed us, and come to the front."""
+        conn = self._ipc.nextPendingConnection()
+        if conn is None:
+            return
+        path = ""
+        if conn.waitForReadyRead(IPC_TIMEOUT_MS):
+            path = bytes(conn.readAll().data()).decode("utf-8", "replace")
+        conn.disconnectFromServer()
+        self._raise_to_front()
+        if path:
+            self.open_path(path)
+
+    def _raise_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
     # ---- Geometry persistence ------------------------------------------- #
     def _restore_geometry(self, cfg: ConfigDict) -> None:
         geo = cfg.get("geometry")
         if isinstance(geo, str):
             self.restoreGeometry(QByteArray.fromBase64(geo.encode("ascii")))
+        # split_left_v2: the left splitter gained a third pane (Recent), and a
+        # saved two-pane state would be applied to the wrong widgets.  The new
+        # key makes pre-Recent configs fall back to the default sizes.
         for key, split in (("split_main", self._main_split),
-                           ("split_left", self._left),
+                           ("split_left_v2", self._left),
                            ("split_right", self._right)):
             state = cfg.get(key)
             if isinstance(state, str):
@@ -2162,24 +2399,59 @@ class MainWindow(QMainWindow):
         update_config({
             "roots": self._roots,
             "favorites": self._favorites,
+            "recents": self._recents,
             "geometry": _b64(self.saveGeometry()),
             "split_main": _b64(self._main_split.saveState()),
-            "split_left": _b64(self._left.saveState()),
+            "split_left_v2": _b64(self._left.saveState()),
             "split_right": _b64(self._right.saveState()),
         })
         event.accept()
+
+
+def cli_path(argv: list[str]) -> str | None:
+    """The document path in ``argv``, or None.
+
+    Windows hands the associated file to the shell handler as a single
+    argument, quoted, so only the first matters.  A leading ``-`` marks a Qt
+    switch (``-platform`` and friends), never a document.
+    """
+    assert isinstance(argv, list), "argv must be a list"
+    if len(argv) < 2:
+        return None
+    first = argv[1]
+    return first if first and not first.startswith("-") else None
+
+
+def forward_to_running(path: str | None) -> bool:
+    """Hand ``path`` to an already-running MD Boss.  True when one took it.
+
+    Keeps a single window when the app is launched per double-clicked file.
+    Falling through to False -- no instance, or one too busy to answer within
+    the timeout -- simply starts a normal window.
+    """
+    socket = QLocalSocket()
+    socket.connectToServer(IPC_SERVER_NAME)
+    if not socket.waitForConnected(IPC_TIMEOUT_MS):
+        return False
+    socket.write((path or "").encode("utf-8"))
+    socket.flush()
+    delivered = socket.waitForBytesWritten(IPC_TIMEOUT_MS)
+    socket.disconnectFromServer()
+    return bool(delivered)
 
 
 def main() -> None:
     """Create the application and show the main window."""
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    path = cli_path(sys.argv)
+    if forward_to_running(path):
+        return                          # an existing window took it; done
     seed_templates()
     window = MainWindow()
     window.show()
-    # Open a file passed on the command line, if any.
-    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
-        window._open_file(os.path.abspath(sys.argv[1]))  # noqa: SLF001
+    if path:
+        window.open_path(path)
     sys.exit(app.exec())
 
 

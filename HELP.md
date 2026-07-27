@@ -14,17 +14,28 @@ images — all **100% offline**.
 3. Type in the editor — the preview updates automatically as you pause.
 4. Press **Ctrl+S** to save.
 
+You do not have to add a root folder to read a document. **Ctrl+O** opens any
+Markdown file on disk, dragging one onto the window opens it, and MD Boss opens
+files passed on the command line — so it works as a plain Markdown viewer as
+well as a library manager. Roots are for browsing; everything else works
+without them.
+
 ## Panes
 
-- **Left pane** — **Favorites** are pinned at the top (see below), above the
-  **Files** list: your roots as a combined tree, where each folder shows the
-  number of Markdown files within it (counted recursively). Filter with the
-  box above the tree. Right-click a file for New file/folder, Rename, Delete
-  (to the Recycle Bin / Trash), Reveal in Explorer / Show in file manager,
-  Copy path, and Favorite.
+- **Left pane** — **Recent** and **Favorites** sit at the top (see below), above
+  the **Files** list: your roots as a combined tree, where each folder shows the
+  number of Markdown files within it (counted recursively). Folders with no
+  Markdown files anywhere inside them are not listed. Filter with the box above
+  the tree. Right-click a file for New file/folder, Rename, Delete (to the
+  Recycle Bin / Trash), Reveal in Explorer / Show in file manager, Copy path,
+  and Favorite.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
-- **Favorites** (top of the left pane) — pin up to ten documents, newest first
+- **Recent** (top of the left pane) — the last six documents you opened, newest
+  first, kept automatically. Re-opening one moves it back to the top rather than
+  adding a duplicate. Click to reopen; right-click to open, favorite, reveal, or
+  copy a path, and use the **⋯** menu to clear the list.
+- **Favorites** (below Recent) — pin up to ten documents, newest first
   (adding an 11th drops the oldest). Drag the divider below it to make the
   panel taller or shorter. Rows show the filename (hover for the full path);
   missing files show in red. Right-click a file in the tree to add or remove
@@ -36,15 +47,36 @@ images — all **100% offline**.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.
 
-## Drag and drop
+## Opening files from outside your folders
+
+- **Ctrl+O** (**Open…**) — browse for any Markdown file on disk. It need not be
+  under a root folder; it opens in place and is not copied anywhere.
+- **Drag and drop** — drop a `.md` file from Explorer onto the window and it
+  opens where it lies. Dropping several opens the first.
+- **Command line** — `MDBoss.exe "C:\path\to\note.md"` opens that document. This
+  is what makes MD Boss usable as the Windows default app for `.md` files.
+
+MD Boss keeps a **single window**. Opening a second document from Explorer or
+the command line hands it to the window already running and brings it to the
+front, rather than starting a second copy — which also stops two copies from
+overwriting each other's recent list and layout on exit.
+
+Documents opened this way appear in **Recent**, which is the easiest way back to
+a file that lives outside your root folders. Use **Add to favorites** to keep
+one for good.
+
+## MD_Inbox
 
 Create a folder named **`MD_Inbox`** in one of your root folders (or add a root
-that is itself named `MD_Inbox`), and MD Boss becomes a drop target for Markdown
-files. Drag one or more `.md` files from your file manager onto the window and they are
-**copied into `MD_Inbox`** (the originals stay put), the tree refreshes, and the
-first dropped file opens. A name that already exists in the inbox is kept — the
-copy is saved as `name (2).md` rather than overwriting. Without an `MD_Inbox`
-folder, drops are ignored.
+that is itself named `MD_Inbox`) to have a defined landing place for incoming
+documents. Right-click in the **Files** pane and choose
+**Import files into MD_Inbox…** to copy files into it: the originals stay put,
+the tree refreshes, and the first file opens. A name that already exists in the
+inbox is kept — the copy is saved as `name (2).md` rather than overwriting.
+
+Dragging a file onto the window no longer copies it here — it opens the file
+where it lies, so MD Boss works as a plain viewer. Use the menu command above
+when you do want a copy in the inbox.
 
 ## Rendering
 
@@ -79,7 +111,7 @@ folder, drops are ignored.
 
 Ordered to match the columns — **Files**, **Outline**, **Edit**:
 
-- **Files** — show/hide the left pane (Favorites + file list).
+- **Files** — show/hide the left pane (Recent + Favorites + file list).
 - **Outline** — show/hide the outline column.
 - **Edit** — show/hide the source editor (preview-only reading mode).
 - **Hide YAML** — when on (the default), a leading YAML front-matter block
