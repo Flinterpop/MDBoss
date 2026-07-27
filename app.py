@@ -67,7 +67,13 @@ UPDATE_API_URL = (
     "https://api.github.com/repos/Flinterpop/MDBoss/releases/latest"
 )
 UPDATE_ASSET_NAME = "MDBoss-Setup.exe"
-UPDATE_PORTABLE_ASSET_NAME = "MDBoss-Portable.zip"
+# Renamed from MDBoss-Portable.zip when the Windows build went one-dir.  Do not
+# change it back: v0.1.11 and earlier match that old name, then move the first
+# .exe they find in the zip over their own -- which for a one-dir zip means the
+# 7 MB stub without its _internal folder, leaving an app that cannot start.
+# Finding no asset by that name, those versions fall back to opening the
+# releases page, which is the right answer for a layout change.
+UPDATE_PORTABLE_ASSET_NAME = "MDBoss-Portable-App.zip"
 UPDATE_APPIMAGE_ASSET_NAME = "MDBoss-x86_64.AppImage"
 RELEASES_URL = "https://github.com/Flinterpop/MDBoss/releases/latest"
 

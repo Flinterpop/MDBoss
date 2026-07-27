@@ -64,10 +64,14 @@ and shares its conventions and release pipeline.
 ## Install
 
 **Windows** — download **MDBoss-Setup.exe** (per-user installer) or
-**MDBoss-Portable.zip** from the
+**MDBoss-Portable-App.zip** from the
 [Releases](https://github.com/Flinterpop/MDBoss/releases/latest) page. The
 portable zip holds an `MDBoss` folder — extract it somewhere and run
 `MDBoss.exe` from inside it; the exe needs the `_internal` folder beside it.
+
+> Upgrading a **portable** copy of v0.1.11 or earlier: download the new zip by
+> hand. Those versions expect a single-exe zip and cannot install a one-dir
+> build over themselves; the in-app updater will send you here instead.
 
 **Linux** — download **MDBoss-x86_64.AppImage** from the same page, then:
 

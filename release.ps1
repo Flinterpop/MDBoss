@@ -71,13 +71,15 @@ Write-Host "==> Building installer (ISCC)" -ForegroundColor Cyan
 CheckExit "ISCC"
 
 # One-dir build: the zip holds the whole MDBoss folder, and its root entry is
-# "MDBoss\" -- the updater looks for MDBoss.exe at either level.
+# "MDBoss\" -- the updater looks for MDBoss.exe at either level.  The asset is
+# deliberately NOT called MDBoss-Portable.zip any more; see the comment on
+# UPDATE_PORTABLE_ASSET_NAME in app.py before renaming it back.
 Write-Host "==> Building portable zip" -ForegroundColor Cyan
 if (-not (Test-Path dist\MDBoss\MDBoss.exe)) { Fail "expected dist\MDBoss\MDBoss.exe (one-dir build)" }
-Compress-Archive -Force -Path dist\MDBoss -DestinationPath installer\MDBoss-Portable.zip
+Compress-Archive -Force -Path dist\MDBoss -DestinationPath installer\MDBoss-Portable-App.zip
 
 # Both asset names are load-bearing: the in-app updater matches them exactly.
-foreach ($asset in "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable.zip") {
+foreach ($asset in "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable-App.zip") {
     if (-not (Test-Path $asset)) { Fail "expected artifact missing: $asset" }
 }
 
@@ -100,7 +102,7 @@ CheckExit "git push"
 # --- Publish release ---------------------------------------------------------
 Write-Host "==> Publishing GitHub release v$Version" -ForegroundColor Cyan
 $ghArgs = @("release", "create", "v$Version",
-            "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable.zip",
+            "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable-App.zip",
             "--title", "v$Version")
 if ($NotesFile)  { $ghArgs += @("--notes-file", $NotesFile) }
 elseif ($Notes)  { $ghArgs += @("--notes", $Notes) }

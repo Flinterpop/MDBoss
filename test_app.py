@@ -359,6 +359,15 @@ def test_portable_batch_relaunches_even_if_the_copy_fails() -> None:
                    for ln in lines[copy_at:start_at])   # nothing can abort it
 
 
+def test_portable_asset_is_not_the_pre_one_dir_name() -> None:
+    """v0.1.11 and earlier match "MDBoss-Portable.zip" and then move the first
+    .exe in it over their own -- for a one-dir zip, the stub without its
+    _internal folder, leaving an app that cannot start.  Publishing the new
+    layout under the old name would break every portable copy in the field."""
+    assert app.UPDATE_PORTABLE_ASSET_NAME != "MDBoss-Portable.zip"
+    assert app.UPDATE_PORTABLE_ASSET_NAME.endswith(".zip")
+
+
 def test_extract_portable_finds_exe_in_a_top_level_folder(
     tmp_path: Path
 ) -> None:

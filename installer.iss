@@ -1,7 +1,7 @@
 ; Inno Setup script for MD Boss
 ; Build with:  iscc installer.iss   (produces installer\MDBoss-Setup.exe)
 ; Requires the app to be built first:  python -m PyInstaller MDBoss.spec
-; Releases also ship installer\MDBoss-Portable.zip (the dist\MDBoss folder);
+; Releases also ship installer\MDBoss-Portable-App.zip (the dist\MDBoss folder);
 ; release.ps1 does the whole cycle -- see the README's build section.
 
 #define AppName "MD Boss"
