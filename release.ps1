@@ -9,9 +9,13 @@ Usage:
   .\release.ps1 0.1.0 -Notes "- fixed X"       # inline release notes
   .\release.ps1 0.1.0 -SkipInstall             # don't reinstall/relaunch here
 
+Refuses to build unless pytest, ruff and mypy --strict all pass (see the
+quality gate below); that check runs before the version bump, so a failure
+leaves the tree untouched.
+
 Without -Notes/-NotesFile the GitHub notes are auto-generated from commits.
-Requires: python (with PyInstaller), Inno Setup 6, gh (authenticated), git.
-Windows PowerShell 5.1 compatible.
+Requires: python (with PyInstaller, pytest, ruff, mypy), Inno Setup 6,
+gh (authenticated), git. Windows PowerShell 5.1 compatible.
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -44,6 +48,25 @@ if ($NotesFile -and -not (Test-Path $NotesFile)) { Fail "notes file not found: $
 
 $dirty = git status --porcelain
 if ($dirty) { Fail "working tree not clean -- commit or stash first:`n$dirty" }
+
+# --- Quality gate ------------------------------------------------------------
+# Runs before the version bump, so a failure leaves the tree exactly as it was.
+# Configured in pyproject.toml; both tools are expected to pass clean, so any
+# output here is a real regression rather than pre-existing noise.
+# Do not pipe these through 2>&1: PowerShell 5.1 wraps a native command's
+# stderr in ErrorRecords, and $ErrorActionPreference = "Stop" then turns an
+# ordinary progress line into a terminating error.
+Write-Host "==> Tests" -ForegroundColor Cyan
+python -m pytest -q
+CheckExit "pytest"
+
+Write-Host "==> Lint (ruff)" -ForegroundColor Cyan
+python -m ruff check .
+CheckExit "ruff"
+
+Write-Host "==> Types (mypy --strict)" -ForegroundColor Cyan
+python -m mypy
+CheckExit "mypy"
 
 # --- Bump versions -----------------------------------------------------------
 Write-Host "==> Bumping version to $Version" -ForegroundColor Cyan
