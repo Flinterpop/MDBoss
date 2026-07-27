@@ -2,11 +2,17 @@
 
 MDBoss browses Markdown files across up to five root folders, edits them in a
 source pane, and renders a live preview using the GitHub-light theme with
-mermaid diagrams and embedded images.  It is a PySide6 sibling of PDF Sherpa
-and reuses that app's conventions: a single-file GUI monolith over a small pure
-helper module (``mdrender``), a read-merge-write JSON config under
-``%APPDATA%``, and the same PyInstaller -> Inno -> portable-zip release
-pipeline with an in-app GitHub self-updater.
+mermaid diagrams and embedded images.  It also opens any file on disk -- via
+Ctrl+O, a drop, or a path on the command line -- so it works as a plain viewer
+and as the system's Markdown handler, one window per session.
+
+It is a PySide6 sibling of PDF Sherpa and reuses that app's conventions: a
+single-file GUI monolith over a small pure helper module (``mdrender``) and a
+read-merge-write JSON config (``%APPDATA%`` on Windows, XDG on Linux -- see
+``_user_data_base``).  Windows ships as PyInstaller -> Inno installer plus a
+portable zip; Linux ships as an AppImage built by ``build-appimage.sh``.  Both
+self-update from the GitHub releases.  Platform-specific code is guarded with
+``sys.platform.startswith("win")``.
 
 Rendering is 100% offline (bundled mermaid + CSS + Pygments) and the preview's
 web view is network-locked: every request whose scheme is not local is blocked,
@@ -91,13 +97,14 @@ MARKDOWN_EXTS = (".md", ".markdown", ".mdown", ".mkd", ".mdwn")
 MARKDOWN_FILTER = (
     "Markdown (" + " ".join("*" + ext for ext in MARKDOWN_EXTS) + ")"
 )
-# Drag-and-drop ingest: dropped Markdown files are copied here.  Drops are only
-# accepted when a folder of this name exists at the top level of a root folder
-# (or a root is itself named this), giving them a defined home.
+# Optional landing folder for documents copied in via "Import files into
+# MD_Inbox…".  Recognised when a root is named this, or holds a top-level
+# subfolder of this name.  Dropping a file does NOT copy here -- drops open the
+# file where it lies (see _perform_drop).
 INBOX_NAME = "MD_Inbox"
-# Drag/drop event types routed through the app-level filter so a drop lands in
-# MD_Inbox no matter which widget is under the cursor (the preview's native web
-# widget would otherwise swallow it).
+# Drag/drop event types routed through the app-level filter so a drop is seen
+# whatever widget is under the cursor (the preview's native web widget would
+# otherwise swallow it).
 _DND_EVENT_TYPES = frozenset({
     QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop,
 })
@@ -158,7 +165,7 @@ def config_path() -> str:
 def load_config() -> ConfigDict:
     """Return saved settings, or an empty dict on any read/parse failure."""
     try:
-        with open(config_path(), "r", encoding="utf-8") as fh:
+        with open(config_path(), encoding="utf-8") as fh:
             data = json.load(fh)
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
@@ -353,9 +360,11 @@ def unique_dest(dest_dir: str, filename: str) -> str:
 
 # Header for update-handoff batches: wait until every MDBoss.exe process has
 # exited (up to ~60s) before touching the on-disk exe.  A fixed delay is not
-# enough -- the large one-file bundle can take several seconds to unpack-clean
-# and release the exe lock, which would make the installer fail and the old
-# version relaunch (an update loop).
+# enough -- shutdown can outlast it, and writing over a still-locked exe makes
+# the installer fail, whereupon the old version relaunches and offers the same
+# update again (an update loop).  This mattered more under the old one-file
+# build, whose %TEMP% unpack took seconds to clean up on exit, but the exe lock
+# outlives a fixed sleep either way, so the wait stays.
 _WAIT_FOR_EXIT = (
     "@echo off\r\n"
     "timeout /t 2 /nobreak >nul\r\n"
@@ -789,7 +798,7 @@ class PreviewPage(QWebEnginePage):
 class _LineNumberArea(QWidget):
     """Thin gutter widget delegating paint/size back to its editor."""
 
-    def __init__(self, editor: "CodeEditor") -> None:
+    def __init__(self, editor: CodeEditor) -> None:
         super().__init__(editor)
         self._editor = editor
 
@@ -842,7 +851,7 @@ class CodeEditor(QPlainTextEdit):
             QRect(cr.left(), cr.top(), self.gutter_width(), cr.height())
         )
 
-    # External file drops are for the window's MD_Inbox ingest, not for
+    # External file drops open the document at window level, rather than
     # pasting a path into the text -- ignore them so they bubble to the parent.
     def dragEnterEvent(  # noqa: N802 (Qt override)
         self, event: QDragEnterEvent
@@ -1113,7 +1122,7 @@ class MainWindow(QMainWindow):
         self._updating = False                   # skip close-time re-ask
 
         self.setWindowTitle(f"{DISPLAY_NAME} - v{APP_VERSION}")
-        self.setAcceptDrops(True)                # MD_Inbox drag-and-drop ingest
+        self.setAcceptDrops(True)                # dropped documents open here
         # An app-wide filter also catches drops over the preview's native web
         # widget, which does not forward them to the window on its own.  On
         # Linux/macOS an application-wide filter makes PySide try to wrap every
@@ -1322,11 +1331,11 @@ class MainWindow(QMainWindow):
             self._sync_preview_scroll
         )
         self._preview = QWebEngineView(self)
-        self._preview.setAcceptDrops(False)      # drops belong to MD_Inbox
+        self._preview.setAcceptDrops(False)      # the window handles drops
         self._preview.setPage(PreviewPage(self._preview))
         # On non-Windows an app-wide event filter crashes (see __init__), so
         # watch just the preview and its lazily-created native child so a
-        # Markdown file dropped over the preview still reaches MD_Inbox.
+        # Markdown file dropped over the preview still opens.
         if not sys.platform.startswith("win"):
             self._preview.installEventFilter(self)
 
@@ -1662,7 +1671,7 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return False
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 text = fh.read()
         except (OSError, ValueError) as exc:
             QMessageBox.warning(
@@ -1753,7 +1762,7 @@ class MainWindow(QMainWindow):
         if template_path is None:
             return f"# {title}\n\n"
         try:
-            with open(template_path, "r", encoding="utf-8") as fh:
+            with open(template_path, encoding="utf-8") as fh:
                 text = fh.read()
         except OSError as exc:
             QMessageBox.warning(
@@ -2053,7 +2062,7 @@ class MainWindow(QMainWindow):
 
     def _read_favorites_file(self, path: str) -> list[str] | None:
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(
@@ -2278,7 +2287,7 @@ class MainWindow(QMainWindow):
     def _show_help(self) -> None:
         help_path = resource_path("HELP.md")
         try:
-            with open(help_path, "r", encoding="utf-8") as fh:
+            with open(help_path, encoding="utf-8") as fh:
                 text = fh.read()
         except OSError:
             text = f"# {DISPLAY_NAME}\n\nVersion {APP_VERSION}."
