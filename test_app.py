@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import winreg
 from pathlib import Path
 
 import pytest
@@ -157,6 +158,105 @@ def test_unique_dest_collision_increments(tmp_path: Path) -> None:
     assert app.unique_dest(str(tmp_path), "note.md") == str(
         tmp_path / "note (3).md"
     )
+
+
+def _plan() -> app.RegPlan:
+    return app.registration_plan(
+        r'"C:\a\MDBoss.exe" "%1"', r"C:\a\MDBoss.exe,0", "MDBoss.exe"
+    )
+
+
+def test_registration_plan_covers_every_markdown_extension() -> None:
+    plan = _plan()
+    for ext in app.MARKDOWN_EXTS:
+        key = rf"Software\Classes\{ext}\OpenWithProgids"
+        assert (key, app.PROGID, "") in plan["values"]
+        assert (rf"Software\{app.APP_NAME}\Capabilities\FileAssociations",
+                ext, app.PROGID) in plan["values"]
+
+
+def test_registration_plan_open_command_passes_the_file() -> None:
+    plan = _plan()
+    command = [
+        data for key, name, data in plan["values"]
+        if key.endswith(rf"{app.PROGID}\shell\open\command") and name == ""
+    ]
+    assert command == [r'"C:\a\MDBoss.exe" "%1"']    # quoted, %1 preserved
+
+
+def test_registration_plan_requires_a_file_placeholder() -> None:
+    with pytest.raises(AssertionError):
+        app.registration_plan(r'"C:\a\MDBoss.exe"', "icon", "MDBoss.exe")
+
+
+def test_registration_plan_never_deletes_shared_keys() -> None:
+    """OpenWithProgids and RegisteredApplications belong to every app."""
+    plan = _plan()
+    for key in plan["owned_keys"]:
+        assert "OpenWithProgids" not in key
+        assert "RegisteredApplications" not in key
+    shared_keys = {key for key, _name in plan["shared_values"]}
+    assert r"Software\RegisteredApplications" in shared_keys
+    assert all(
+        rf"Software\Classes\{ext}\OpenWithProgids" in shared_keys
+        for ext in app.MARKDOWN_EXTS
+    )
+
+
+def test_registration_plan_deletes_children_before_parents() -> None:
+    """RegDeleteKey fails on a key that still has subkeys."""
+    owned = _plan()["owned_keys"]
+    for i, key in enumerate(owned):
+        for later in owned[i + 1:]:
+            assert not later.startswith(key + "\\"), (
+                f"{later} must be deleted before its parent {key}"
+            )
+
+
+def test_registration_plan_round_trips_in_the_registry(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Register and unregister for real, under throwaway names.
+
+    Everything the plan touches is renamed first, so running the tests cannot
+    disturb a genuine MD Boss registration on the same machine.
+    """
+    monkeypatch.setattr(app, "PROGID", "MDBossTest.Markdown")
+    monkeypatch.setattr(app, "DISPLAY_NAME", "MD Boss Test")
+    monkeypatch.setattr(
+        app, "CAPABILITIES_SUBKEY", r"Software\MDBossTest\Capabilities"
+    )
+    exe = r"C:\nowhere\MDBossTest.exe"
+    command = f'"{exe}" "%1"'
+    plan = app.registration_plan(command, f"{exe},0", "MDBossTest.exe")
+
+    # A decoy from "another application" must survive our unregister.
+    shared = r"Software\Classes\.md\OpenWithProgids"
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, shared) as handle:
+        winreg.SetValueEx(handle, "Decoy.Markdown", 0, winreg.REG_SZ, "")
+
+    app.apply_registration(plan)
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            rf"Software\Classes\{app.PROGID}\shell\open\command",
+        ) as handle:
+            assert winreg.QueryValueEx(handle, "")[0] == command
+        assert app.is_registered(command)
+        assert not app.is_registered(r'"C:\other.exe" "%1"')
+    finally:
+        app.remove_registration(plan)
+
+    assert not app.is_registered(command)
+    with pytest.raises(OSError):                    # our own key is gone
+        winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                       rf"Software\Classes\{app.PROGID}")
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, shared, 0,
+                        winreg.KEY_READ | winreg.KEY_SET_VALUE) as handle:
+        assert winreg.QueryValueEx(handle, "Decoy.Markdown")[0] == ""
+        with pytest.raises(OSError):                # ours, and only ours, went
+            winreg.QueryValueEx(handle, app.PROGID)
+        winreg.DeleteValue(handle, "Decoy.Markdown")
 
 
 def test_installer_batch_installs_and_relaunches() -> None:

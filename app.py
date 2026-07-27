@@ -15,6 +15,7 @@ so a stray remote image or link in a document can never reach the network.
 
 from __future__ import annotations
 
+import ctypes
 import datetime
 import json
 import os
@@ -25,6 +26,7 @@ import tempfile
 import threading
 import urllib.request
 import webbrowser
+import winreg
 import zipfile
 from collections.abc import Callable
 from typing import TypedDict
@@ -438,6 +440,170 @@ def md_counts_for_root(root_path: str) -> dict[str, int]:
             total += counts.get(_norm(os.path.join(dirpath, sub)), 0)
         counts[_norm(dirpath)] = total
     return counts
+
+
+# --------------------------------------------------------------------------- #
+# Windows file associations.
+#
+# Registration is per-user (HKEY_CURRENT_USER), matching the per-user installer,
+# so no admin rights are needed.  Note what this can and cannot do: since
+# Windows 8 the UserChoice key is hash-protected, so no application can make
+# itself the default handler.  These entries put MD Boss in the "Open with"
+# list and in Settings > Default apps; choosing it there is the user's step.
+#
+# The registry layout is a pure plan so it can be tested without touching the
+# registry, and so register/unregister cannot drift apart.
+# --------------------------------------------------------------------------- #
+PROGID = "MDBoss.Markdown"                 # our handler's ProgID
+PROGID_LABEL = "Markdown Document"
+CAPABILITIES_SUBKEY = rf"Software\{APP_NAME}\Capabilities"
+REGISTER_FLAG = "--register-file-types"
+UNREGISTER_FLAG = "--unregister-file-types"
+
+
+class RegPlan(TypedDict):
+    """What to write to register, and what to undo to unregister."""
+
+    values: list[tuple[str, str, str]]      # key, value name, data
+    owned_keys: list[str]                   # deleted whole, deepest first
+    shared_values: list[tuple[str, str]]    # key, value name -- value only
+
+
+def registration_plan(command: str, icon: str, exe_name: str) -> RegPlan:
+    """The complete HKCU registration for MD Boss as a Markdown handler.
+
+    ``command`` is the shell open command including its ``"%1"`` placeholder.
+    Keys we create outright are listed for wholesale removal, deepest first so
+    deletion never hits a key that still has children.  Keys shared with other
+    applications -- the per-extension ``OpenWithProgids`` lists and
+    ``RegisteredApplications`` -- give up only our own value.
+    """
+    assert "%1" in command, "command must pass the file through as %1"
+    assert icon, "icon must be non-empty"
+    assert exe_name, "exe_name must be non-empty"
+    progid = rf"Software\Classes\{PROGID}"
+    appkey = rf"Software\Classes\Applications\{exe_name}"
+    values: list[tuple[str, str, str]] = [
+        (progid, "", PROGID_LABEL),
+        (progid, "FriendlyTypeName", PROGID_LABEL),
+        (rf"{progid}\DefaultIcon", "", icon),
+        (rf"{progid}\shell\open", "FriendlyAppName", DISPLAY_NAME),
+        (rf"{progid}\shell\open\command", "", command),
+        # Applications\<exe> is what populates the "Open with" list.
+        (rf"{appkey}\shell\open\command", "", command),
+        (rf"{appkey}", "FriendlyAppName", DISPLAY_NAME),
+        # Capabilities + RegisteredApplications list us in Default apps.
+        (CAPABILITIES_SUBKEY, "ApplicationName", DISPLAY_NAME),
+        (CAPABILITIES_SUBKEY, "ApplicationDescription",
+         "Local Markdown manager, editor, and offline GitHub-style viewer."),
+        (r"Software\RegisteredApplications", DISPLAY_NAME,
+         CAPABILITIES_SUBKEY),
+    ]
+    shared_values: list[tuple[str, str]] = [
+        (r"Software\RegisteredApplications", DISPLAY_NAME),
+    ]
+    for ext in MARKDOWN_EXTS:
+        values.append((rf"Software\Classes\{ext}\OpenWithProgids", PROGID, ""))
+        values.append((rf"{appkey}\SupportedTypes", ext, ""))
+        values.append((rf"{CAPABILITIES_SUBKEY}\FileAssociations", ext, PROGID))
+        shared_values.append(
+            (rf"Software\Classes\{ext}\OpenWithProgids", PROGID)
+        )
+    owned_keys = [
+        rf"{progid}\shell\open\command",
+        rf"{progid}\shell\open",
+        rf"{progid}\shell",
+        rf"{progid}\DefaultIcon",
+        progid,
+        rf"{appkey}\shell\open\command",
+        rf"{appkey}\shell\open",
+        rf"{appkey}\shell",
+        rf"{appkey}\SupportedTypes",
+        appkey,
+        rf"{CAPABILITIES_SUBKEY}\FileAssociations",
+        CAPABILITIES_SUBKEY,
+        rf"Software\{APP_NAME}",
+    ]
+    return {"values": values, "owned_keys": owned_keys,
+            "shared_values": shared_values}
+
+
+def handler_command() -> str:
+    """The shell open command for this build of MD Boss.
+
+    Frozen, that is the exe itself; from source it is the interpreter plus
+    ``app.py``, so a developer install registers something that actually runs.
+    """
+    if getattr(sys, "frozen", False):
+        parts = [sys.executable]
+    else:
+        parts = [sys.executable, os.path.abspath(__file__)]
+    return " ".join(f'"{part}"' for part in parts) + ' "%1"'
+
+
+def current_registration_plan() -> RegPlan:
+    """``registration_plan`` filled in for the running build."""
+    if getattr(sys, "frozen", False):
+        icon = f"{sys.executable},0"
+        exe_name = os.path.basename(sys.executable)
+    else:
+        icon = resource_path("mdboss.ico")
+        exe_name = "MDBoss.exe"
+    return registration_plan(handler_command(), icon, exe_name)
+
+
+def apply_registration(plan: RegPlan) -> None:
+    """Write every value in ``plan`` under HKEY_CURRENT_USER."""
+    assert plan["values"], "plan must have values to write"
+    for key, name, data in plan["values"]:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key) as handle:
+            winreg.SetValueEx(handle, name, 0, winreg.REG_SZ, data)
+
+
+def remove_registration(plan: RegPlan) -> None:
+    """Undo ``plan``.  Anything already gone is not an error."""
+    for key, name in plan["shared_values"]:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key, 0,
+                                winreg.KEY_SET_VALUE) as handle:
+                winreg.DeleteValue(handle, name)
+        except OSError:
+            pass
+    for key in plan["owned_keys"]:              # deepest first
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+        except OSError:
+            pass
+
+
+def is_registered(command: str) -> bool:
+    """True when our ProgID's open command is exactly ``command``.
+
+    A mismatch means a stale registration -- the app was moved, or a portable
+    copy elsewhere owns the ProgID -- which the UI offers to re-point.
+    """
+    assert command, "command must be non-empty"
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            rf"Software\Classes\{PROGID}\shell\open\command",
+        ) as handle:
+            value, _kind = winreg.QueryValueEx(handle, "")
+    except OSError:
+        return False
+    return isinstance(value, str) and value == command
+
+
+def notify_assoc_changed() -> None:
+    """Tell Explorer the association table changed, so it updates now."""
+    shcne_assocchanged = 0x08000000
+    shcnf_idlist = 0x0000
+    try:
+        ctypes.windll.shell32.SHChangeNotify(
+            shcne_assocchanged, shcnf_idlist, None, None
+        )
+    except (AttributeError, OSError):
+        pass                        # cosmetic only; a re-login also refreshes
 
 
 def _b64(data: QByteArray) -> str:
@@ -973,6 +1139,8 @@ class MainWindow(QMainWindow):
         self._act_yaml.setCheckable(True)
         self._act_yaml.setChecked(self._init_hide_yaml)
         bar.addSeparator()
+        add("File types…", self._file_types_dialog,
+            tip="Register MD Boss as a handler for Markdown files")
         add("Help", self._show_help, "F1", "About MDBoss")
 
     def _panel_header(
@@ -2086,6 +2254,91 @@ class MainWindow(QMainWindow):
         layout.addLayout(footer)
         dialog.exec()
 
+    # ---- File associations ------------------------------------------------ #
+    def _file_types_dialog(self) -> None:
+        """Register or remove MD Boss as a handler for Markdown files."""
+        command = handler_command()
+        registered = is_registered(command)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"{DISPLAY_NAME} — Markdown file types")
+        dialog.resize(560, 260)
+        layout = QVBoxLayout(dialog)
+        exts = ", ".join(MARKDOWN_EXTS)
+        state = ("MD Boss is registered as a Markdown handler for this user."
+                 if registered else
+                 "MD Boss is not currently registered as a Markdown handler.")
+        blurb = QLabel(
+            f"<p><b>{state}</b></p>"
+            f"<p>Registering adds MD Boss to the <i>Open with</i> menu for "
+            f"{exts}, and lists it under Settings &rarr; Default apps.</p>"
+            "<p>Windows does not let an application make itself the default "
+            "for a file type, so the last step is yours: right-click a "
+            "Markdown file, choose <i>Open with &rarr; Choose another app</i>, "
+            "pick MD Boss and tick <i>Always</i> — or set it in Default "
+            "apps.</p>",
+            dialog,
+        )
+        blurb.setWordWrap(True)
+        layout.addWidget(blurb, 1)
+        command_label = QLabel(f"<small><code>{command}</code></small>", dialog)
+        command_label.setWordWrap(True)
+        command_label.setToolTip("The command Windows will run")
+        layout.addWidget(command_label)
+        buttons = QDialogButtonBox(dialog)
+        register = buttons.addButton(
+            "Re-register" if registered else "Register",
+            QDialogButtonBox.ButtonRole.ActionRole,
+        )
+        register.clicked.connect(lambda: self._set_registration(True, dialog))
+        if registered:
+            remove = buttons.addButton(
+                "Remove", QDialogButtonBox.ButtonRole.DestructiveRole
+            )
+            remove.clicked.connect(
+                lambda: self._set_registration(False, dialog)
+            )
+        settings = buttons.addButton(
+            "Windows default apps…", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        settings.clicked.connect(self._open_default_apps)
+        buttons.addButton(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def _set_registration(self, register: bool, dialog: QDialog) -> None:
+        """Apply or undo the file-type registration, then report the result."""
+        plan = current_registration_plan()
+        try:
+            if register:
+                apply_registration(plan)
+            else:
+                remove_registration(plan)
+        except OSError as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not update the registry:\n{exc}"
+            )
+            return
+        notify_assoc_changed()
+        dialog.accept()
+        QMessageBox.information(
+            self, DISPLAY_NAME,
+            "MD Boss is now registered for Markdown files.\n\n"
+            "To make it the default, right-click a .md file and use "
+            "Open with → Choose another app → Always."
+            if register else
+            "MD Boss is no longer registered for Markdown files.",
+        )
+
+    def _open_default_apps(self) -> None:
+        """Open the Windows Default apps settings page."""
+        try:
+            subprocess.Popen(["explorer", "ms-settings:defaultapps"])
+        except OSError as exc:
+            QMessageBox.warning(
+                self, DISPLAY_NAME, f"Could not open Windows settings:\n{exc}"
+            )
+
     def _start_update_check(self, manual: bool = False) -> None:
         # The updater can self-install two ways: swap a Windows .exe, or
         # replace the running Linux AppImage.  A plain source/venv run on a
@@ -2440,8 +2693,35 @@ def forward_to_running(path: str | None) -> bool:
     return bool(delivered)
 
 
+def handle_registration_flags(argv: list[str]) -> int | None:
+    """Run a ``--(un)register-file-types`` request, if ``argv`` holds one.
+
+    The installer calls these so there is one implementation of the registry
+    layout rather than a second copy in the .iss.  Returns a process exit code
+    when a flag was handled -- no window is created -- or None to carry on and
+    start normally.
+    """
+    assert isinstance(argv, list), "argv must be a list"
+    register = REGISTER_FLAG in argv
+    if not register and UNREGISTER_FLAG not in argv:
+        return None
+    try:
+        plan = current_registration_plan()
+        if register:
+            apply_registration(plan)
+        else:
+            remove_registration(plan)
+    except OSError:
+        return 1
+    notify_assoc_changed()
+    return 0
+
+
 def main() -> None:
     """Create the application and show the main window."""
+    code = handle_registration_flags(sys.argv)
+    if code is not None:
+        sys.exit(code)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     path = cli_path(sys.argv)

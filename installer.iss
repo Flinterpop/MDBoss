@@ -36,7 +36,22 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; \
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; \
     GroupDescription: "Additional icons:"
+Name: "associate"; Description: \
+    "&Register MD Boss as a handler for Markdown files (.md)"; \
+    GroupDescription: "File types:"
 
+; The registry layout lives in app.py (registration_plan) and is applied by the
+; exe itself, so the installer and the in-app "File types…" command cannot
+; drift apart.  Per-user keys only -- no admin rights, and see app.py on why
+; Windows still requires the user to pick the default themselves.
 [Run]
+Filename: "{app}\{#AppExe}"; Parameters: "--register-file-types"; \
+    StatusMsg: "Registering Markdown file types..."; \
+    Flags: runhidden waituntilterminated; Tasks: associate
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; \
     Flags: nowait postinstall skipifsilent
+
+; Runs before the exe is deleted, and is harmless when nothing was registered.
+[UninstallRun]
+Filename: "{app}\{#AppExe}"; Parameters: "--unregister-file-types"; \
+    Flags: runhidden waituntilterminated; RunOnceId: "UnregisterFileTypes"

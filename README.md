@@ -35,6 +35,9 @@ and shares its conventions and release pipeline.
 - Works as a plain Markdown viewer too: **Ctrl+O**, drag-and-drop, or a path on
   the command line opens any file on disk, root folder or not. A second launch
   hands its document to the running window instead of starting another copy.
+- Registers as a Windows Markdown handler (per-user, no admin) from the
+  **File types…** dialog or an installer checkbox — Windows still requires you
+  to pick the default yourself, which the dialog walks you through.
 - `MD_Inbox`: create a folder of that name in a root and use **Import files
   into MD_Inbox…** to copy documents in, collision-safe.
 

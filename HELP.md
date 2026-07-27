@@ -65,6 +65,27 @@ Documents opened this way appear in **Recent**, which is the easiest way back to
 a file that lives outside your root folders. Use **Add to favorites** to keep
 one for good.
 
+## Making MD Boss your Markdown app
+
+Click **File types…** on the toolbar and press **Register**. That adds MD Boss
+to the **Open with** menu for `.md`, `.markdown`, `.mdown`, `.mkd` and `.mdwn`,
+and lists it in **Settings → Default apps**. The installer offers the same thing
+as a checkbox, and uninstalling removes it again.
+
+Windows does not let any application make itself the default for a file type,
+so one step is yours and cannot be automated: right-click a Markdown file,
+choose **Open with → Choose another app**, pick MD Boss and tick **Always**.
+The **Windows default apps…** button in the dialog opens the settings page for
+you.
+
+All of this is written under your own user account (`HKEY_CURRENT_USER`) — no
+administrator rights, and nothing is changed for other users of the machine.
+**Remove** undoes it; other Markdown editors registered on the machine are left
+alone.
+
+If you move a portable copy of MD Boss to a different folder, open **File
+types…** again and press **Re-register** so Windows points at the new location.
+
 ## MD_Inbox
 
 Create a folder named **`MD_Inbox`** in one of your root folders (or add a root
