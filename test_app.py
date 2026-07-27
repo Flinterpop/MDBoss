@@ -5,13 +5,23 @@ from __future__ import annotations
 import datetime
 import json
 import os
-import winreg
+import sys
 import zipfile
 from pathlib import Path
 
 import pytest
 
 import app
+
+# The registry round-trip is the only Windows-only test; the registration plan
+# itself is pure and is checked everywhere.
+IS_WINDOWS = sys.platform.startswith("win")
+if IS_WINDOWS:
+    import winreg
+
+windows_only = pytest.mark.skipif(
+    not IS_WINDOWS, reason="Windows file associations"
+)
 
 
 def test_md_counts_recursive(tmp_path: Path) -> None:
@@ -214,6 +224,7 @@ def test_registration_plan_deletes_children_before_parents() -> None:
             )
 
 
+@windows_only
 def test_registration_plan_round_trips_in_the_registry(
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -323,7 +334,11 @@ def test_fetch_latest_release_parses_appimage_asset(monkeypatch) -> None:
         "html_url": "https://example/rel",
         "assets": [
             {"name": "MDBoss-Setup.exe", "browser_download_url": "u/exe"},
-            {"name": "MDBoss-Portable.zip", "browser_download_url": "u/zip"},
+            {"name": app.UPDATE_PORTABLE_ASSET_NAME,
+             "browser_download_url": "u/zip"},
+            # The pre-one-dir name, still published on old releases: it must
+            # not be picked up, or a portable copy would install a bare exe.
+            {"name": "MDBoss-Portable.zip", "browser_download_url": "u/old"},
             {"name": "MDBoss-x86_64.AppImage", "browser_download_url": "u/aim"},
             {"name": "MDBoss-x86_64.AppImage.zsync",
              "browser_download_url": "u/zsync"},

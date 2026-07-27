@@ -15,7 +15,6 @@ so a stray remote image or link in a document can never reach the network.
 
 from __future__ import annotations
 
-import ctypes
 import datetime
 import json
 import os
@@ -26,10 +25,17 @@ import tempfile
 import threading
 import urllib.request
 import webbrowser
-import winreg
 import zipfile
 from collections.abc import Callable
 from typing import TypedDict
+
+# Windows-only standard modules.  Importing these unconditionally would make
+# the app fail to start on Linux, where the file-association code they serve
+# has no counterpart -- install-linux.sh registers text/markdown in the
+# .desktop entry instead.
+if sys.platform.startswith("win"):
+    import ctypes
+    import winreg
 
 from PySide6.QtCore import (
     QByteArray, QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, QUrl, Signal,
@@ -638,6 +644,8 @@ def is_registered(command: str) -> bool:
 
 def notify_assoc_changed() -> None:
     """Tell Explorer the association table changed, so it updates now."""
+    if not sys.platform.startswith("win"):
+        return
     shcne_assocchanged = 0x08000000
     shcnf_idlist = 0x0000
     try:
@@ -1181,8 +1189,11 @@ class MainWindow(QMainWindow):
         self._act_yaml.setCheckable(True)
         self._act_yaml.setChecked(self._init_hide_yaml)
         bar.addSeparator()
-        add("File types…", self._file_types_dialog,
-            tip="Register MD Boss as a handler for Markdown files")
+        # Windows only: on Linux the .desktop entry written by
+        # install-linux.sh already declares MimeType=text/markdown.
+        if sys.platform.startswith("win"):
+            add("File types…", self._file_types_dialog,
+                tip="Register MD Boss as a handler for Markdown files")
         add("Help", self._show_help, "F1", "About MDBoss")
 
     def _panel_header(
@@ -2736,12 +2747,15 @@ def handle_registration_flags(argv: list[str]) -> int | None:
     The installer calls these so there is one implementation of the registry
     layout rather than a second copy in the .iss.  Returns a process exit code
     when a flag was handled -- no window is created -- or None to carry on and
-    start normally.
+    start normally.  Off Windows the flags are accepted and do nothing: Linux
+    associations come from the .desktop entry install-linux.sh writes.
     """
     assert isinstance(argv, list), "argv must be a list"
     register = REGISTER_FLAG in argv
     if not register and UNREGISTER_FLAG not in argv:
         return None
+    if not sys.platform.startswith("win"):
+        return 0
     try:
         plan = current_registration_plan()
         if register:
