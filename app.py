@@ -365,17 +365,29 @@ def unique_dest(dest_dir: str, filename: str) -> str:
 # update again (an update loop).  This mattered more under the old one-file
 # build, whose %TEMP% unpack took seconds to clean up on exit, but the exe lock
 # outlives a fixed sleep either way, so the wait stays.
+#
+# The delay is `ping`, not `timeout`: _spawn_handoff_batch runs this with
+# CREATE_NO_WINDOW, and with no console `timeout` exits at once with "Input
+# redirection is not supported".  That silently collapsed all 60 iterations
+# into ~4 seconds and let the copy start while the app was still running --
+# exactly the failure this loop exists to prevent.  `ping -n N` waits N-1
+# seconds and needs no console.
+#
+# Every tool is called by absolute path.  A PATH carrying GNU coreutils (Git
+# for Windows ships one in usr/bin) shadows find.exe, and GNU find reads /I as
+# a path and fails, which reports "no MDBoss.exe running" and skips the wait.
+_SYS32 = r"%SystemRoot%\System32"
 _WAIT_FOR_EXIT = (
     "@echo off\r\n"
-    "timeout /t 2 /nobreak >nul\r\n"
+    f'"{_SYS32}\\PING.EXE" -n 3 127.0.0.1 >nul\r\n'
     "set /a _n=0\r\n"
     ":mdwait\r\n"
-    'tasklist /FI "IMAGENAME eq MDBoss.exe" 2>nul | '
-    'find /I "MDBoss.exe" >nul\r\n'
+    f'"{_SYS32}\\tasklist.exe" /FI "IMAGENAME eq MDBoss.exe" 2>nul | '
+    f'"{_SYS32}\\find.exe" /I "MDBoss.exe" >nul\r\n'
     "if errorlevel 1 goto mdgo\r\n"
     "set /a _n+=1\r\n"
     "if %_n% GEQ 60 goto mdgo\r\n"
-    "timeout /t 1 /nobreak >nul\r\n"
+    f'"{_SYS32}\\PING.EXE" -n 2 127.0.0.1 >nul\r\n'
     "goto mdwait\r\n"
     ":mdgo\r\n"
 )

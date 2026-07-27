@@ -278,7 +278,7 @@ def test_installer_batch_installs_and_relaunches() -> None:
     assert r'start "" "C:\a\MDBoss.exe"' in batch     # relaunches the app
     assert 'del /q "%~f0"' in batch                   # self-cleanup
     # Waits for every MDBoss.exe to exit before installing (not a fixed delay).
-    assert 'tasklist /FI "IMAGENAME eq MDBoss.exe"' in batch
+    assert '/FI "IMAGENAME eq MDBoss.exe"' in batch
     assert "goto mdwait" in batch
 
 
@@ -293,7 +293,7 @@ def test_portable_batch_copies_the_tree_over_the_install() -> None:
     assert r'start "" "C:\a\MDBoss.exe"' in batch
     assert r'rd /s /q "C:\t\up.zip.new"' in batch      # whole staging tree
     assert r'del /q "C:\t\up.zip"' in batch
-    assert 'tasklist /FI "IMAGENAME eq MDBoss.exe"' in batch
+    assert '/FI "IMAGENAME eq MDBoss.exe"' in batch
 
 
 def test_translate_windows_path_reanchors_known_folder() -> None:
@@ -360,6 +360,24 @@ def test_fetch_latest_release_parses_appimage_asset(
     assert info["appimage_url"] == "u/aim"
     assert info["asset_url"] == "u/exe"
     assert info["portable_url"] == "u/zip"
+
+
+def test_wait_loop_survives_a_hostile_environment() -> None:
+    """The wait must not depend on a console or on PATH.
+
+    _spawn_handoff_batch runs the batch with CREATE_NO_WINDOW, where `timeout`
+    exits immediately with "Input redirection is not supported" -- silently
+    turning a 60-second wait into ~4 seconds and letting the update copy over
+    a still-running exe.  A PATH carrying GNU find (Git for Windows ships one)
+    breaks the process check the same way, reporting nothing running.
+    """
+    wait = app._WAIT_FOR_EXIT
+    assert "timeout /t" not in wait          # needs a console; we have none
+    assert "PING.EXE" in wait                # console-free delay
+    for tool in ("tasklist.exe", "find.exe", "PING.EXE"):
+        assert rf"%SystemRoot%\System32\{tool}" in wait, (
+            f"{tool} must be called by absolute path, not via PATH"
+        )
 
 
 def test_portable_batch_relaunches_even_if_the_copy_fails() -> None:
