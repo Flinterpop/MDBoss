@@ -1148,8 +1148,14 @@ class MainWindow(QMainWindow):
             if count > 20000:                      # bounded (Rule of 10)
                 break
             if entry.is_dir():
-                sub = self._md_counts.get(_norm(entry.path), 0)
-                child = QTreeWidgetItem(item, [f"{entry.name}  ({sub})"])
+                # Hide folders with no Markdown anywhere beneath them.  Counts
+                # are recursive, so a 0 means nothing is being concealed.  A
+                # folder missing from the map was never walked (junction /
+                # unreadable) — leave it visible rather than guess.
+                sub = self._md_counts.get(_norm(entry.path))
+                if sub == 0:
+                    continue
+                child = QTreeWidgetItem(item, [f"{entry.name}  ({sub or 0})"])
                 child.setData(0, ROLE_PATH, entry.path)
                 child.setData(0, ROLE_KIND, "dir")
                 self._add_placeholder(child)
