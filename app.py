@@ -376,16 +376,52 @@ def _installer_batch(setup_path: str, app_exe: str) -> str:
     )
 
 
-def _portable_batch(zip_exe: str, app_exe: str, cleanup: list[str]) -> str:
-    """Batch that swaps a portable exe with a freshly unpacked one."""
+def _portable_batch(new_dir: str, app_exe: str, cleanup: list[str],
+                    staging_dir: str | None = None) -> str:
+    """Batch that copies a freshly unpacked portable build over this one.
+
+    A one-dir build is a tree, not a single exe, so the swap is a copy rather
+    than a move.  Deliberately copies *over* the old install instead of
+    replacing it: robocopy failing part-way leaves an install that still runs,
+    where a delete-then-copy would leave nothing.  The relaunch and the cleanup
+    run whatever robocopy did, so a failed update is a no-op, not a brick.
+    """
+    assert new_dir and app_exe, "paths must be non-empty"
+    app_dir = os.path.dirname(app_exe)
+    assert app_dir, "app_exe must include its folder"
     lines = [
         _WAIT_FOR_EXIT,
-        f'move /y "{zip_exe}" "{app_exe}"\r\n',
+        f'robocopy "{new_dir}" "{app_dir}" /E /IS /IT /R:2 /W:2 '
+        "/NFL /NDL /NJH /NJS /NP >nul\r\n",
         f'start "" "{app_exe}"\r\n',
+        # The staging tree, not just the copied-from folder inside it.
+        f'rd /s /q "{staging_dir or new_dir}"\r\n',
     ]
     lines += [f'del /q "{path}"\r\n' for path in cleanup]
     lines.append('del /q "%~f0"\r\n')
     return "".join(lines)
+
+
+def extract_portable(zip_path: str, dest_dir: str) -> str:
+    """Unpack a portable update and return the folder holding ``MDBoss.exe``.
+
+    Accepts the exe at the zip root or inside a single top-level folder, so a
+    zip built either way installs.  Raises ValueError when there is no exe --
+    better than copying a junk tree over a working install.
+    """
+    assert zip_path, "zip_path must be non-empty"
+    assert dest_dir, "dest_dir must be non-empty"
+    with zipfile.ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        assert len(names) < 100000, "update zip is implausibly large"
+        member = next(
+            (n for n in names
+             if n.lower().rsplit("/", 1)[-1] == "mdboss.exe"), None
+        )
+        if member is None:
+            raise ValueError("no MDBoss.exe inside the update zip")
+        archive.extractall(dest_dir)
+    return os.path.dirname(os.path.join(dest_dir, *member.split("/")))
 
 
 def _norm(path: str) -> str:
@@ -2545,29 +2581,24 @@ class MainWindow(QMainWindow):
         self.close()
 
     def _swap_portable_and_exit(self, zip_path: str) -> None:
-        new_exe = zip_path + ".new.exe"
+        staging = zip_path + ".new"
         try:
-            with zipfile.ZipFile(zip_path) as archive:
-                member = next(
-                    (n for n in archive.namelist()
-                     if n.lower().endswith(".exe")), None
-                )
-                if member is None:
-                    raise ValueError("no exe inside the update zip")
-                with archive.open(member) as src, open(new_exe, "wb") as out:
-                    shutil.copyfileobj(src, out)
+            source = extract_portable(zip_path, staging)
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
+            shutil.rmtree(staging, ignore_errors=True)
             QMessageBox.warning(
                 self, DISPLAY_NAME, f"Could not unpack the update:\n{exc}"
             )
             return
         if not self._confirm_discard():
+            shutil.rmtree(staging, ignore_errors=True)
             return
         batch_path = zip_path + ".cmd"
         try:
             with open(batch_path, "w", encoding="ascii",
                       errors="replace") as fh:
-                fh.write(_portable_batch(new_exe, sys.executable, [zip_path]))
+                fh.write(_portable_batch(source, sys.executable, [zip_path],
+                                         staging))
         except OSError as exc:
             QMessageBox.warning(
                 self, DISPLAY_NAME, f"Could not start the update:\n{exc}"

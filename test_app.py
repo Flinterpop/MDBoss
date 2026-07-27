@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import winreg
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -270,12 +271,16 @@ def test_installer_batch_installs_and_relaunches() -> None:
     assert "goto mdwait" in batch
 
 
-def test_portable_batch_swaps_exe() -> None:
+def test_portable_batch_copies_the_tree_over_the_install() -> None:
     batch = app._portable_batch(
-        r"C:\t\new.exe", r"C:\a\MDBoss.exe", [r"C:\t\up.zip"]
+        r"C:\t\up.zip.new\MDBoss", r"C:\a\MDBoss.exe", [r"C:\t\up.zip"],
+        r"C:\t\up.zip.new",
     )
-    assert r'move /y "C:\t\new.exe" "C:\a\MDBoss.exe"' in batch
+    # One-dir: copy the tree into the app folder, never move a single exe.
+    assert r'robocopy "C:\t\up.zip.new\MDBoss" "C:\a"' in batch
+    assert "move /y" not in batch
     assert r'start "" "C:\a\MDBoss.exe"' in batch
+    assert r'rd /s /q "C:\t\up.zip.new"' in batch      # whole staging tree
     assert r'del /q "C:\t\up.zip"' in batch
     assert 'tasklist /FI "IMAGENAME eq MDBoss.exe"' in batch
 
@@ -341,3 +346,43 @@ def test_fetch_latest_release_parses_appimage_asset(monkeypatch) -> None:
     assert info["appimage_url"] == "u/aim"
     assert info["asset_url"] == "u/exe"
     assert info["portable_url"] == "u/zip"
+
+
+def test_portable_batch_relaunches_even_if_the_copy_fails() -> None:
+    """A half-done update must still leave a running app, not a brick."""
+    batch = app._portable_batch(r"C:\t\new", r"C:\a\MDBoss.exe", [])
+    lines = [ln for ln in batch.splitlines() if ln.strip()]
+    copy_at = next(i for i, ln in enumerate(lines) if ln.startswith("robocopy"))
+    start_at = next(i for i, ln in enumerate(lines) if ln.startswith("start "))
+    assert copy_at < start_at                  # copy first, then relaunch
+    assert not any("exit" in ln or "if errorlevel" in ln
+                   for ln in lines[copy_at:start_at])   # nothing can abort it
+
+
+def test_extract_portable_finds_exe_in_a_top_level_folder(
+    tmp_path: Path
+) -> None:
+    zip_path = tmp_path / "up.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("MDBoss/MDBoss.exe", "exe")
+        archive.writestr("MDBoss/_internal/base_library.zip", "lib")
+    dest = tmp_path / "staging"
+    source = app.extract_portable(str(zip_path), str(dest))
+    assert source == str(dest / "MDBoss")
+    assert (dest / "MDBoss" / "_internal" / "base_library.zip").is_file()
+
+
+def test_extract_portable_finds_exe_at_the_zip_root(tmp_path: Path) -> None:
+    zip_path = tmp_path / "up.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("MDBoss.exe", "exe")
+    dest = tmp_path / "staging"
+    assert app.extract_portable(str(zip_path), str(dest)) == str(dest)
+
+
+def test_extract_portable_rejects_a_zip_without_the_exe(tmp_path: Path) -> None:
+    zip_path = tmp_path / "up.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("readme.txt", "nope")
+    with pytest.raises(ValueError):
+        app.extract_portable(str(zip_path), str(tmp_path / "staging"))

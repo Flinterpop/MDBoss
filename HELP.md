@@ -188,6 +188,10 @@ version or *Cancel* to be reminded next launch. A source or virtualenv run
 can't self-update, so there the manual check just points you at the releases
 page.
 
+A portable copy updates the same way, by copying the new build over its own
+folder. If that copy fails for any reason the old version is left intact and
+still runs, so a failed update never leaves you without a working app.
+
 ## Privacy
 
 The preview's web view is **network-locked**: any remote image, script, or

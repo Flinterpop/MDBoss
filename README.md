@@ -64,8 +64,10 @@ and shares its conventions and release pipeline.
 ## Install
 
 **Windows** — download **MDBoss-Setup.exe** (per-user installer) or
-**MDBoss-Portable.zip** (just the exe) from the
-[Releases](https://github.com/Flinterpop/MDBoss/releases/latest) page.
+**MDBoss-Portable.zip** from the
+[Releases](https://github.com/Flinterpop/MDBoss/releases/latest) page. The
+portable zip holds an `MDBoss` folder — extract it somewhere and run
+`MDBoss.exe` from inside it; the exe needs the `_internal` folder beside it.
 
 **Linux** — download **MDBoss-x86_64.AppImage** from the same page, then:
 
@@ -102,11 +104,16 @@ builds the AppImage.
 .\release.ps1 <version>       # e.g. .\release.ps1 0.1.11
 ```
 
-This bumps the version, builds the one-file exe (PyInstaller), the installer
-(Inno Setup 6), and the portable zip, commits and pushes, then publishes a
-GitHub release with both assets. Requires `python` (with PyInstaller), Inno
-Setup 6, `gh` (authenticated), and `git`. Installed copies then pick up the
-new release via the in-app updater.
+This bumps the version, builds the app folder (PyInstaller, one-dir), the
+installer (Inno Setup 6), and the portable zip, commits and pushes, then
+publishes a GitHub release with both assets. Requires `python` (with
+PyInstaller), Inno Setup 6, `gh` (authenticated), and `git`. Installed copies
+then pick up the new release via the in-app updater.
+
+The build is **one-dir**, not one-file: MD Boss can be the Windows handler for
+`.md`, and a one-file build unpacks ~230 MB into `%TEMP%` on every launch —
+about 3.8 s to a window, against 0.75 s for one-dir, measured on the dev
+machine. The cost is a larger install on disk (~600 MB unpacked).
 
 On Linux, `./build-appimage.sh` produces `dist/MDBoss-x86_64.AppImage` and its
 companion `dist/MDBoss-x86_64.AppImage.zsync`; upload both to the release

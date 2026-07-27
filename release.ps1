@@ -1,7 +1,7 @@
 <#
 Release MD Boss: bump the version in app.py + installer.iss, build the
-one-file exe, the installer, and the portable zip, commit and push the bump,
-publish a GitHub release with both assets, then reinstall locally.
+one-dir app folder, the installer, and the portable zip, commit and push the
+bump, publish a GitHub release with both assets, then reinstall locally.
 
 Usage:
   .\release.ps1 0.1.0
@@ -70,8 +70,11 @@ Write-Host "==> Building installer (ISCC)" -ForegroundColor Cyan
 & $iscc installer.iss
 CheckExit "ISCC"
 
+# One-dir build: the zip holds the whole MDBoss folder, and its root entry is
+# "MDBoss\" -- the updater looks for MDBoss.exe at either level.
 Write-Host "==> Building portable zip" -ForegroundColor Cyan
-Compress-Archive -Force -Path dist\MDBoss.exe -DestinationPath installer\MDBoss-Portable.zip
+if (-not (Test-Path dist\MDBoss\MDBoss.exe)) { Fail "expected dist\MDBoss\MDBoss.exe (one-dir build)" }
+Compress-Archive -Force -Path dist\MDBoss -DestinationPath installer\MDBoss-Portable.zip
 
 # Both asset names are load-bearing: the in-app updater matches them exactly.
 foreach ($asset in "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable.zip") {
