@@ -1,0 +1,8 @@
+# Shell scripts must keep LF endings in the working tree.  The Linux artifacts
+# are built from this same checkout via WSL, and `#!/usr/bin/env bash\r` is not
+# an interpreter -- with CRLF, build-appimage.sh fails as "env: 'bash\r': No
+# such file or directory".
+*.sh text eol=lf
+
+# PowerShell stays CRLF; Windows PowerShell 5.1 is happiest with it.
+*.ps1 text eol=crlf
