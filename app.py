@@ -53,11 +53,11 @@ from PySide6.QtGui import (
     QTextCharFormat, QTextFormat,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
     QWebEnginePage, QWebEngineProfile, QWebEngineSettings,
     QWebEngineUrlRequestInfo, QWebEngineUrlRequestInterceptor,
 )
-from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QDialog, QDialogButtonBox, QFileDialog,
@@ -352,7 +352,7 @@ def unique_dest(dest_dir: str, filename: str) -> str:
     stem, ext = os.path.splitext(filename)
     candidate = os.path.join(dest_dir, filename)
     counter = 2
-    while os.path.exists(candidate) and counter < 10000:   # bounded (Rule of 10)
+    while os.path.exists(candidate) and counter < 10000:   # bounded (Rule 10)
         candidate = os.path.join(dest_dir, f"{stem} ({counter}){ext}")
         counter += 1
     return candidate
@@ -463,7 +463,7 @@ def push_recent(recents: list[str], path: str,
     assert limit > 0, "limit must be positive"
     want = _norm(path)
     kept = [p for p in recents if _norm(p) != want]
-    return [os.path.abspath(path)] + kept[:limit - 1]
+    return [os.path.abspath(path), *kept[:limit - 1]]
 
 
 def sanitize_paths(raw: object, limit: int) -> list[str]:
@@ -1230,49 +1230,75 @@ class MainWindow(QMainWindow):
         return row
 
     def _build_panes(self) -> None:
-        # Pane 1: Recent over Favorites over the file list, in a vertical
-        # splitter so each area can be dragged taller or shorter.
-        left = QSplitter(Qt.Orientation.Vertical, self)
+        """Assemble the three columns: files | outline | editor + preview."""
+        left = self._build_left_pane()
+        outline_box = self._build_outline_pane()
+        self._right = self._build_editor_preview_pane()
+        # Minimum widths so no column can be dragged or restored to zero.
+        left.setMinimumWidth(160)
+        outline_box.setMinimumWidth(150)
+        self._main_split = QSplitter(Qt.Orientation.Horizontal, self)
+        for pane in (left, outline_box, self._right):
+            self._main_split.addWidget(pane)
+        self._main_split.setStretchFactor(2, 1)
+        self._main_split.setChildrenCollapsible(False)
+        self._main_split.setSizes([300, 200, 780])
+        self._left = left
+        self.setCentralWidget(self._main_split)
 
-        recent_box = QWidget(self)
-        recent_layout = QVBoxLayout(recent_box)
-        recent_layout.setContentsMargins(4, 4, 4, 2)
-        recent_layout.addLayout(self._panel_header(
+    def _build_list_panel(
+        self, title: str, tip: str,
+        actions: list[tuple[str, Callable[[], None]] | None],
+        on_activate: Callable[[QListWidgetItem], None],
+        on_menu: Callable[[QPoint], None],
+    ) -> tuple[QWidget, QListWidget]:
+        """A titled panel wrapping a click-to-open list of documents.
+
+        Recent and Favorites differ only in their title, header menu and
+        handlers, so they share this.  Returns the panel and its list, since
+        the caller keeps the list to refill it later.
+        """
+        assert title, "title must be non-empty"
+        box = QWidget(self)
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(4, 4, 4, 2)
+        layout.addLayout(self._panel_header(title, tip, actions))
+        listing = QListWidget(self)
+        listing.itemActivated.connect(on_activate)
+        listing.itemClicked.connect(on_activate)
+        listing.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        listing.customContextMenuRequested.connect(on_menu)
+        layout.addWidget(listing, 1)
+        box.setMinimumHeight(56)
+        return box, listing
+
+    def _build_left_pane(self) -> QSplitter:
+        """Recent over Favorites over the file tree, in a vertical splitter so
+        each area can be dragged taller or shorter."""
+        left = QSplitter(Qt.Orientation.Vertical, self)
+        recent_box, self._recent_list = self._build_list_panel(
             "Recent", "Clear the recent documents list",
             [("Clear recent documents", self._clear_recents)],
-        ))
-        self._recent_list = QListWidget(self)
-        self._recent_list.itemActivated.connect(self._on_recent_activated)
-        self._recent_list.itemClicked.connect(self._on_recent_activated)
-        self._recent_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
+            self._on_recent_activated, self._recent_menu,
         )
-        self._recent_list.customContextMenuRequested.connect(
-            self._recent_menu
-        )
-        recent_layout.addWidget(self._recent_list, 1)
-        left.addWidget(recent_box)
-
-        fav_box = QWidget(self)
-        fav_layout = QVBoxLayout(fav_box)
-        fav_layout.setContentsMargins(4, 4, 4, 2)
-        fav_layout.addLayout(self._panel_header(
+        fav_box, self._fav_list = self._build_list_panel(
             "Favorites", "Clear, export, or import your favorites",
             [("Export favorites…", self._export_favorites),
              ("Import favorites…", self._import_favorites),
              None,
              ("Clear all favorites", self._clear_favorites)],
-        ))
-        self._fav_list = QListWidget(self)
-        self._fav_list.itemActivated.connect(self._on_favorite_activated)
-        self._fav_list.itemClicked.connect(self._on_favorite_activated)
-        self._fav_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
+            self._on_favorite_activated, self._fav_menu,
         )
-        self._fav_list.customContextMenuRequested.connect(self._fav_menu)
-        fav_layout.addWidget(self._fav_list, 1)
-        left.addWidget(fav_box)
+        files_box = self._build_files_box()
+        for box in (recent_box, fav_box, files_box):
+            left.addWidget(box)
+        left.setChildrenCollapsible(False)
+        left.setStretchFactor(2, 1)          # the file list takes extra space
+        left.setSizes([130, 150, 460])
+        return left
 
+    def _build_files_box(self) -> QWidget:
+        """The root-folder tree, with its filter box above it."""
         files_box = QWidget(self)
         files_layout = QVBoxLayout(files_box)
         files_layout.setContentsMargins(4, 2, 4, 4)
@@ -1298,16 +1324,11 @@ class MainWindow(QMainWindow):
         self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.itemClicked.connect(self._on_item_activated)
         files_layout.addWidget(self._tree, 1)
-        left.addWidget(files_box)
-
-        recent_box.setMinimumHeight(56)
-        fav_box.setMinimumHeight(56)
         files_box.setMinimumHeight(120)
-        left.setChildrenCollapsible(False)
-        left.setStretchFactor(2, 1)          # the file list takes extra space
-        left.setSizes([130, 150, 460])
+        return files_box
 
-        # Pane 2: document outline.
+    def _build_outline_pane(self) -> QWidget:
+        """Headings of the current document; a click scrolls the preview."""
         outline_box = QWidget(self)
         ob_layout = QVBoxLayout(outline_box)
         ob_layout.setContentsMargins(4, 4, 4, 4)
@@ -1317,8 +1338,10 @@ class MainWindow(QMainWindow):
         self._outline.itemClicked.connect(self._on_outline_activated)
         ob_layout.addWidget(self._outline, 1)
         self._mid = outline_box
+        return outline_box
 
-        # Pane 3: editor | preview.
+    def _build_editor_preview_pane(self) -> QSplitter:
+        """The source editor beside the live preview."""
         self._editor = CodeEditor(self)
         self._editor.setPlaceholderText(
             "Select a Markdown file, or press Ctrl+N to create one."
@@ -1333,24 +1356,38 @@ class MainWindow(QMainWindow):
         self._preview = QWebEngineView(self)
         self._preview.setAcceptDrops(False)      # the window handles drops
         self._preview.setPage(PreviewPage(self._preview))
-        # On non-Windows an app-wide event filter crashes (see __init__), so
-        # watch just the preview and its lazily-created native child so a
-        # Markdown file dropped over the preview still opens.
-        if not sys.platform.startswith("win"):
-            self._preview.installEventFilter(self)
+        self._watch_preview_drops()
+        self._connect_preview_bridge()
+        self._lock_preview_settings()
+        right = QSplitter(Qt.Orientation.Horizontal, self)
+        right.addWidget(self._editor)
+        right.addWidget(self._preview)
+        right.setSizes([500, 700])
+        right.setChildrenCollapsible(False)
+        return right
 
-            def _watch_preview_child() -> None:
-                child = self._preview.focusProxy()
-                if child is not None:
-                    child.setAcceptDrops(True)
-                    child.installEventFilter(self)
+    def _watch_preview_drops(self) -> None:
+        """Make drops over the preview reach the window on non-Windows.
 
-            QTimer.singleShot(0, _watch_preview_child)
-            self._preview.loadFinished.connect(
-                lambda _ok: _watch_preview_child()
-            )
-        # Web channel: the page reports its own scroll position back to Qt for
-        # preview -> editor sync (editor -> preview is driven from Qt).
+        An app-wide event filter crashes there (see __init__), so watch just
+        the preview and its lazily-created native child instead.
+        """
+        if sys.platform.startswith("win"):
+            return
+        self._preview.installEventFilter(self)
+
+        def _watch_preview_child() -> None:
+            child = self._preview.focusProxy()
+            if child is not None:
+                child.setAcceptDrops(True)
+                child.installEventFilter(self)
+
+        QTimer.singleShot(0, _watch_preview_child)
+        self._preview.loadFinished.connect(lambda _ok: _watch_preview_child())
+
+    def _connect_preview_bridge(self) -> None:
+        """Web channel: the page reports its own scroll position back to Qt for
+        preview -> editor sync (editor -> preview is driven from Qt)."""
         self._bridge = ScrollBridge(self)
         self._bridge.scrolled.connect(self._on_preview_scrolled)
         self._channel = QWebChannel(self)
@@ -1361,6 +1398,9 @@ class MainWindow(QMainWindow):
         self._preview.loadFinished.connect(
             lambda _ok: self._sync_preview_scroll()
         )
+
+    def _lock_preview_settings(self) -> None:
+        """Local files may load; remote URLs and plugins may not."""
         settings = self._preview.settings()
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
@@ -1372,24 +1412,6 @@ class MainWindow(QMainWindow):
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.PluginsEnabled, False
         )
-        self._right = QSplitter(Qt.Orientation.Horizontal, self)
-        self._right.addWidget(self._editor)
-        self._right.addWidget(self._preview)
-        self._right.setSizes([500, 700])
-
-        # Minimum widths so no column can be dragged or restored to zero.
-        left.setMinimumWidth(160)
-        outline_box.setMinimumWidth(150)
-        self._right.setChildrenCollapsible(False)
-        self._main_split = QSplitter(Qt.Orientation.Horizontal, self)
-        self._main_split.addWidget(left)
-        self._main_split.addWidget(outline_box)
-        self._main_split.addWidget(self._right)
-        self._main_split.setStretchFactor(2, 1)
-        self._main_split.setChildrenCollapsible(False)
-        self._main_split.setSizes([300, 200, 780])
-        self._left = left
-        self.setCentralWidget(self._main_split)
 
     # ---- Roots + tree ---------------------------------------------------- #
     @staticmethod
@@ -1847,9 +1869,8 @@ class MainWindow(QMainWindow):
         if not slug:
             return
         script = (
-            "var el=document.getElementById(%s);"
+            f"var el=document.getElementById({json.dumps(str(slug))});"
             "if(el){el.scrollIntoView({behavior:'smooth',block:'start'});}"
-            % json.dumps(str(slug))
         )
         self._preview.page().runJavaScript(script)
 
@@ -2249,10 +2270,11 @@ class MainWindow(QMainWindow):
         ratio = (bar.value() - bar.minimum()) / span if span > 0 else 0.0
         # Ignore the scroll echo the preview will report back for ~120 ms.
         self._suppress_from_preview = True
+        # The JS is not an f-string: it is full of literal braces.
         script = (
             "(function(r){var h=document.documentElement;"
             "var max=h.scrollHeight-h.clientHeight;"
-            "window.scrollTo(0, max>0?r*max:0);})(%.6f);" % ratio
+            "window.scrollTo(0, max>0?r*max:0);})(" + f"{ratio:.6f}" + ");"
         )
         self._preview.page().runJavaScript(script)
         QTimer.singleShot(120, self._clear_preview_suppress)

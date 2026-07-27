@@ -314,7 +314,9 @@ def test_translate_windows_path_unknown_root_becomes_absolute() -> None:
     assert out == "/Projects/x/y.md"
 
 
-def test_running_appimage_detects_env(tmp_path: Path, monkeypatch) -> None:
+def test_running_appimage_detects_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake = tmp_path / "MDBoss-x86_64.AppImage"
     fake.write_bytes(b"\x7fELF")
     monkeypatch.setenv("APPIMAGE", str(fake))
@@ -325,7 +327,9 @@ def test_running_appimage_detects_env(tmp_path: Path, monkeypatch) -> None:
     assert app.running_appimage() is None
 
 
-def test_fetch_latest_release_parses_appimage_asset(monkeypatch) -> None:
+def test_fetch_latest_release_parses_appimage_asset(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
     import io
     import urllib.request
 
@@ -345,16 +349,11 @@ def test_fetch_latest_release_parses_appimage_asset(monkeypatch) -> None:
         ],
     }
 
-    class _Resp(io.BytesIO):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
+    # BytesIO is already a context manager, which is all fetch_latest_release
+    # needs of the response: it reads inside the `with`.
     monkeypatch.setattr(
         urllib.request, "urlopen",
-        lambda *a, **k: _Resp(json.dumps(payload).encode()),
+        lambda *a, **k: io.BytesIO(json.dumps(payload).encode()),
     )
     info = app.fetch_latest_release()
     assert info["version"] == (0, 2, 0)

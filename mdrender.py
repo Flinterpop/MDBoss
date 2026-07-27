@@ -492,7 +492,7 @@ def _load_template() -> str:
     path = os.path.join(_asset_dir(), "template.html")
     if not os.path.isfile(path):
         raise FileNotFoundError("assets/template.html not found")
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         return fh.read()
 
 

@@ -1,0 +1,67 @@
+# Lint and type configuration for MD Boss.
+#
+# Both gates pass clean as written, so `ruff check .` and `mypy .` can be run
+# as an error gate (pre-commit, CI) rather than advisory noise.  Every ignore
+# below is a deliberate decision with its reason, not a silenced defect --
+# prefer fixing a new finding to extending the list.
+
+[tool.ruff]
+line-length = 80
+target-version = "py312"        # the AppImage bundles CPython 3.12
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes: unused imports/names, real mistakes
+    "B",         # bugbear: mutable defaults, shadowed loop vars, ...
+    "C4",        # comprehension rewrites
+    "UP",        # pyupgrade: stale syntax for the target version
+    "RUF",       # ruff's own checks
+    "N",         # pep8-naming
+    "PL",        # pylint subset -- includes the function-size limits below
+    "SIM",       # simplifications
+    "RET",       # return-statement hygiene
+    "ARG",       # unused arguments
+]
+ignore = [
+    # os.path is used consistently throughout; migrating ~110 call sites to
+    # pathlib would be a rewrite, not a cleanup.
+    "PTH",
+    # Bounded loops carry their limit as a literal at the loop, which is the
+    # point of the Rule of 10 bound -- hoisting them to constants hides it.
+    "PLR2004",
+    # `try: ... except OSError: pass` in cleanup paths reads more plainly than
+    # contextlib.suppress and needs no import.
+    "SIM105",
+    # Same reason as PLR2004: the counter is the loop's bound, not an index.
+    "SIM113",
+    # Deferred imports are deliberate: mdrender defers Pygments to keep start-up
+    # cheap, and app.py imports winreg/ctypes only on Windows.
+    "PLC0415",
+    # markdown-it plugin callbacks must accept (options, env) whether or not
+    # they use them, and Qt lambdas bind loop variables via default arguments.
+    "ARG001", "ARG005",
+    # Assigning to a name before returning it documents the pipeline in
+    # sanitize_html's substitution chain.
+    "RET504",
+]
+
+# Note on isort ("I"): deliberately NOT enabled.  The Qt import blocks are
+# hand-wrapped several names to a line, and ruff's isort has no such style --
+# it emits one name per line, turning 23 lines of imports into 65.  The order
+# is already sensible; enabling the rule buys nothing for that churn.
+
+[tool.ruff.lint.per-file-ignores]
+# Known debt, left visible rather than silently dropped: render_document() is
+# 62 statements / 13 branches. Worth splitting when that file is next touched.
+"mdrender.py" = ["PLR0915", "PLR0912"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app.py", "mdrender.py", "test_app.py"]
+
+[[tool.mypy.overrides]]
+# markdown-it-py plugins ship no stubs.
+module = ["mdit_py_plugins.*"]
+ignore_missing_imports = true
