@@ -37,3 +37,11 @@ enable_testing()
 
 add_subdirectory(mdrender)
 add_subdirectory(tests)
+
+# The M0 spike needs wxWidgets, which the renderer library does not.  Off by
+# default so a plain configure stays fast; turn it on with
+# -DMDBOSS_BUILD_SPIKE=ON.
+option(MDBOSS_BUILD_SPIKE "Build the milestone-0 wxWebViewEdge spike" OFF)
+if(MDBOSS_BUILD_SPIKE)
+    add_subdirectory(spike)
+endif()
