@@ -7,6 +7,7 @@ add_executable(mdrender_tests
     test_filescan.cpp
     test_fileassoc.cpp
     test_templates.cpp
+    test_sources.cpp
     ../app/FileScan.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp
@@ -22,6 +23,7 @@ target_link_libraries(mdrender_tests PRIVATE mdrender Catch2::Catch2WithMain)
 target_compile_definitions(mdrender_tests PRIVATE
     MDBOSS_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden"
     MDBOSS_ASSET_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../assets"
+    MDBOSS_APP_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../app"
 )
 
 include(Catch)

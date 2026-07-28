@@ -173,8 +173,12 @@ void MainFrame::build_toolbar()
     for (const Tool& tool : tools) {
         // The tooltip leads with the label, so an icon whose meaning is not
         // obvious still names itself.
+        // The separator must be a WIDE literal.  A narrow one holding an
+        // em-dash is handed to wxString as bytes and decoded in the ANSI code
+        // page, which showed up in every tooltip as mojibake.  A test below
+        // now scans the sources for this, because it is easy to repeat.
         const wxString tip =
-            wxString(tool.label) + "  —  " + wxString(tool.detail);
+            wxString(tool.label) + L"  —  " + wxString(tool.detail);
         const wxBitmapBundle icon =
             wxArtProvider::GetBitmapBundle(tool.art, wxART_TOOLBAR);
         if (tool.check) {
