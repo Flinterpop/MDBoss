@@ -13,6 +13,8 @@ horizontal_rule	1
 raw_html	0
 admonitions	0
 admonition_alias	0
+admonition_then_fence	0
+alert_then_heading	0
 admonition_bare	0
 math	0
 sanitizer	0

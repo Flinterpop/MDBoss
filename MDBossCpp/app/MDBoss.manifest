@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!--
+    Per-monitor DPI awareness.
+
+    Without this Windows virtualises the process: wxWidgets lays out in
+    logical pixels and the whole window is then stretched by the monitor's
+    scale factor. WebView2 is DPI aware regardless and renders at the true
+    device resolution, so the two end up in different coordinate spaces.
+    put_Bounds() is handed a rect wx believes in, the engine renders against
+    a viewport of a different size, and the page spills past the pane that
+    hosts it. Declaring awareness makes both agree.
+
+    PerMonitorV2 also gives correctly scaled non-client areas and dialogs;
+    the later values are fallbacks for Windows versions that predate it.
+  -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor, System</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">True/PM</dpiAware>
+    </windowsSettings>
+  </application>
+
+  <!-- Supplying a manifest replaces the default one, so visual styles have
+       to be requested explicitly or the controls fall back to the classic
+       Windows look. -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"
+                        version="6.0.0.0" processorArchitecture="*"
+                        publicKeyToken="6595b64144ccf1df" language="*" />
+    </dependentAssembly>
+  </dependency>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 and 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+    </application>
+  </compatibility>
+</assembly>

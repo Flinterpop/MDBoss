@@ -35,7 +35,10 @@ add_compile_options(/W4 /WX /utf-8 /permissive-)
 
 enable_testing()
 
+find_package(nlohmann_json CONFIG REQUIRED)
+
 add_subdirectory(mdrender)
+add_subdirectory(app)
 add_subdirectory(tests)
 
 # The M0 spike needs wxWidgets, which the renderer library does not.  Off by

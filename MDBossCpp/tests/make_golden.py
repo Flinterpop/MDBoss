@@ -126,6 +126,27 @@ _CASES: list[tuple[str, str, bool]] = [
         False,
     ),
     ("admonition_alias", "!!! hint\n    tipped\n", False),
+    # A closing </div> begins an HTML block, and an HTML block runs until a
+    # blank line.  These two pin down that the constructs following an alert
+    # or an admonition are still parsed as Markdown rather than swallowed.
+    (
+        "admonition_then_fence",
+        "!!! warning \"Title\"\n"
+        "    Body text.\n"
+        "\n"
+        "```mermaid\n"
+        "graph TD\n"
+        "  A --> B\n"
+        "```\n"
+        "\n"
+        "## After\n",
+        False,
+    ),
+    (
+        "alert_then_heading",
+        "> [!NOTE]\n> Alert body.\n\n## Heading After\n\ntext\n",
+        False,
+    ),
     ("admonition_bare", "!!! note\n    plain note body\n", False),
     (
         "math",

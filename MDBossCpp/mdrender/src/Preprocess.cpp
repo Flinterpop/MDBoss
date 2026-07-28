@@ -375,7 +375,11 @@ std::string preprocess(std::string_view md_text)
                 out += body[j];
                 out += '\n';
             }
-            out += "\n</div>\n";
+            // The trailing blank line is load bearing: a closing tag starts a
+            // new HTML block, and an HTML block runs until a blank line.  Emit
+            // "</div>" with the next source line hard against it and CommonMark
+            // swallows that line -- and everything after it -- as raw HTML.
+            out += "\n</div>\n\n";
             i = end;
             continue;
         }
@@ -440,8 +444,12 @@ std::string preprocess(std::string_view md_text)
                            : trim(body_line);
                 out += '\n';
             }
+            // See the alert branch: without the trailing blank line the
+            // closing tag's HTML block runs on and eats the next construct.
+            // A ```mermaid fence directly after an admonition is what caught
+            // this -- it rendered as literal backticked text.
             out += "\n";
-            out += collapsible ? "</details>\n" : "</div>\n";
+            out += collapsible ? "</details>\n\n" : "</div>\n\n";
             i = end;
             continue;
         }

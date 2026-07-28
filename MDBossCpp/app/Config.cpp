@@ -1,0 +1,187 @@
+#include "Config.h"
+
+#include <cassert>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+
+#include <nlohmann/json.hpp>
+
+namespace mdboss {
+namespace {
+
+using json = nlohmann::json;
+
+// Matches app.py's MAX_RECENTS.
+constexpr std::size_t kMaxRecents = 6;
+// Matches app.py's favorites cap.
+constexpr std::size_t kMaxFavorites = 10;
+
+// getenv() is deprecated under /W4 /WX on MSVC, and the _s variant hands back
+// an allocation the caller owns.
+std::string environment(const char* name)
+{
+    char* value = nullptr;
+    std::size_t size = 0;
+    if (_dupenv_s(&value, &size, name) != 0 || value == nullptr) {
+        return {};
+    }
+    std::string out(value);
+    std::free(value);
+    return out;
+}
+
+std::string user_data_base()
+{
+    const std::string appdata = environment("APPDATA");
+    if (!appdata.empty()) {
+        return appdata;
+    }
+    const std::string profile = environment("USERPROFILE");
+    return profile.empty() ? std::string(".") : profile;
+}
+
+// Read the whole config file as JSON, or a null json on any failure.
+json read_document()
+{
+    std::ifstream stream(Config::path(), std::ios::binary);
+    if (!stream) {
+        return json{};
+    }
+    json document = json::parse(stream, nullptr, false);
+    if (document.is_discarded() || !document.is_object()) {
+        return json{};
+    }
+    return document;
+}
+
+std::vector<std::string> string_array(const json& document, const char* key,
+                                      std::size_t limit)
+{
+    std::vector<std::string> out;
+    if (!document.contains(key) || !document[key].is_array()) {
+        return out;
+    }
+    for (const json& item : document[key]) {
+        if (out.size() >= limit) {
+            break;
+        }
+        if (item.is_string()) {
+            out.push_back(item.get<std::string>());
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+std::string Config::path()
+{
+    const std::filesystem::path dir =
+        std::filesystem::path(user_data_base()) / "MDBoss";
+    return (dir / "config.json").string();
+}
+
+void Config::load()
+{
+    const json document = read_document();
+    if (!document.is_object()) {
+        return;
+    }
+
+    roots_.clear();
+    if (document.contains("roots") && document["roots"].is_array()) {
+        for (const json& entry : document["roots"]) {
+            if (!entry.is_object() || !entry.contains("path") ||
+                !entry["path"].is_string()) {
+                continue;
+            }
+            Root root;
+            root.path = entry["path"].get<std::string>();
+            root.name = (entry.contains("name") && entry["name"].is_string())
+                            ? entry["name"].get<std::string>()
+                            : root.path;
+            roots_.push_back(std::move(root));
+        }
+    }
+
+    favorites_ = string_array(document, "favorites", kMaxFavorites);
+    recents_ = string_array(document, "recents", kMaxRecents);
+
+    if (document.contains("hide_front_matter") &&
+        document["hide_front_matter"].is_boolean()) {
+        hide_front_matter_ = document["hide_front_matter"].get<bool>();
+    }
+    if (document.contains("wx_window_width") &&
+        document["wx_window_width"].is_number_integer()) {
+        window_width_ = document["wx_window_width"].get<int>();
+    }
+    if (document.contains("wx_window_height") &&
+        document["wx_window_height"].is_number_integer()) {
+        window_height_ = document["wx_window_height"].get<int>();
+    }
+    if (document.contains("wx_editor_sash") &&
+        document["wx_editor_sash"].is_number_integer()) {
+        editor_sash_ = document["wx_editor_sash"].get<int>();
+    }
+}
+
+bool Config::save() const
+{
+    // Re-read first so keys written by the Python app since we loaded --
+    // including its opaque Qt geometry blobs -- survive.
+    json document = read_document();
+    if (!document.is_object()) {
+        document = json::object();
+    }
+
+    json roots = json::array();
+    for (const Root& root : roots_) {
+        roots.push_back(json{{"name", root.name}, {"path", root.path}});
+    }
+    document["roots"] = roots;
+    document["favorites"] = favorites_;
+    document["recents"] = recents_;
+    document["hide_front_matter"] = hide_front_matter_;
+    document["wx_window_width"] = window_width_;
+    document["wx_window_height"] = window_height_;
+    document["wx_editor_sash"] = editor_sash_;
+
+    const std::filesystem::path file(path());
+    std::error_code ec;
+    std::filesystem::create_directories(file.parent_path(), ec);
+
+    std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+        return false;
+    }
+    stream << document.dump(2) << '\n';
+    return stream.good();
+}
+
+void Config::push_recent(const std::string& path)
+{
+    assert(!path.empty() && "a recent entry needs a path");
+    for (auto it = recents_.begin(); it != recents_.end(); ++it) {
+        if (*it == path) {
+            recents_.erase(it);
+            break;
+        }
+    }
+    recents_.insert(recents_.begin(), path);
+    if (recents_.size() > kMaxRecents) {
+        recents_.resize(kMaxRecents);
+    }
+}
+
+void Config::set_window_size(int width, int height)
+{
+    // Ignore the degenerate sizes a minimised window reports.
+    if (width < 200 || height < 200) {
+        return;
+    }
+    window_width_ = width;
+    window_height_ = height;
+}
+
+}  // namespace mdboss
