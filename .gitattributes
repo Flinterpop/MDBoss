@@ -6,3 +6,8 @@
 
 # PowerShell stays CRLF; Windows PowerShell 5.1 is happiest with it.
 *.ps1 text eol=crlf
+
+# The C++ parity corpus is written with LF by MDBossCpp/tests/make_golden.py.
+# Checked out as CRLF it would differ from what that script produces, so every
+# regeneration would show up as a whole-corpus diff and hide the real change.
+MDBossCpp/tests/golden/** text eol=lf

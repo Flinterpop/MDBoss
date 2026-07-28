@@ -1,0 +1,2 @@
+> [!BOGUS]
+> text

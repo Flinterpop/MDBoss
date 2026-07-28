@@ -1,0 +1,29 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "windows-static",
+      "displayName": "VS 18 2026 x64, vcpkg x64-windows-static",
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "VCPKG_MANIFEST_MODE": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "release", "configurePreset": "windows-static", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "release",
+      "configurePreset": "windows-static",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

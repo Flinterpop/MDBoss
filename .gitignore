@@ -26,4 +26,8 @@ MD_Note.jpg
 # Intermediate icon renders (source is mdboss.svg; runtime uses mdboss.ico)
 mdboss_*.png
 
+# C++ port: failure dumps written beside the golden corpus by the parity
+# tests.  The goldens themselves ARE tracked -- they are the expectation.
+MDBossCpp/tests/golden/*.actual.*
+
 # Third-party vendored assets are tracked (assets/); nothing here is ignored.

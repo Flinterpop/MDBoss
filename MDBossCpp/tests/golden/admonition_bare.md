@@ -1,0 +1,2 @@
+!!! note
+    plain note body
