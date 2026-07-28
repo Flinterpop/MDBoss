@@ -56,8 +56,12 @@ public:
     int window_width() const { return window_width_; }
     int window_height() const { return window_height_; }
     int editor_sash() const { return editor_sash_; }
+    int files_sash() const { return files_sash_; }
+    int outline_sash() const { return outline_sash_; }
     void set_window_size(int width, int height);
     void set_editor_sash(int sash) { editor_sash_ = sash; }
+    void set_files_sash(int sash) { files_sash_ = sash; }
+    void set_outline_sash(int sash) { outline_sash_ = sash; }
 
 private:
     std::vector<Root> roots_;
@@ -67,6 +71,8 @@ private:
     int window_width_ = 1280;
     int window_height_ = 820;
     int editor_sash_ = 520;
+    int files_sash_ = 260;
+    int outline_sash_ = 220;
 };
 
 }  // namespace mdboss

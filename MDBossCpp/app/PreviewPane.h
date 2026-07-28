@@ -39,6 +39,10 @@ public:
     // Scroll the preview to `ratio` of its scrollable height, 0..1.
     void scroll_to(double ratio);
 
+    // Scroll to a heading's anchor.  The slug comes from the same pass that
+    // produced the id in the HTML, so the two always agree.
+    void scroll_to_anchor(const std::string& slug);
+
     // Called on the UI thread whenever the user scrolls the preview.
     void set_on_scrolled(std::function<void(double)> handler)
     {

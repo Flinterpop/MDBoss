@@ -124,6 +124,14 @@ void Config::load()
         document["wx_editor_sash"].is_number_integer()) {
         editor_sash_ = document["wx_editor_sash"].get<int>();
     }
+    if (document.contains("wx_files_sash") &&
+        document["wx_files_sash"].is_number_integer()) {
+        files_sash_ = document["wx_files_sash"].get<int>();
+    }
+    if (document.contains("wx_outline_sash") &&
+        document["wx_outline_sash"].is_number_integer()) {
+        outline_sash_ = document["wx_outline_sash"].get<int>();
+    }
 }
 
 bool Config::save() const
@@ -146,6 +154,8 @@ bool Config::save() const
     document["wx_window_width"] = window_width_;
     document["wx_window_height"] = window_height_;
     document["wx_editor_sash"] = editor_sash_;
+    document["wx_files_sash"] = files_sash_;
+    document["wx_outline_sash"] = outline_sash_;
 
     const std::filesystem::path file(path());
     std::error_code ec;

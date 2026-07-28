@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "FoldersDialog.h"
 #include "mdrender/MdRender.h"
 
 namespace mdboss {
@@ -22,6 +23,7 @@ namespace {
 constexpr int kRenderDebounceMs = 300;
 
 constexpr int kIdToggleFrontMatter = wxID_HIGHEST + 1;
+constexpr int kIdManageFolders = wxID_HIGHEST + 2;
 
 const char* const kOpenWildcard =
     "Markdown files (*.md;*.markdown;*.mdown;*.mkd)|"
@@ -74,8 +76,10 @@ MainFrame::MainFrame()
 void MainFrame::build_menu()
 {
     auto* file = new wxMenu();
-    file->Append(wxID_OPEN, "&Open…\tCtrl+O");
+    file->Append(wxID_OPEN, L"&Open…\tCtrl+O");
     file->Append(wxID_SAVE, "&Save\tCtrl+S");
+    file->AppendSeparator();
+    file->Append(kIdManageFolders, L"&Manage folders…");
     file->AppendSeparator();
     file->Append(wxID_EXIT, "E&xit\tAlt+F4");
 
@@ -92,7 +96,27 @@ void MainFrame::build_menu()
 
 void MainFrame::build_panes()
 {
-    split_ = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition,
+    // files | (outline | (editor | preview)).  wxSplitterWindow is binary, so
+    // three of them nest to make four panes.
+    files_split_ = new wxSplitterWindow(this, wxID_ANY, wxDefaultPosition,
+                                        wxDefaultSize,
+                                        wxSP_LIVE_UPDATE | wxSP_THIN_SASH);
+    files_split_->SetMinimumPaneSize(140);
+
+    files_ = new FileTreePanel(files_split_);
+    files_->set_on_open([this](const std::string& path) { open_path(path); });
+
+    outline_split_ = new wxSplitterWindow(files_split_, wxID_ANY,
+                                          wxDefaultPosition, wxDefaultSize,
+                                          wxSP_LIVE_UPDATE | wxSP_THIN_SASH);
+    outline_split_->SetMinimumPaneSize(140);
+
+    outline_ = new OutlinePanel(outline_split_);
+    outline_->set_on_activate([this](const std::string& slug) {
+        preview_->scroll_to_anchor(slug);
+    });
+
+    split_ = new wxSplitterWindow(outline_split_, wxID_ANY, wxDefaultPosition,
                                   wxDefaultSize,
                                   wxSP_LIVE_UPDATE | wxSP_THIN_SASH);
     split_->SetMinimumPaneSize(160);
@@ -116,15 +140,18 @@ void MainFrame::build_panes()
     });
 
     split_->SplitVertically(editor_, preview_, config_.editor_sash());
+    outline_split_->SplitVertically(outline_, split_, config_.outline_sash());
+    files_split_->SplitVertically(files_, outline_split_,
+                                  config_.files_sash());
 
-    // The splitter must be in a sizer.  wxFrame will stretch a lone child to
-    // fill, but that fallback does not drive a proper layout pass, so the
-    // splitter kept sizing its panes against stale geometry -- which is what
-    // pushed the preview's web view out past the right edge of the window.
+    // The top-level child goes in a sizer: wxFrame will stretch a lone child
+    // to fill, but that fallback does not drive a proper layout pass.
     auto* sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(split_, 1, wxEXPAND);
+    sizer->Add(files_split_, 1, wxEXPAND);
     SetSizer(sizer);
     Layout();
+
+    files_->set_roots(config_.roots());
 }
 
 void MainFrame::bind_events()
@@ -134,6 +161,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_exit, this, wxID_EXIT);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_front_matter, this,
          kIdToggleFrontMatter);
+    Bind(wxEVT_MENU, &MainFrame::on_manage_folders, this, kIdManageFolders);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
     Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
 
@@ -167,7 +195,7 @@ bool MainFrame::open_path(const std::string& path)
 
 void MainFrame::on_open(wxCommandEvent&)
 {
-    wxFileDialog dialog(this, "Open Markdown file", "", "", kOpenWildcard,
+    wxFileDialog dialog(this, L"Open Markdown file", "", "", kOpenWildcard,
                         wxFD_OPEN | wxFD_FILE_MUST_EXIST);
     if (dialog.ShowModal() != wxID_OK) {
         return;
@@ -178,7 +206,7 @@ void MainFrame::on_open(wxCommandEvent&)
 void MainFrame::on_save(wxCommandEvent&)
 {
     if (current_path_.empty()) {
-        wxFileDialog dialog(this, "Save Markdown file", "", "", kOpenWildcard,
+        wxFileDialog dialog(this, L"Save Markdown file", "", "", kOpenWildcard,
                             wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
         if (dialog.ShowModal() != wxID_OK) {
             return;
@@ -252,6 +280,22 @@ void MainFrame::render_preview()
 
     preview_->show_page(mdrender::render_document(
         markdown, base, title, config_.hide_front_matter()));
+
+    // Same source, same strip_yaml, so the slugs here are the ids in the page
+    // that was just rendered.
+    outline_->set_headings(
+        mdrender::extract_outline(markdown, config_.hide_front_matter()));
+}
+
+void MainFrame::on_manage_folders(wxCommandEvent&)
+{
+    FoldersDialog dialog(this, config_.roots());
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    config_.set_roots(dialog.roots());
+    config_.save();
+    files_->set_roots(config_.roots());
 }
 
 void MainFrame::on_editor_scrolled(wxStyledTextEvent& event)
@@ -310,7 +354,7 @@ bool MainFrame::confirm_discard()
         return true;
     }
     const int answer =
-        wxMessageBox("Save changes to the current document?", "MD Boss",
+        wxMessageBox(L"Save changes to the current document?", "MD Boss",
                      wxYES_NO | wxCANCEL | wxICON_QUESTION, this);
     if (answer == wxCANCEL) {
         return false;
@@ -333,6 +377,12 @@ void MainFrame::on_close(wxCloseEvent& event)
     config_.set_window_size(size.GetWidth(), size.GetHeight());
     if (split_ != nullptr) {
         config_.set_editor_sash(split_->GetSashPosition());
+    }
+    if (outline_split_ != nullptr) {
+        config_.set_outline_sash(outline_split_->GetSashPosition());
+    }
+    if (files_split_ != nullptr) {
+        config_.set_files_sash(files_split_->GetSashPosition());
     }
     config_.save();
     event.Skip();

@@ -416,6 +416,32 @@ void PreviewPane::scroll_to(double ratio)
     webview_->ExecuteScript(script.c_str(), nullptr);
 }
 
+void PreviewPane::scroll_to_anchor(const std::string& slug)
+{
+    if (!webview_ || slug.empty()) {
+        return;
+    }
+    // Built as a JSON string literal so a quote or backslash in a slug
+    // cannot break out of the script.
+    std::string literal = "\"";
+    for (const char ch : slug) {
+        if (ch == '"' || ch == '\\') {
+            literal += '\\';
+            literal += ch;
+        } else if (static_cast<unsigned char>(ch) < 0x20) {
+            continue;   // control characters never appear in a slug
+        } else {
+            literal += ch;
+        }
+    }
+    literal += '"';
+
+    const std::wstring script =
+        L"(function(){var el=document.getElementById(" + widen(literal) +
+        L");if(el){el.scrollIntoView({block:'start'});}})();";
+    webview_->ExecuteScript(script.c_str(), nullptr);
+}
+
 void PreviewPane::on_size(wxSizeEvent& event)
 {
     resize_webview();

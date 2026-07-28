@@ -16,6 +16,8 @@
 #include <string>
 
 #include "Config.h"
+#include "FileTreePanel.h"
+#include "OutlinePanel.h"
 #include "PreviewPane.h"
 
 namespace mdboss {
@@ -37,6 +39,7 @@ private:
     void on_save(wxCommandEvent& event);
     void on_exit(wxCommandEvent& event);
     void on_toggle_front_matter(wxCommandEvent& event);
+    void on_manage_folders(wxCommandEvent& event);
     void on_text_changed(wxStyledTextEvent& event);
     void on_editor_scrolled(wxStyledTextEvent& event);
     void on_render_timer(wxTimerEvent& event);
@@ -50,7 +53,12 @@ private:
     void on_preview_scrolled(double ratio);
 
     Config config_;
+    // Three nested splitters: files | (outline | (editor | preview)).
+    wxSplitterWindow* files_split_ = nullptr;
+    wxSplitterWindow* outline_split_ = nullptr;
     wxSplitterWindow* split_ = nullptr;
+    FileTreePanel* files_ = nullptr;
+    OutlinePanel* outline_ = nullptr;
     wxStyledTextCtrl* editor_ = nullptr;
     PreviewPane* preview_ = nullptr;
     wxTimer render_timer_;
