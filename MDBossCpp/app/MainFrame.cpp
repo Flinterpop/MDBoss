@@ -14,6 +14,7 @@
 
 #include "FoldersDialog.h"
 #include "PathUtf8.h"
+#include "SingleInstance.h"
 #include "mdrender/MdRender.h"
 
 namespace mdboss {
@@ -27,9 +28,10 @@ constexpr int kIdToggleFrontMatter = wxID_HIGHEST + 1;
 constexpr int kIdManageFolders = wxID_HIGHEST + 2;
 constexpr int kIdToggleFavorite = wxID_HIGHEST + 3;
 
+// Kept in step with app.py's MARKDOWN_EXTS.
 const char* const kOpenWildcard =
-    "Markdown files (*.md;*.markdown;*.mdown;*.mkd)|"
-    "*.md;*.markdown;*.mdown;*.mkd|All files (*.*)|*.*";
+    "Markdown files (*.md;*.markdown;*.mdown;*.mkd;*.mdwn)|"
+    "*.md;*.markdown;*.mdown;*.mkd;*.mdwn|All files (*.*)|*.*";
 
 std::string read_text_file(const std::string& path, bool& ok)
 {
@@ -206,6 +208,25 @@ void MainFrame::build_panes()
 
     files_->set_roots(config_.roots());
     refresh_lists();
+}
+
+WXLRESULT MainFrame::MSWWindowProc(WXUINT message, WXWPARAM wparam,
+                                   WXLPARAM lparam)
+{
+    if (message == WM_COPYDATA) {
+        const auto* data = reinterpret_cast<const COPYDATASTRUCT*>(lparam);
+        if (data != nullptr && data->dwData == instance_message_id() &&
+            data->lpData != nullptr && data->cbData > 1) {
+            // The sender is blocked in SendMessage, so copy the payload out
+            // before doing anything that could pump messages.
+            const std::string path(static_cast<const char*>(data->lpData),
+                                   data->cbData - 1);
+            Raise();
+            CallAfter([this, path] { open_path(path); });
+            return TRUE;
+        }
+    }
+    return wxFrame::MSWWindowProc(message, wparam, lparam);
 }
 
 void MainFrame::refresh_lists()

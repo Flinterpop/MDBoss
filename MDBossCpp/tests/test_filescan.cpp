@@ -69,6 +69,7 @@ TEST_CASE("is_markdown accepts the documented extensions", "[filescan]")
     CHECK(mdboss::is_markdown("a.markdown"));
     CHECK(mdboss::is_markdown("a.mdown"));
     CHECK(mdboss::is_markdown("a.mkd"));
+    CHECK(mdboss::is_markdown("a.mdwn"));
     CHECK_FALSE(mdboss::is_markdown("a.txt"));
     CHECK_FALSE(mdboss::is_markdown("a.mdx"));
     CHECK_FALSE(mdboss::is_markdown("noextension"));

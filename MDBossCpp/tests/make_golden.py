@@ -261,9 +261,36 @@ def _load_real_docs() -> list[tuple[str, str, bool]]:
     return cases
 
 
+def _write_registration_plan() -> None:
+    """Emit the Python app's registry layout, for the C++ port to match.
+
+    The two builds share one ProgID, so a drift between their registration
+    tables would leave whichever ran last owning a half-updated set of keys.
+    Fixed inputs are used so the plan is machine-independent.
+    """
+    # Deferred: app.py pulls in Qt, which the rest of this script does not
+    # need.  PLC0415 is already globally ignored, so no noqa is required.
+    import app
+
+    plan = app.registration_plan('"CMD.EXE" "%1"', "ICON.ico,0", "EXE.exe")
+    lines = []
+    for key, name, data in plan["values"]:
+        lines.append(f"value\t{key}\t{name}\t{data}")
+    for key in plan["owned_keys"]:
+        lines.append(f"owned\t{key}")
+    for key, name in plan["shared_values"]:
+        lines.append(f"shared\t{key}\t{name}")
+    _write(
+        os.path.join(_GOLDEN_DIR, "regplan.tsv"),
+        "".join(line + "\n" for line in lines),
+    )
+    print(f"  registration plan: {len(lines)} rows")
+
+
 def main() -> int:
     """Regenerate the whole corpus.  Returns a process exit code."""
     os.makedirs(_GOLDEN_DIR, exist_ok=True)
+    _write_registration_plan()
     cases = [*_CASES, *_load_real_docs()]
     names = [name for name, _text, _strip in cases]
     assert len(names) == len(set(names)), "case names must be unique"

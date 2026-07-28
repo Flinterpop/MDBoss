@@ -11,6 +11,8 @@ add_executable(MDBoss WIN32
     OutlinePanel.cpp
     PathListPanel.cpp
     FoldersDialog.cpp
+    FileAssoc.cpp
+    SingleInstance.cpp
     Config.cpp
     MDBoss.manifest   # per-monitor DPI awareness; see the file for why
 )

@@ -38,9 +38,10 @@ bool is_markdown(const std::string& name)
     if (dot == std::string::npos) {
         return false;
     }
+    // Matches app.py's MARKDOWN_EXTS; keep the two in step.
     const std::string ext = to_lower(name.substr(dot));
     return ext == ".md" || ext == ".markdown" || ext == ".mdown" ||
-           ext == ".mkd";
+           ext == ".mkd" || ext == ".mdwn";
 }
 
 std::string norm_path(const std::string& path)

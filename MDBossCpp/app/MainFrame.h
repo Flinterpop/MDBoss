@@ -31,6 +31,11 @@ public:
     // the current document intact if the file cannot be read.
     bool open_path(const std::string& path);
 
+    // WM_COPYDATA carries a document path from a second launch; see
+    // SingleInstance.h for why there is only ever one window.
+    WXLRESULT MSWWindowProc(WXUINT message, WXWPARAM wparam,
+                            WXLPARAM lparam) override;
+
 private:
     void build_menu();
     void build_panes();

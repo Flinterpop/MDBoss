@@ -1,0 +1,44 @@
+value	Software\Classes\MDBoss.Markdown		Markdown Document
+value	Software\Classes\MDBoss.Markdown	FriendlyTypeName	Markdown Document
+value	Software\Classes\MDBoss.Markdown\DefaultIcon		ICON.ico,0
+value	Software\Classes\MDBoss.Markdown\shell\open	FriendlyAppName	MD Boss
+value	Software\Classes\MDBoss.Markdown\shell\open\command		"CMD.EXE" "%1"
+value	Software\Classes\Applications\EXE.exe\shell\open\command		"CMD.EXE" "%1"
+value	Software\Classes\Applications\EXE.exe	FriendlyAppName	MD Boss
+value	Software\MDBoss\Capabilities	ApplicationName	MD Boss
+value	Software\MDBoss\Capabilities	ApplicationDescription	Local Markdown manager, editor, and offline GitHub-style viewer.
+value	Software\RegisteredApplications	MD Boss	Software\MDBoss\Capabilities
+value	Software\Classes\.md\OpenWithProgids	MDBoss.Markdown	
+value	Software\Classes\Applications\EXE.exe\SupportedTypes	.md	
+value	Software\MDBoss\Capabilities\FileAssociations	.md	MDBoss.Markdown
+value	Software\Classes\.markdown\OpenWithProgids	MDBoss.Markdown	
+value	Software\Classes\Applications\EXE.exe\SupportedTypes	.markdown	
+value	Software\MDBoss\Capabilities\FileAssociations	.markdown	MDBoss.Markdown
+value	Software\Classes\.mdown\OpenWithProgids	MDBoss.Markdown	
+value	Software\Classes\Applications\EXE.exe\SupportedTypes	.mdown	
+value	Software\MDBoss\Capabilities\FileAssociations	.mdown	MDBoss.Markdown
+value	Software\Classes\.mkd\OpenWithProgids	MDBoss.Markdown	
+value	Software\Classes\Applications\EXE.exe\SupportedTypes	.mkd	
+value	Software\MDBoss\Capabilities\FileAssociations	.mkd	MDBoss.Markdown
+value	Software\Classes\.mdwn\OpenWithProgids	MDBoss.Markdown	
+value	Software\Classes\Applications\EXE.exe\SupportedTypes	.mdwn	
+value	Software\MDBoss\Capabilities\FileAssociations	.mdwn	MDBoss.Markdown
+owned	Software\Classes\MDBoss.Markdown\shell\open\command
+owned	Software\Classes\MDBoss.Markdown\shell\open
+owned	Software\Classes\MDBoss.Markdown\shell
+owned	Software\Classes\MDBoss.Markdown\DefaultIcon
+owned	Software\Classes\MDBoss.Markdown
+owned	Software\Classes\Applications\EXE.exe\shell\open\command
+owned	Software\Classes\Applications\EXE.exe\shell\open
+owned	Software\Classes\Applications\EXE.exe\shell
+owned	Software\Classes\Applications\EXE.exe\SupportedTypes
+owned	Software\Classes\Applications\EXE.exe
+owned	Software\MDBoss\Capabilities\FileAssociations
+owned	Software\MDBoss\Capabilities
+owned	Software\MDBoss
+shared	Software\RegisteredApplications	MD Boss
+shared	Software\Classes\.md\OpenWithProgids	MDBoss.Markdown
+shared	Software\Classes\.markdown\OpenWithProgids	MDBoss.Markdown
+shared	Software\Classes\.mdown\OpenWithProgids	MDBoss.Markdown
+shared	Software\Classes\.mkd\OpenWithProgids	MDBoss.Markdown
+shared	Software\Classes\.mdwn\OpenWithProgids	MDBoss.Markdown

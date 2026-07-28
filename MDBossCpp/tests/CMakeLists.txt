@@ -5,8 +5,10 @@ find_package(Catch2 CONFIG REQUIRED)
 add_executable(mdrender_tests
     test_mdrender.cpp
     test_filescan.cpp
+    test_fileassoc.cpp
     ../app/FileScan.cpp
     ../app/PathUtf8.cpp
+    ../app/FileAssoc.cpp
 )
 
 target_include_directories(mdrender_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../app)
