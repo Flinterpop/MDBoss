@@ -1,9 +1,11 @@
 #include "MainFrame.h"
 
+#include <wx/choicdlg.h>
 #include <wx/filedlg.h>
 #include <wx/filename.h>
 #include <wx/menu.h>
 #include <wx/msgdlg.h>
+#include <wx/textdlg.h>
 #include <wx/sizer.h>
 #include <wx/textfile.h>
 
@@ -15,6 +17,7 @@
 #include "FoldersDialog.h"
 #include "PathUtf8.h"
 #include "SingleInstance.h"
+#include "Templates.h"
 #include "mdrender/MdRender.h"
 
 namespace mdboss {
@@ -27,6 +30,8 @@ constexpr int kRenderDebounceMs = 300;
 constexpr int kIdToggleFrontMatter = wxID_HIGHEST + 1;
 constexpr int kIdManageFolders = wxID_HIGHEST + 2;
 constexpr int kIdToggleFavorite = wxID_HIGHEST + 3;
+constexpr int kIdNewFromTemplate = wxID_HIGHEST + 4;
+constexpr int kIdOpenTemplates = wxID_HIGHEST + 5;
 
 // Kept in step with app.py's MARKDOWN_EXTS.
 const char* const kOpenWildcard =
@@ -85,9 +90,12 @@ MainFrame::MainFrame()
 void MainFrame::build_menu()
 {
     auto* file = new wxMenu();
+    file->Append(wxID_NEW, "&New\tCtrl+N");
+    file->Append(kIdNewFromTemplate, L"New from &template…\tCtrl+Shift+N");
     file->Append(wxID_OPEN, L"&Open…\tCtrl+O");
     file->Append(wxID_SAVE, "&Save\tCtrl+S");
     file->AppendSeparator();
+    file->Append(kIdOpenTemplates, "Open &templates folder");
     file->Append(kIdManageFolders, L"&Manage folders…");
     file->Append(kIdToggleFavorite, "Add to &favorites\tCtrl+D");
     file->AppendSeparator();
@@ -244,6 +252,11 @@ void MainFrame::bind_events()
          kIdToggleFrontMatter);
     Bind(wxEVT_MENU, &MainFrame::on_manage_folders, this, kIdManageFolders);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_favorite, this, kIdToggleFavorite);
+    Bind(wxEVT_MENU, &MainFrame::on_new, this, wxID_NEW);
+    Bind(wxEVT_MENU, &MainFrame::on_new_from_template, this,
+         kIdNewFromTemplate);
+    Bind(wxEVT_MENU, &MainFrame::on_open_templates_folder, this,
+         kIdOpenTemplates);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
     Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
 
@@ -383,6 +396,80 @@ void MainFrame::on_toggle_favorite(wxCommandEvent&)
     }
     config_.save();
     refresh_lists();
+}
+
+void MainFrame::on_new(wxCommandEvent&)
+{
+    if (!confirm_discard()) {
+        return;
+    }
+    editor_->SetText("");
+    editor_->EmptyUndoBuffer();
+    current_path_.clear();
+    dirty_ = false;
+    update_title();
+    render_preview();
+}
+
+void MainFrame::on_new_from_template(wxCommandEvent&)
+{
+    const std::vector<std::pair<std::string, std::string>> templates =
+        list_templates();
+    if (templates.empty()) {
+        const int answer = wxMessageBox(
+            "No templates yet.\n\nOpen the templates folder to add some?",
+            "MD Boss", wxYES_NO | wxICON_QUESTION, this);
+        if (answer == wxYES) {
+            wxCommandEvent unused;
+            on_open_templates_folder(unused);
+        }
+        return;
+    }
+
+    wxArrayString names;
+    for (const auto& [name, path] : templates) {
+        names.Add(wxString::FromUTF8(name));
+    }
+    const int choice = wxGetSingleChoiceIndex("Start from which template?",
+                                              "MD Boss", names, this);
+    if (choice < 0) {
+        return;
+    }
+    if (!confirm_discard()) {
+        return;
+    }
+
+    const wxString title = wxGetTextFromUser(
+        "Title for the new document:", "MD Boss", "Untitled", this);
+    if (title.IsEmpty()) {
+        return;
+    }
+
+    bool ok = false;
+    const std::string body =
+        read_text_file(templates[static_cast<std::size_t>(choice)].second, ok);
+    if (!ok) {
+        wxMessageBox("Could not read that template.", "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    editor_->SetText(wxString::FromUTF8(
+        apply_template(body, std::string(title.ToUTF8()))));
+    editor_->EmptyUndoBuffer();
+    // Deliberately unsaved and unnamed: the document exists only in the
+    // editor until the user chooses where it belongs.
+    current_path_.clear();
+    dirty_ = true;
+    update_title();
+    render_preview();
+}
+
+void MainFrame::on_open_templates_folder(wxCommandEvent&)
+{
+    seed_templates();   // first use creates the folder and its starters
+    const wxString dir = wxString::FromUTF8(templates_dir());
+    wxExecute("explorer.exe \"" + dir + "\"", wxEXEC_ASYNC);
 }
 
 void MainFrame::on_manage_folders(wxCommandEvent&)

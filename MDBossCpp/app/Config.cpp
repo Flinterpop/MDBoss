@@ -7,6 +7,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "PathUtf8.h"
+
 namespace mdboss {
 namespace {
 
@@ -75,11 +77,14 @@ std::vector<std::string> string_array(const json& document, const char* key,
 
 }  // namespace
 
+std::string user_data_dir()
+{
+    return path_to_utf8(path_from_utf8(user_data_base()) / "MDBoss");
+}
+
 std::string Config::path()
 {
-    const std::filesystem::path dir =
-        std::filesystem::path(user_data_base()) / "MDBoss";
-    return (dir / "config.json").string();
+    return path_to_utf8(path_from_utf8(user_data_dir()) / "config.json");
 }
 
 void Config::load()

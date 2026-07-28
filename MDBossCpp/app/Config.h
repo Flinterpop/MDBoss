@@ -26,6 +26,10 @@ struct Root {
     std::string path;
 };
 
+// The per-user data folder, %APPDATA%\MDBoss, shared with the Python app.
+// Config and templates both live under it.
+std::string user_data_dir();
+
 class Config {
 public:
     // Full path to config.json, honouring %APPDATA% like _user_data_base().

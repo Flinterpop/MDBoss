@@ -46,6 +46,9 @@ private:
     void on_exit(wxCommandEvent& event);
     void on_toggle_front_matter(wxCommandEvent& event);
     void on_manage_folders(wxCommandEvent& event);
+    void on_new(wxCommandEvent& event);
+    void on_new_from_template(wxCommandEvent& event);
+    void on_open_templates_folder(wxCommandEvent& event);
     void on_toggle_favorite(wxCommandEvent& event);
     void refresh_lists();
     void on_text_changed(wxStyledTextEvent& event);

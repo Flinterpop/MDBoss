@@ -6,9 +6,12 @@ add_executable(mdrender_tests
     test_mdrender.cpp
     test_filescan.cpp
     test_fileassoc.cpp
+    test_templates.cpp
     ../app/FileScan.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp
+    ../app/Templates.cpp
+    ../app/Config.cpp
 )
 
 target_include_directories(mdrender_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../app)
