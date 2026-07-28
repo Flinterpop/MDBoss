@@ -6,6 +6,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -13,6 +14,23 @@
 
 #include "Updater.h"
 #include "Version.h"
+
+namespace {
+
+// getenv is a /W4 /WX error on MSVC; _dupenv_s is the sanctioned form.
+std::string env_or_empty(const char* name)
+{
+    char* value = nullptr;
+    std::size_t size = 0;
+    if (::_dupenv_s(&value, &size, name) != 0 || value == nullptr) {
+        return {};
+    }
+    const std::string out(value);
+    std::free(value);
+    return out;
+}
+
+}  // namespace
 
 TEST_CASE("version tags parse", "[updater]")
 {
@@ -98,7 +116,10 @@ TEST_CASE("the real GitHub payload parses as expected", "[updater]")
     // golden/release_latest.json is the actual response from
     // api.github.com/repos/Flinterpop/MDBoss/releases/latest, kept so the
     // parser is pinned against the real shape rather than a hand-written
-    // guess at it.
+    // guess at it.  Refresh it when cutting a release:
+    //   gh api repos/Flinterpop/MDBoss/releases/latest > <this file>
+    // A payload from an older release keeps passing while describing a world
+    // that no longer exists, which is worse than failing.
     std::ifstream stream(
         std::filesystem::path{MDBOSS_GOLDEN_DIR} / "release_latest.json",
         std::ios::binary);
@@ -107,20 +128,115 @@ TEST_CASE("the real GitHub payload parses as expected", "[updater]")
                            std::istreambuf_iterator<char>());
 
     const mdboss::ReleaseInfo info = mdboss::parse_release(body);
-    CHECK(info.version == std::vector<int>{1, 0, 0});
-    CHECK(info.version_str == "1.0.0");
+    CHECK(info.version == std::vector<int>{1, 1, 0});
+    CHECK(info.version_str == "1.1.0");
     CHECK(info.html_url ==
-          "https://github.com/Flinterpop/MDBoss/releases/tag/v1.0.0");
+          "https://github.com/Flinterpop/MDBoss/releases/tag/v1.1.0");
 
-    // That release carries the Python installer, the portable zip and the
-    // AppImage, but no C++ installer -- this port has never been released.
-    // So the app must fall back to offering the page, not fail.
-    CHECK(info.setup_url.empty());
+    // v1.1.0 is the first release to carry this build's installer, so the
+    // asset lookup is now exercised against the real payload rather than
+    // against its absence.  Five assets are present and it must pick this
+    // one -- MDBoss-Setup.exe is the Python installer and sorts adjacent.
+    CHECK(info.setup_url.find("MDBoss-Cpp-Setup.exe") != std::string::npos);
+    CHECK(info.setup_url.find("github.com") != std::string::npos);
 
-    // And against this build's own version it is not an update.
+    // And against this build's own version it is not an update: the fixture
+    // is refreshed with each release, so this stays true and a stale fixture
+    // shows up here rather than being quietly carried forward.
     const auto current = mdboss::parse_version(mdboss::kAppVersion);
     REQUIRE(current.has_value());
     CHECK_FALSE(mdboss::is_newer(info.version, *current));
+}
+
+// The handoff batch is where this feature has historically failed, in the
+// Python app, twice -- and silently both times: the update simply did not
+// happen. Each check below is one of those failures.
+TEST_CASE("the handoff batch waits before it installs", "[updater]")
+{
+    const std::string batch = mdboss::installer_batch(
+        "C:\\Temp\\MDBoss-Cpp-Setup.exe", "C:\\Apps\\MDBoss.exe", 4321);
+
+    // PING, not TIMEOUT.  The batch runs with no console, where timeout exits
+    // at once with "Input redirection is not supported" -- which collapsed
+    // the whole wait and let the installer race the running app.
+    CHECK(batch.find("PING.EXE") != std::string::npos);
+    CHECK(batch.find("TIMEOUT") == std::string::npos);
+    CHECK(batch.find("timeout") == std::string::npos);
+
+    // Absolute System32 paths.  Git for Windows puts a GNU find on PATH,
+    // which fails on this argument and so reports "already exited",
+    // skipping the wait entirely.
+    CHECK(batch.find("%SystemRoot%\\System32\\find.exe") != std::string::npos);
+    CHECK(batch.find("%SystemRoot%\\System32\\tasklist.exe") !=
+          std::string::npos);
+
+    // Waits on the pid, not the image name: both builds install an exe
+    // called MDBoss.exe, so waiting by name would also wait out a running
+    // Python MD Boss.
+    CHECK(batch.find("PID eq 4321") != std::string::npos);
+    CHECK(batch.find("IMAGENAME") == std::string::npos);
+
+    // The wait has to come before the install, or it is decoration.
+    CHECK(batch.find("PID eq 4321") < batch.find("/VERYSILENT"));
+
+    // Unattended, and it relaunches afterwards.
+    CHECK(batch.find("/VERYSILENT") != std::string::npos);
+    CHECK(batch.find("/NORESTART") != std::string::npos);
+    CHECK(batch.find("/SUPPRESSMSGBOXES") != std::string::npos);
+    CHECK(batch.find("start \"\" \"C:\\Apps\\MDBoss.exe\"") !=
+          std::string::npos);
+
+    // Relaunch after install, and cleanup after that.
+    CHECK(batch.find("/VERYSILENT") < batch.find("start \"\""));
+    CHECK(batch.find("start \"\"") < batch.find("del /q"));
+
+    // cmd.exe wants CRLF, and every line must have it.
+    CHECK(batch.find("\r\n") != std::string::npos);
+    for (std::size_t i = 0; i + 1 < batch.size(); ++i) {
+        if (batch[i] == '\n') {
+            INFO("bare LF at offset " << i);
+            REQUIRE(i > 0);
+            CHECK(batch[i - 1] == '\r');
+        }
+    }
+
+    // Paths are quoted: "C:\Program Files\..." otherwise becomes two words.
+    CHECK(batch.find("\"C:\\Temp\\MDBoss-Cpp-Setup.exe\"") !=
+          std::string::npos);
+}
+
+TEST_CASE("the batch gives up rather than waiting forever", "[updater]")
+{
+    // A process that never exits must not leave a batch spinning for good.
+    const std::string batch =
+        mdboss::installer_batch("C:\\s.exe", "C:\\a.exe", 7);
+    CHECK(batch.find("GEQ 60") != std::string::npos);
+    CHECK(batch.find("goto mdgo") != std::string::npos);
+}
+
+// Writes the real batch out so the wait can be exercised against a live
+// process, which no amount of string matching above can prove.  Hidden by the
+// leading dot, like the scan probe: run it deliberately with
+//   mdrender_tests "[handoffprobe]"
+// and MDBOSS_PROBE_PID / _SETUP / _EXE / _OUT set.
+TEST_CASE("write the handoff batch for a live wait test",
+          "[.][handoffprobe]")
+{
+    const std::string pid = env_or_empty("MDBOSS_PROBE_PID");
+    const std::string setup = env_or_empty("MDBOSS_PROBE_SETUP");
+    const std::string exe = env_or_empty("MDBOSS_PROBE_EXE");
+    const std::string out = env_or_empty("MDBOSS_PROBE_OUT");
+    REQUIRE_FALSE(pid.empty());
+    REQUIRE_FALSE(setup.empty());
+    REQUIRE_FALSE(exe.empty());
+    REQUIRE_FALSE(out.empty());
+
+    const std::string batch = mdboss::installer_batch(
+        setup, exe, static_cast<unsigned long>(std::stoul(pid)));
+    std::ofstream stream(out, std::ios::binary | std::ios::trunc);
+    REQUIRE(stream.good());
+    stream.write(batch.data(), static_cast<std::streamsize>(batch.size()));
+    CHECK(stream.good());
 }
 
 TEST_CASE("junk payloads are handled, not trusted", "[updater]")

@@ -1025,15 +1025,95 @@ void MainFrame::on_check_updates(wxCommandEvent&)
         const int answer = wxMessageBox(
             wxString("v") + wxString::FromUTF8(info.version_str) +
                 " is available (you have v" + kAppVersion + ").\n\n"
-                "Open the download page?",
+                "Download and install it now?\n\n"
+                "MD Boss will close, install, and reopen.",
             "MD Boss", wxYES_NO | wxICON_QUESTION, this);
         if (answer == wxYES) {
-            // Deliberately the page, not a silent download-and-run: this
-            // build has never been through an update cycle, and handing the
-            // user a link they can see beats an unattended installer.
-            wxLaunchDefaultBrowser(wxString::FromUTF8(info.html_url));
+            install_update(info);
         }
     });
+}
+
+void MainFrame::install_update(const ReleaseInfo& info)
+{
+    assert(!info.setup_url.empty() && "nothing to download");
+    // Asked before the download, not after: a user who cancels here has not
+    // waited for several megabytes first.
+    if (!confirm_discard()) {
+        return;
+    }
+
+    const std::filesystem::path dest =
+        path_from_utf8(std::string(wxStandardPaths::Get()
+                                       .GetTempDir()
+                                       .ToUTF8())) /
+        path_from_utf8(kSetupAssetName);
+
+    SetStatusText(L"Downloading the update…");
+    download_update(
+        info.setup_url, path_to_utf8(dest),
+        [this, dest](const std::string& error) {
+            SetStatusText(wxString());
+            if (!error.empty()) {
+                wxMessageBox("Could not download the update.\n\n" +
+                                 wxString::FromUTF8(error),
+                             "MD Boss", wxOK | wxICON_WARNING, this);
+                return;
+            }
+            hand_off_to_installer(path_to_utf8(dest));
+        });
+}
+
+void MainFrame::hand_off_to_installer(const std::string& setup_path)
+{
+    const std::string batch_path = setup_path + ".cmd";
+    const std::string app_exe =
+        std::string(wxStandardPaths::Get().GetExecutablePath().ToUTF8());
+
+    // Written as ASCII with CRLF: cmd.exe is the reader, and it is fussier
+    // than anything else in this program about both.
+    {
+        std::ofstream stream(path_from_utf8(batch_path),
+                             std::ios::binary | std::ios::trunc);
+        if (!stream) {
+            wxMessageBox("Could not prepare the update.", "MD Boss",
+                         wxOK | wxICON_WARNING, this);
+            return;
+        }
+        const std::string text = installer_batch(
+            setup_path, app_exe,
+            static_cast<unsigned long>(::GetCurrentProcessId()));
+        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+        if (!stream.good()) {
+            wxMessageBox("Could not prepare the update.", "MD Boss",
+                         wxOK | wxICON_WARNING, this);
+            return;
+        }
+    }
+
+    // Detached and windowless.  It has to outlive us -- its whole job starts
+    // once this process is gone -- so it cannot be a child that dies with us,
+    // and a console flashing up would look like something had gone wrong.
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::wstring command = L"cmd.exe /c \"" +
+                           path_from_utf8(batch_path).wstring() + L"\"";
+    const BOOL started = ::CreateProcessW(
+        nullptr, command.data(), nullptr, nullptr, FALSE,
+        CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
+        nullptr, nullptr, &startup, &process);
+    if (!started) {
+        wxMessageBox("Could not start the installer.", "MD Boss",
+                     wxOK | wxICON_WARNING, this);
+        return;
+    }
+    ::CloseHandle(process.hProcess);
+    ::CloseHandle(process.hThread);
+
+    // The batch is already waiting for this process to disappear.
+    updating_ = true;
+    Close(true);
 }
 
 void MainFrame::on_manage_folders(wxCommandEvent&)
@@ -1137,7 +1217,10 @@ bool MainFrame::confirm_discard()
 
 void MainFrame::on_close(wxCloseEvent& event)
 {
-    if (event.CanVeto() && !confirm_discard()) {
+    // install_update() already asked, and the installer is waiting on this
+    // process to exit -- asking again here would stall the handoff behind a
+    // dialog the user has effectively already answered.
+    if (!updating_ && event.CanVeto() && !confirm_discard()) {
         event.Veto();
         return;
     }

@@ -17,6 +17,7 @@
 
 #include "Config.h"
 #include "DocumentWatcher.h"
+#include "Updater.h"
 #include "FileTreePanel.h"
 #include "OutlinePanel.h"
 #include "PathListPanel.h"
@@ -59,6 +60,11 @@ private:
     void on_help(wxCommandEvent& event);
     void on_about(wxCommandEvent& event);
     void on_check_updates(wxCommandEvent& event);
+    // Download this build's installer, then hand over to it and exit.  Split
+    // in two because the download is asynchronous: the second half runs from
+    // its completion callback.
+    void install_update(const ReleaseInfo& info);
+    void hand_off_to_installer(const std::string& setup_path);
     void on_toggle_favorite(wxCommandEvent& event);
     void on_export_favorites();
     void on_import_favorites();
@@ -107,6 +113,9 @@ private:
 
     std::string current_path_;
     bool dirty_ = false;
+    // Set once the installer has been handed the job, so the close that
+    // follows does not ask about unsaved work a second time.
+    bool updating_ = false;
     // Sash positions remembered across a hide, so showing a pane again
     // restores the width the user had chosen rather than a default.
     int hidden_files_sash_ = 0;

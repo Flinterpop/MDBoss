@@ -117,4 +117,44 @@ ReleaseInfo parse_release(const std::string& json_body)
     return info;
 }
 
+std::string installer_batch(const std::string& setup_path,
+                            const std::string& app_exe, unsigned long pid)
+{
+    assert(!setup_path.empty() && "nothing to install");
+    assert(!app_exe.empty() && "nothing to relaunch");
+    assert(pid != 0 && "a pid of 0 would match nothing and never wait");
+
+    // Absolute System32 paths for every tool.  A PATH carrying GNU coreutils
+    // -- Git for Windows ships one -- shadows find.exe, and GNU find reads
+    // /I as a path and fails.  The failure looks like "the app has exited",
+    // so the wait is skipped and the install races the running process.
+    const std::string sys32 = "%SystemRoot%\\System32";
+    const std::string pid_text = std::to_string(pid);
+
+    // PING, not TIMEOUT: this batch runs with no console attached, and
+    // timeout exits immediately with "Input redirection is not supported",
+    // collapsing the whole loop.  ping -n N waits N-1 seconds and needs no
+    // console.  Roughly 60 seconds in total, then give up and try anyway.
+    std::string batch;
+    batch += "@echo off\r\n";
+    batch += "\"" + sys32 + "\\PING.EXE\" -n 3 127.0.0.1 >nul\r\n";
+    batch += "set /a _n=0\r\n";
+    batch += ":mdwait\r\n";
+    batch += "\"" + sys32 + "\\tasklist.exe\" /FI \"PID eq " + pid_text +
+             "\" 2>nul | \"" + sys32 + "\\find.exe\" \"" + pid_text +
+             "\" >nul\r\n";
+    batch += "if errorlevel 1 goto mdgo\r\n";
+    batch += "set /a _n+=1\r\n";
+    batch += "if %_n% GEQ 60 goto mdgo\r\n";
+    batch += "\"" + sys32 + "\\PING.EXE\" -n 2 127.0.0.1 >nul\r\n";
+    batch += "goto mdwait\r\n";
+    batch += ":mdgo\r\n";
+    batch += "\"" + setup_path +
+             "\" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES\r\n";
+    batch += "start \"\" \"" + app_exe + "\"\r\n";
+    batch += "del /q \"" + setup_path + "\"\r\n";
+    batch += "del /q \"%~f0\"\r\n";
+    return batch;
+}
+
 }  // namespace mdboss

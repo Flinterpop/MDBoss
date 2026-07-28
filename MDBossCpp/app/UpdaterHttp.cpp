@@ -9,6 +9,11 @@
 #include <wx/app.h>
 #include <wx/webrequest.h>
 
+#include <cassert>
+#include <filesystem>
+#include <system_error>
+
+#include "PathUtf8.h"
 #include "Version.h"
 
 namespace mdboss {
@@ -35,6 +40,11 @@ void check_for_update(
     request.SetHeader("User-Agent", kAppName);
     request.SetHeader("Accept", "application/vnd.github+json");
 
+    // Bound to THIS request's id, not to the event generally.  Every request
+    // reports to the same handler, so an unfiltered binding would also see
+    // the installer download's events and try to parse an .exe as a release
+    // payload -- and would fire again for every later check, because these
+    // bindings are never removed.
     handler->Bind(
         wxEVT_WEBREQUEST_STATE,
         [done](wxWebRequestEvent& event) {
@@ -62,7 +72,65 @@ void check_for_update(
             default:
                 return;   // Active / Idle / Unauthorized: nothing to do yet
             }
-        });
+        },
+        request.GetId());
+    request.Start();
+}
+
+void download_update(const std::string& url, const std::string& dest,
+                     std::function<void(const std::string&)> done)
+{
+    assert(!url.empty() && !dest.empty() && "download needs both ends");
+    wxEvtHandler* handler = wxTheApp;
+    wxWebRequest request = wxWebSession::GetDefault().CreateRequest(
+        handler, wxString::FromUTF8(url));
+    if (!request.IsOk()) {
+        done("Could not start the download.");
+        return;
+    }
+    request.SetHeader("User-Agent", kAppName);
+    // Write straight to the file rather than buffering the installer in
+    // memory: it is several megabytes and there is no reason to hold it.
+    request.SetStorage(wxWebRequest::Storage_File);
+
+    handler->Bind(
+        wxEVT_WEBREQUEST_STATE,
+        [done, dest](wxWebRequestEvent& event) {
+            switch (event.GetState()) {
+            case wxWebRequest::State_Completed: {
+                const int status = event.GetResponse().GetStatus();
+                if (status != 200) {
+                    done("The download returned status " +
+                         std::to_string(status) + ".");
+                    return;
+                }
+                // wx wrote it to a temporary of its choosing; move it where
+                // the batch expects.  A rename can cross volumes here, so
+                // copy-then-remove rather than assuming it cannot.
+                const wxString from = event.GetDataFile();
+                std::error_code ec;
+                const std::filesystem::path target = path_from_utf8(dest);
+                std::filesystem::copy_file(
+                    path_from_utf8(std::string(from.ToUTF8())), target,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    done("Could not save the installer: " + ec.message());
+                    return;
+                }
+                done(std::string());
+                return;
+            }
+            case wxWebRequest::State_Failed:
+                done(std::string(event.GetErrorDescription().ToUTF8()));
+                return;
+            case wxWebRequest::State_Cancelled:
+                done("The download was cancelled.");
+                return;
+            default:
+                return;
+            }
+        },
+        request.GetId());
     request.Start();
 }
 

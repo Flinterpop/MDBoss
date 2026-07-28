@@ -46,6 +46,28 @@ void check_for_update(
 // one release can carry both.
 extern const char* const kSetupAssetName;
 
+// The batch that installs an update after we have exited, then relaunches.
+//
+// It cannot run while we are running: the installer has to overwrite an exe
+// Windows holds a lock on for as long as the process lives, and a fixed sleep
+// is not enough because shutdown can outlast it.  So this waits for OUR
+// PROCESS to disappear before touching anything.
+//
+// By pid, not by image name, which is where this differs from the Python
+// app's otherwise identical batch: both builds install an exe called
+// MDBoss.exe, so waiting on the name would also wait on a running Python MD
+// Boss -- a full minute of nothing, for an unrelated program.
+//
+// Every line runs whether or not the one before it worked, so a failed
+// install still relaunches the intact old version.
+std::string installer_batch(const std::string& setup_path,
+                            const std::string& app_exe, unsigned long pid);
+
+// Download `url` to `dest`.  `done` runs on the UI thread; `error` is empty
+// on success.  Nothing else in the app downloads anything.
+void download_update(const std::string& url, const std::string& dest,
+                     std::function<void(const std::string& error)> done);
+
 }  // namespace mdboss
 
 #endif  // MDBOSS_APP_UPDATER_H

@@ -212,8 +212,9 @@ Where the C++ build differs on purpose:
   does not watch files — press **F5** to rescan.
 - Code blocks are highlighted by a different engine, so colours in a fenced
   block may not match exactly.
-- **Help → Check for updates** points you at the releases page rather than
-  installing the update itself.
+- It never checks for updates on launch. **Help → Check for updates** is the
+  only time it asks, and it then downloads and installs exactly as the Python
+  build does. The Python build checks on launch as well.
 
 ## Privacy
 
