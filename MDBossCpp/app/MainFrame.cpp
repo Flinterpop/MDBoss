@@ -285,6 +285,15 @@ void MainFrame::build_panes()
     files_ = new FileTreePanel(favorites_split_);
     files_->set_on_open([this](const std::string& path) { open_path(path); });
     files_->set_on_import_to_inbox([this] { on_import_to_inbox(); });
+    files_->set_manage_hooks(
+        [this] {
+            wxCommandEvent unused;
+            on_open_templates_folder(unused);
+        },
+        [this] {
+            wxCommandEvent unused;
+            on_manage_folders(unused);
+        });
     files_->set_favorite_hooks(
         [this](const std::string& path) {
             if (config_.is_favorite(path)) {

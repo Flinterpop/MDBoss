@@ -187,6 +187,24 @@ TEST_CASE("a missing root yields no counts rather than zeros", "[filescan]")
     CHECK(counts.empty());
 }
 
+TEST_CASE("a new document keeps the extension you typed", "[filescan]")
+{
+    // Bare names become Markdown, which is the common case.
+    CHECK(mdboss::ensure_markdown_extension("untitled") == "untitled.md");
+    CHECK(mdboss::ensure_markdown_extension("notes") == "notes.md");
+
+    // An extension the user typed is left alone -- including one that is not
+    // Markdown.  Appending unconditionally would give "notes.txt.md".
+    CHECK(mdboss::ensure_markdown_extension("notes.txt") == "notes.txt");
+    CHECK(mdboss::ensure_markdown_extension("readme.md") == "readme.md");
+    CHECK(mdboss::ensure_markdown_extension("page.markdown") ==
+          "page.markdown");
+
+    // A dotted name is not an extensionless one: "v1.2 notes" ends in
+    // ".2 notes", so nothing is appended -- same as Python's splitext.
+    CHECK(mdboss::ensure_markdown_extension("v1.2 notes") == "v1.2 notes");
+}
+
 // ---- File stamps ---------------------------------------------------------
 //
 // These decide whether the document watcher reloads.  Both mistakes are bad

@@ -53,6 +53,16 @@ public:
         on_import_to_inbox_ = std::move(handler);
     }
 
+    // "Manage templates…" and "Manage folders…", both of which the tree
+    // offers but neither of which it owns -- one opens a folder, the other a
+    // dialog the frame holds.
+    void set_manage_hooks(std::function<void()> templates,
+                          std::function<void()> folders)
+    {
+        on_manage_templates_ = std::move(templates);
+        on_manage_folders_ = std::move(folders);
+    }
+
     // Rebuild now with the counts in hand, and re-scan in the background.
     // Keeps whatever the user had expanded.
     void refresh();
@@ -76,7 +86,9 @@ private:
                           const std::vector<std::string>& paths, int depth);
 
     // Context-menu actions.  Each ends in refresh() so counts stay honest.
-    void new_document(const std::string& dir);
+    // An empty `template_path` gives the blank "# <name>" body; otherwise the
+    // template is read and its placeholders substituted.
+    void new_document(const std::string& dir, const std::string& template_path);
     void new_folder(const std::string& dir);
     void rename_path(const std::string& path);
     void delete_path(const std::string& path);
@@ -97,6 +109,8 @@ private:
     std::function<void(const std::string&)> on_toggle_favorite_;
     std::function<bool(const std::string&)> is_favorite_;
     std::function<void()> on_import_to_inbox_;
+    std::function<void()> on_manage_templates_;
+    std::function<void()> on_manage_folders_;
 };
 
 }  // namespace mdboss

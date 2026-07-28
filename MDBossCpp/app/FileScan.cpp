@@ -191,6 +191,18 @@ std::vector<Entry> list_directory(const std::string& path)
     return out;
 }
 
+std::string ensure_markdown_extension(const std::string& name)
+{
+    assert(!name.empty() && "a new document needs a name");
+    if (name.empty()) {
+        return name;
+    }
+    if (path_from_utf8(name).extension().empty()) {
+        return name + ".md";
+    }
+    return name;
+}
+
 std::string find_inbox(const std::vector<std::string>& root_paths)
 {
     const std::string target = to_lower(kInboxName);

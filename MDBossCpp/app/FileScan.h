@@ -21,6 +21,14 @@ bool is_markdown(const std::string& name);
 // not depend on how a path was spelled.
 std::string norm_path(const std::string& path);
 
+// The filename to actually create for a typed-in name.
+//
+// ".md" is appended only when there is NO extension, matching the Python
+// app's `if os.path.splitext(name)[1] == ""`.  Appending whenever the name is
+// not Markdown instead would turn "notes.txt" into "notes.txt.md", which is
+// not the name the user typed.
+std::string ensure_markdown_extension(const std::string& name);
+
 // Recursive Markdown count for every folder at or below `root`.
 //
 // A single bottom-up walk lets each folder sum its own files plus its

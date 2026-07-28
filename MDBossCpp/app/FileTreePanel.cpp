@@ -10,13 +10,16 @@
 
 #include <wx/app.h>
 
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <thread>
 
 #include "FileScan.h"
 #include "PathUtf8.h"
+#include "Templates.h"
 
 namespace mdboss {
 namespace {
@@ -53,6 +56,34 @@ constexpr int kIdReveal = wxID_HIGHEST + 65;
 constexpr int kIdCopyPath = wxID_HIGHEST + 66;
 constexpr int kIdFavorite = wxID_HIGHEST + 67;
 constexpr int kIdImportInbox = wxID_HIGHEST + 68;
+constexpr int kIdManageTemplates = wxID_HIGHEST + 69;
+constexpr int kIdManageFolders = wxID_HIGHEST + 70;
+// Templates take ids from here up.  Bounded (Rule of 10) so a folder full of
+// templates cannot run the range into the next constant.
+constexpr int kIdTemplateBase = wxID_HIGHEST + 80;
+constexpr std::size_t kMaxTemplatesShown = 20;
+
+// The body of a new document: the blank heading, or a template with its
+// placeholders substituted.  A template that cannot be read warns and falls
+// back to the blank body rather than failing the creation, as Python's
+// _template_content() does -- the user asked for a file, not for a template.
+std::string body_for_new_document(const std::string& template_path,
+                                  const std::string& title, wxWindow* parent)
+{
+    if (template_path.empty()) {
+        return "# " + title + "\n\n";
+    }
+    std::ifstream stream(path_from_utf8(template_path), std::ios::binary);
+    if (!stream) {
+        wxMessageBox("Cannot read template:\n" +
+                         wxString::FromUTF8(template_path),
+                     "MD Boss", wxOK | wxICON_WARNING, parent);
+        return "# " + title + "\n\n";
+    }
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    return apply_template(buffer.str(), title);
+}
 
 std::string lowered(const std::string& text)
 {
@@ -366,7 +397,25 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         menu.Append(kIdOpen, "&Open");
         menu.AppendSeparator();
     }
-    menu.Append(kIdNewFile, L"New &document…");
+    // "New file" is a submenu rather than one item so a document can be
+    // started from a template *in the folder you clicked*.  Reaching the
+    // templates only from the File menu means always creating in the default
+    // place and moving the file afterwards.
+    const std::vector<std::pair<std::string, std::string>> templates =
+        list_templates();
+    auto* new_menu = new wxMenu();
+    new_menu->Append(kIdNewFile, "&Blank");
+    const std::size_t shown =
+        std::min<std::size_t>(templates.size(), kMaxTemplatesShown);
+    for (std::size_t i = 0; i < shown; ++i) {   // bounded (Rule of 10)
+        new_menu->Append(kIdTemplateBase + static_cast<int>(i),
+                         wxString::FromUTF8(templates[i].first));
+    }
+    if (on_manage_templates_) {
+        new_menu->AppendSeparator();
+        new_menu->Append(kIdManageTemplates, L"&Manage templates…");
+    }
+    menu.AppendSubMenu(new_menu, "&New file");
     menu.Append(kIdNewFolder, L"New &folder…");
     menu.AppendSeparator();
     menu.Append(kIdRename, L"Re&name…");
@@ -379,10 +428,15 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         menu.Append(kIdFavorite,
                     favorite ? "Remove from fa&vorites" : "Add to fa&vorites");
     }
-    if (on_import_to_inbox_) {
+    if (on_import_to_inbox_ || on_manage_folders_) {
         menu.AppendSeparator();
+    }
+    if (on_import_to_inbox_) {
         menu.Append(kIdImportInbox,
                     wxString(L"&Import files into ") + kInboxName + L"…");
+    }
+    if (on_manage_folders_) {
+        menu.Append(kIdManageFolders, L"Manage f&olders…");
     }
 
     menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
@@ -390,8 +444,28 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             on_open_(path);
         }
     }, kIdOpen);
-    menu.Bind(wxEVT_MENU, [this, dir](wxCommandEvent&) { new_document(dir); },
-              kIdNewFile);
+    menu.Bind(wxEVT_MENU, [this, dir](wxCommandEvent&) {
+        new_document(dir, std::string());
+    }, kIdNewFile);
+    for (std::size_t i = 0; i < shown; ++i) {
+        // The path is copied into the handler rather than the index: the
+        // template list is rebuilt on every menu, and binding an index would
+        // read whichever list exists when the item is clicked.
+        const std::string template_path = templates[i].second;
+        menu.Bind(wxEVT_MENU, [this, dir, template_path](wxCommandEvent&) {
+            new_document(dir, template_path);
+        }, kIdTemplateBase + static_cast<int>(i));
+    }
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        if (on_manage_templates_) {
+            on_manage_templates_();
+        }
+    }, kIdManageTemplates);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        if (on_manage_folders_) {
+            on_manage_folders_();
+        }
+    }, kIdManageFolders);
     menu.Bind(wxEVT_MENU, [this, dir](wxCommandEvent&) { new_folder(dir); },
               kIdNewFolder);
     menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) { rename_path(path); },
@@ -425,17 +499,16 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     PopupMenu(&menu);
 }
 
-void FileTreePanel::new_document(const std::string& dir)
+void FileTreePanel::new_document(const std::string& dir,
+                                 const std::string& template_path)
 {
     const wxString name = wxGetTextFromUser(
         "Name for the new document:", "MD Boss", "untitled.md", this);
     if (name.IsEmpty()) {
         return;
     }
-    wxString filename = name;
-    if (!is_markdown(std::string(filename.ToUTF8()))) {
-        filename += ".md";
-    }
+    const wxString filename = wxString::FromUTF8(
+        ensure_markdown_extension(std::string(name.ToUTF8())));
     const std::filesystem::path target =
         path_from_utf8(dir) / path_from_utf8(std::string(filename.ToUTF8()));
 
@@ -451,10 +524,9 @@ void FileTreePanel::new_document(const std::string& dir)
                      wxOK | wxICON_ERROR, this);
         return;
     }
-    stream << "# "
-           << path_to_utf8(
-                  path_from_utf8(std::string(filename.ToUTF8())).stem())
-           << "\n\n";
+    const std::string title =
+        path_to_utf8(path_from_utf8(std::string(filename.ToUTF8())).stem());
+    stream << body_for_new_document(template_path, title, this);
     stream.close();
 
     refresh();
