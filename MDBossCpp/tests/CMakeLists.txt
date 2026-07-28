@@ -1,4 +1,4 @@
-find_package(Catch2 CONFIG REQUIRED)
+﻿find_package(Catch2 CONFIG REQUIRED)
 
 # FileScan is deliberately wx-free so it can be compiled straight into the
 # test binary; everything else in app/ needs a GUI toolkit.
@@ -11,11 +11,13 @@ add_executable(mdrender_tests
     test_version.cpp
     test_droptarget.cpp
     test_updater.cpp
+    test_favorites.cpp
     ../app/FileScan.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp
     ../app/Templates.cpp
     ../app/Config.cpp
+    ../app/Favorites.cpp
     ../app/Updater.cpp
 )
 
@@ -33,3 +35,5 @@ target_compile_definitions(mdrender_tests PRIVATE
 
 include(Catch)
 catch_discover_tests(mdrender_tests)
+
+

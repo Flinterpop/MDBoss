@@ -49,6 +49,24 @@ bool send_to_recycle_bin(const std::string& path);
 // offering it beats a drop that silently does nothing.  Empty if the list is.
 std::string choose_dropped_file(const std::vector<std::string>& filenames);
 
+// The optional landing folder for documents copied in via "Import files into
+// MD_Inbox…".  Dropping a file does NOT copy here -- drops open the file
+// where it lies -- so this name only governs the explicit import command.
+inline constexpr const char* kInboxName = "MD_Inbox";
+
+// The MD_Inbox folder among `root_paths`, or empty when there is none.
+//
+// A root may itself be named MD_Inbox, or hold one as a top-level subfolder.
+// Matching is case-insensitive and the first match wins, as in the Python
+// app's find_inbox().
+std::string find_inbox(const std::vector<std::string>& root_paths);
+
+// A path in `dest_dir` for `filename` that will not overwrite anything: on
+// collision " (2)", " (3)" ... is inserted before the extension, so importing
+// a file whose name is already taken never clobbers the one already there.
+std::string unique_dest(const std::string& dest_dir,
+                        const std::string& filename);
+
 // What a file looked like at a moment in time.
 //
 // This is how the document watcher tells an edit by another program from the

@@ -1,4 +1,4 @@
-find_package(wxWidgets CONFIG REQUIRED)
+﻿find_package(wxWidgets CONFIG REQUIRED)
 
 # WIN32 => no console window for the shipped app.
 add_executable(MDBoss WIN32
@@ -17,6 +17,7 @@ add_executable(MDBoss WIN32
     Templates.cpp
     DropTarget.cpp
     DocumentWatcher.cpp
+    Favorites.cpp
     Updater.cpp
     UpdaterHttp.cpp
     Config.cpp
@@ -40,3 +41,4 @@ target_link_libraries(MDBoss PRIVATE
 set_target_properties(MDBoss PROPERTIES
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/.."
 )
+

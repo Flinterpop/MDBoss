@@ -15,10 +15,17 @@
 #ifndef MDBOSS_APP_CONFIG_H
 #define MDBOSS_APP_CONFIG_H
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace mdboss {
+
+// Matching app.py's MAX_RECENTS and MAX_FAVORITES.  Public because the
+// favorites interchange file is capped on import too, and a second copy of
+// the number in another file is a drift waiting to happen.
+inline constexpr std::size_t kMaxRecents = 6;
+inline constexpr std::size_t kMaxFavorites = 10;
 
 // One root folder as the Python app stores it: {"name": ..., "path": ...}.
 struct Root {

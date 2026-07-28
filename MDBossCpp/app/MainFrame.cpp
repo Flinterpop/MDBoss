@@ -20,7 +20,9 @@
 #include <sstream>
 
 #include "DropTarget.h"
+#include "Favorites.h"
 #include "FileAssoc.h"
+#include "FileScan.h"
 #include "FoldersDialog.h"
 #include "Version.h"
 #include "HelpDialog.h"
@@ -275,9 +277,14 @@ void MainFrame::build_panes()
         config_.save();
         refresh_lists();
     });
+    favorites_->add_menu_command(L"&Export favorites…",
+                                 [this] { on_export_favorites(); });
+    favorites_->add_menu_command(L"&Import favorites…",
+                                 [this] { on_import_favorites(); });
 
     files_ = new FileTreePanel(favorites_split_);
     files_->set_on_open([this](const std::string& path) { open_path(path); });
+    files_->set_on_import_to_inbox([this] { on_import_to_inbox(); });
     files_->set_favorite_hooks(
         [this](const std::string& path) {
             if (config_.is_favorite(path)) {
@@ -509,6 +516,164 @@ bool MainFrame::save_to(const std::string& path)
         return false;
     }
     return true;
+}
+
+void MainFrame::on_export_favorites()
+{
+    const std::vector<std::string>& favorites = config_.favorites();
+    if (favorites.empty()) {
+        wxMessageBox("You have no favorites to export.", "MD Boss",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    wxFileDialog dialog(this, "Export favorites", "", "mdboss-favorites.json",
+                        "JSON files (*.json)|*.json",
+                        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+
+    const std::string target = std::string(dialog.GetPath().ToUTF8());
+    std::ofstream stream(path_from_utf8(target),
+                         std::ios::binary | std::ios::trunc);
+    const std::string text = favorites_to_json(favorites);
+    if (stream) {
+        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+    }
+    if (!stream || !stream.good()) {
+        wxMessageBox("Could not write file:\n" + dialog.GetPath(), "MD Boss",
+                     wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    wxMessageBox(wxString::Format("Exported %zu favorite(s) to:\n",
+                                  favorites.size()) +
+                     dialog.GetPath(),
+                 "MD Boss", wxOK | wxICON_INFORMATION, this);
+}
+
+void MainFrame::on_import_favorites()
+{
+    wxFileDialog dialog(this, "Import favorites", "", "",
+                        "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+
+    bool ok = false;
+    const std::string text =
+        read_text_file(std::string(dialog.GetPath().ToUTF8()), ok);
+    if (!ok) {
+        wxMessageBox("Could not read file:\n" + dialog.GetPath(), "MD Boss",
+                     wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    const FavoritesFile file = parse_favorites_json(text);
+    if (!file.parsed) {
+        wxMessageBox("That file doesn't contain a favorites list.", "MD Boss",
+                     wxOK | wxICON_WARNING, this);
+        return;
+    }
+    if (file.paths.empty()) {
+        wxMessageBox("No favorites were found in that file.", "MD Boss",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    // Only worth asking when there is something to lose.
+    bool merge = true;
+    if (!config_.favorites().empty()) {
+        const int answer = wxMessageBox(
+            L"Merge with your current favorites?\n\n"
+            L"Yes — add the imported files to your list\n"
+            L"No — replace your current favorites",
+            "MD Boss", wxYES_NO | wxCANCEL | wxICON_QUESTION, this);
+        if (answer == wxCANCEL) {
+            return;
+        }
+        merge = answer == wxYES;
+    }
+
+    config_.set_favorites(merge_favorites(config_.favorites(), file.paths,
+                                          merge, kMaxFavorites));
+    config_.save();
+    refresh_lists();
+    wxMessageBox(wxString::Format("Your favorites list now has %zu item(s).",
+                                  config_.favorites().size()),
+                 "MD Boss", wxOK | wxICON_INFORMATION, this);
+}
+
+void MainFrame::on_import_to_inbox()
+{
+    std::vector<std::string> root_paths;
+    root_paths.reserve(config_.roots().size());
+    for (const Root& root : config_.roots()) {
+        root_paths.push_back(root.path);
+    }
+
+    const std::string inbox = find_inbox(root_paths);
+    if (inbox.empty()) {
+        wxMessageBox(wxString(L"No ") + kInboxName + L" folder was found.\n\n"
+                         L"Create a folder named " + kInboxName +
+                         L" inside one of your root folders (or add one as a "
+                         L"root), then try again.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    wxFileDialog dialog(this, wxString(L"Import files into ") + kInboxName, "",
+                        "", kOpenWildcard,
+                        wxFD_OPEN | wxFD_MULTIPLE | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    wxArrayString chosen;
+    dialog.GetPaths(chosen);
+
+    std::vector<std::string> copied;
+    std::vector<std::string> failed;
+    const std::size_t limit = std::min<std::size_t>(chosen.GetCount(), 1000);
+    for (std::size_t i = 0; i < limit; ++i) {   // bounded (Rule of 10)
+        const std::string src = std::string(chosen[i].ToUTF8());
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(path_from_utf8(src), ec) || ec) {
+            continue;
+        }
+        // Already in the inbox: open it where it is rather than making a
+        // second copy of a file the user can already see there.
+        if (norm_path(path_to_utf8(path_from_utf8(src).parent_path())) ==
+            norm_path(inbox)) {
+            copied.push_back(src);
+            continue;
+        }
+        const std::string dest =
+            unique_dest(inbox, path_to_utf8(path_from_utf8(src).filename()));
+        std::filesystem::copy_file(path_from_utf8(src), path_from_utf8(dest),
+                                   ec);
+        if (ec) {
+            failed.push_back(src);
+            continue;
+        }
+        copied.push_back(dest);
+    }
+
+    files_->refresh();
+    if (!failed.empty()) {
+        wxString names;
+        for (const std::string& path : failed) {
+            names += "\n" + wxString::FromUTF8(
+                                path_to_utf8(path_from_utf8(path).filename()));
+        }
+        wxMessageBox(wxString(L"Could not copy these files into ") +
+                         kInboxName + ":" + names,
+                     "MD Boss", wxOK | wxICON_WARNING, this);
+    }
+    if (!copied.empty()) {
+        open_path(copied.front());
+    }
 }
 
 void MainFrame::on_document_changed(const std::string& path, bool still_exists)

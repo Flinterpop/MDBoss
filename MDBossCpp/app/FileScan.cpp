@@ -191,6 +191,84 @@ std::vector<Entry> list_directory(const std::string& path)
     return out;
 }
 
+std::string find_inbox(const std::vector<std::string>& root_paths)
+{
+    const std::string target = to_lower(kInboxName);
+    std::error_code ec;
+
+    for (const std::string& root : root_paths) {
+        if (root.empty()) {
+            continue;
+        }
+        const fs::path dir = path_from_utf8(root);
+        if (!fs::is_directory(dir, ec) || ec) {
+            ec.clear();
+            continue;
+        }
+        // A root may BE the inbox.  filename() on a path with a trailing
+        // separator is empty, so the normalised form is what gets named.
+        const fs::path named = dir.lexically_normal();
+        if (to_lower(path_to_utf8(named.filename())) == target) {
+            return path_to_utf8(dir);
+        }
+
+        fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec);
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        std::size_t seen = 0;
+        const fs::directory_iterator end;
+        while (it != end && seen < kMaxEntriesPerDir) {   // bounded (Rule of 10)
+            ++seen;
+            const fs::path entry = it->path();
+            if (fs::is_directory(entry, ec) && !ec &&
+                to_lower(path_to_utf8(entry.filename())) == target) {
+                return path_to_utf8(entry);
+            }
+            ec.clear();
+            it.increment(ec);
+            if (ec) {
+                break;   // increment() throws without this overload.
+            }
+        }
+        ec.clear();
+    }
+    return {};
+}
+
+std::string unique_dest(const std::string& dest_dir,
+                        const std::string& filename)
+{
+    assert(!dest_dir.empty() && "unique_dest needs a folder");
+    assert(!filename.empty() && "unique_dest needs a filename");
+    if (dest_dir.empty() || filename.empty()) {
+        return {};
+    }
+
+    const fs::path dir = path_from_utf8(dest_dir);
+    const fs::path name = path_from_utf8(filename);
+    const fs::path stem = name.stem();
+    const fs::path ext = name.extension();
+
+    fs::path candidate = dir / name;
+    std::error_code ec;
+    // Bounded (Rule of 10).  Exhausting the range is not a silent overwrite:
+    // the last candidate is returned and the copy fails visibly instead.
+    for (int counter = 2; counter < 10000; ++counter) {
+        if (!fs::exists(candidate, ec) || ec) {
+            break;
+        }
+        // Back through path_from_utf8 rather than dividing by a std::string:
+        // constructing a path from a narrow string re-encodes it as ANSI, so
+        // a non-Latin-1 filename would be mangled on the way in.
+        candidate = dir / path_from_utf8(path_to_utf8(stem) + " (" +
+                                         std::to_string(counter) + ")" +
+                                         path_to_utf8(ext));
+    }
+    return path_to_utf8(candidate);
+}
+
 bool operator==(const FileStamp& a, const FileStamp& b)
 {
     // Two absent files compare equal whatever the other fields hold, so a

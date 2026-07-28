@@ -52,6 +52,7 @@ constexpr int kIdDelete = wxID_HIGHEST + 64;
 constexpr int kIdReveal = wxID_HIGHEST + 65;
 constexpr int kIdCopyPath = wxID_HIGHEST + 66;
 constexpr int kIdFavorite = wxID_HIGHEST + 67;
+constexpr int kIdImportInbox = wxID_HIGHEST + 68;
 
 std::string lowered(const std::string& text)
 {
@@ -378,6 +379,11 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         menu.Append(kIdFavorite,
                     favorite ? "Remove from fa&vorites" : "Add to fa&vorites");
     }
+    if (on_import_to_inbox_) {
+        menu.AppendSeparator();
+        menu.Append(kIdImportInbox,
+                    wxString(L"&Import files into ") + kInboxName + L"…");
+    }
 
     menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
         if (on_open_) {
@@ -410,6 +416,11 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             on_toggle_favorite_(path);
         }
     }, kIdFavorite);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        if (on_import_to_inbox_) {
+            on_import_to_inbox_();
+        }
+    }, kIdImportInbox);
 
     PopupMenu(&menu);
 }

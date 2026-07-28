@@ -60,6 +60,11 @@ private:
     void on_about(wxCommandEvent& event);
     void on_check_updates(wxCommandEvent& event);
     void on_toggle_favorite(wxCommandEvent& event);
+    void on_export_favorites();
+    void on_import_favorites();
+    // Copy chosen Markdown files into MD_Inbox and open the first, which is
+    // what makes the command feel like an import rather than a file copy.
+    void on_import_to_inbox();
     void refresh_lists();
     void on_text_changed(wxStyledTextEvent& event);
     void on_editor_scrolled(wxStyledTextEvent& event);

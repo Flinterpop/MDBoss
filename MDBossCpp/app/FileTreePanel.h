@@ -45,6 +45,14 @@ public:
         is_favorite_ = std::move(query);
     }
 
+    // "Import files into MD_Inbox…", which the tree offers wherever the menu
+    // is raised -- including empty space, as the Python app does, because the
+    // command is about the roots as a whole and not the row under the cursor.
+    void set_on_import_to_inbox(std::function<void()> handler)
+    {
+        on_import_to_inbox_ = std::move(handler);
+    }
+
     // Rebuild now with the counts in hand, and re-scan in the background.
     // Keeps whatever the user had expanded.
     void refresh();
@@ -88,6 +96,7 @@ private:
     std::function<void(const std::string&)> on_open_;
     std::function<void(const std::string&)> on_toggle_favorite_;
     std::function<bool(const std::string&)> is_favorite_;
+    std::function<void()> on_import_to_inbox_;
 };
 
 }  // namespace mdboss

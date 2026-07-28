@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mdboss {
@@ -40,6 +41,12 @@ public:
         on_clear_ = std::move(handler);
     }
 
+    // A command appended to the context menu above "Clear list", for actions
+    // that belong to the list as a whole rather than to the row under the
+    // cursor.  Favorites uses these for import/export; Recent has none, which
+    // is why they are added per instance rather than built in.
+    void add_menu_command(const wxString& label, std::function<void()> handler);
+
 private:
     void on_activated(wxListEvent& event);
     void on_context_menu(wxListEvent& event);
@@ -51,6 +58,7 @@ private:
     std::function<void(const std::string&)> on_activate_;
     std::function<void(const std::string&)> on_extra_;
     std::function<void()> on_clear_;
+    std::vector<std::pair<wxString, std::function<void()>>> commands_;
 };
 
 }  // namespace mdboss

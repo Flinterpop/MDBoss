@@ -6,6 +6,7 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
+#include <cassert>
 #include <filesystem>
 
 namespace mdboss {
@@ -16,8 +17,23 @@ constexpr int kIdExtra = wxID_HIGHEST + 41;
 constexpr int kIdReveal = wxID_HIGHEST + 42;
 constexpr int kIdCopyPath = wxID_HIGHEST + 43;
 constexpr int kIdClear = wxID_HIGHEST + 44;
+// Per-instance commands get ids from here up.  Bounded (Rule of 10) so the
+// range cannot run into whatever the next constant above happens to be.
+constexpr int kIdCommandBase = wxID_HIGHEST + 45;
+constexpr std::size_t kMaxCommands = 4;
 
 }  // namespace
+
+void PathListPanel::add_menu_command(const wxString& label,
+                                     std::function<void()> handler)
+{
+    assert(handler && "a menu command needs something to do");
+    assert(commands_.size() < kMaxCommands && "too many list commands");
+    if (!handler || commands_.size() >= kMaxCommands) {
+        return;
+    }
+    commands_.emplace_back(label, std::move(handler));
+}
 
 PathListPanel::PathListPanel(wxWindow* parent, const wxString& title,
                              const wxString& extra_label)
@@ -102,9 +118,24 @@ void PathListPanel::on_context_menu(wxListEvent& event)
     menu.AppendSeparator();
     menu.Append(kIdReveal, "Reveal in &Explorer");
     menu.Append(kIdCopyPath, "&Copy path");
+    if (!commands_.empty()) {
+        menu.AppendSeparator();
+        for (std::size_t i = 0; i < commands_.size(); ++i) {
+            menu.Append(kIdCommandBase + static_cast<int>(i),
+                        commands_[i].first);
+        }
+    }
     if (on_clear_) {
         menu.AppendSeparator();
         menu.Append(kIdClear, "C&lear list");
+    }
+    for (std::size_t i = 0; i < commands_.size(); ++i) {
+        // Captured by index, not by reference: the vector outlives the menu
+        // but a reference into it would not survive a later add.
+        menu.Bind(wxEVT_MENU, [this, i](wxCommandEvent&) {
+            assert(i < commands_.size() && "command vanished");
+            commands_[i].second();
+        }, kIdCommandBase + static_cast<int>(i));
     }
 
     menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {

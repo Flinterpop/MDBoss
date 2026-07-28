@@ -14,10 +14,7 @@ namespace {
 
 using json = nlohmann::json;
 
-// Matches app.py's MAX_RECENTS.
-constexpr std::size_t kMaxRecents = 6;
-// Matches app.py's favorites cap.
-constexpr std::size_t kMaxFavorites = 10;
+// The caps now live in Config.h, shared with the favorites import path.
 
 // getenv() is deprecated under /W4 /WX on MSVC, and the _s variant hands back
 // an allocation the caller owns.
