@@ -1,7 +1,13 @@
 <#
-Release MD Boss: bump the version everywhere it appears, build both apps,
-commit and push the bump, publish a GitHub release with all three assets,
-then reinstall locally.
+Release MD Boss: bump the version everywhere it appears, build both Windows
+apps and the Linux AppImage, commit and push the bump, publish a GitHub
+release with every asset, then reinstall locally.
+
+The AppImage is built through WSL from this same working tree.  It is part of
+the release rather than a manual step afterwards because the manual step got
+missed once, and a release without it silently breaks self-update for anyone
+already running one.  -SkipAppImage opts out; there is no way to omit it by
+accident.
 
 The repo holds two apps at one version -- the shipping Python app and the C++
 port -- so the version lives in seven places: app.py, installer.iss,
@@ -14,6 +20,7 @@ Usage:
   .\release.ps1 0.1.0 -NotesFile notes.md      # release notes from a file
   .\release.ps1 0.1.0 -Notes "- fixed X"       # inline release notes
   .\release.ps1 0.1.0 -SkipInstall             # don't reinstall/relaunch here
+  .\release.ps1 0.1.0 -SkipAppImage            # Windows assets only (see below)
 
 Refuses to build unless pytest, ruff and mypy --strict all pass (see the
 quality gate below); that check runs before the version bump, so a failure
@@ -33,7 +40,10 @@ param(
 
     [string]$Notes = "",
     [string]$NotesFile = "",
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    # Publish Windows assets only.  Deliberately opt-OUT: forgetting the
+    # AppImage is silent, and refusing it has to be a decision someone made.
+    [switch]$SkipAppImage
 )
 
 $ErrorActionPreference = "Stop"
@@ -183,6 +193,60 @@ $assets = @("installer\MDBoss-Setup.exe",
             "installer\MDBoss-Cpp-Setup.exe")
 foreach ($asset in $assets) {
     if (-not (Test-Path $asset)) { Fail "expected artifact missing: $asset" }
+}
+
+# --- Linux AppImage ----------------------------------------------------------
+# Built here rather than by hand afterwards, because by hand is how v1.1.0
+# shipped without it: an existing AppImage then saw a newer version, accepted
+# the update, and was sent to a releases page carrying nothing it could use.
+# Nothing about that failure was loud.
+#
+# It is a Linux build driven from Windows through WSL, from this same working
+# tree, so it picks up the version bump above without a second checkout.
+$appImage = "dist\MDBoss-x86_64.AppImage"
+$appImageZsync = "$appImage.zsync"
+$wslOk = $false
+if (-not $SkipAppImage) {
+    $null = wsl.exe --list --quiet 2>$null
+    $wslOk = ($LASTEXITCODE -eq 0)
+    if (-not $wslOk) {
+        Fail ("WSL is not available, so the Linux AppImage cannot be built. " +
+              "Re-run with -SkipAppImage to publish Windows assets only -- " +
+              "but a release without the AppImage breaks self-update for " +
+              "everyone already running one.")
+    }
+}
+if ($wslOk) {
+    # build-appimage.sh resolves this with gh, which is not installed inside
+    # WSL; the Windows gh is, so it is resolved here and passed in.
+    Write-Host "==> Resolving python-build-standalone" -ForegroundColor Cyan
+    $pbsRelease = gh api repos/astral-sh/python-build-standalone/releases/latest | ConvertFrom-Json
+    $pbsUrl = $pbsRelease.assets |
+        Where-Object { $_.name -match 'cpython-3\.12\.\d+.*x86_64-unknown-linux-gnu-install_only\.tar\.gz$' -and
+                       $_.name -notmatch 'debug' } |
+        Select-Object -First 1 -ExpandProperty browser_download_url
+    if (-not $pbsUrl) { Fail "could not resolve a python-build-standalone build" }
+
+    # The DEFAULT distro, whatever it is called -- verified against Ubuntu.
+    # Not pinned by name because the name differs between machines, and a
+    # wrong pin fails the release outright rather than degrading.
+    Write-Host "==> Building Linux AppImage (WSL)" -ForegroundColor Cyan
+    wsl.exe -- bash -lc "cd /mnt/c/source/MDBoss && PBS_URL='$pbsUrl' ./build-appimage.sh"
+    CheckExit "build-appimage.sh"
+
+    foreach ($a in @($appImage, $appImageZsync)) {
+        if (-not (Test-Path $a)) { Fail "AppImage build produced no $a" }
+    }
+    # Both, always: the .zsync is what an installed AppImage reads to find the
+    # update.  Shipping the AppImage without it leaves self-update broken just
+    # as thoroughly as shipping neither.
+    $assets += $appImage
+    $assets += $appImageZsync
+} else {
+    Write-Host "==> SKIPPING the Linux AppImage (-SkipAppImage)" -ForegroundColor Yellow
+    Write-Host "    Anyone running an AppImage will be offered this release" `
+               -ForegroundColor Yellow
+    Write-Host "    and find nothing in it they can install." -ForegroundColor Yellow
 }
 
 # --- Commit + push -----------------------------------------------------------

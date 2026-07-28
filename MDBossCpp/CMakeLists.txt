@@ -8,8 +8,15 @@
 # source into build/vcpkg_installed -- a ~30 minute detour for no gain, since
 # the packages are already installed machine-wide.  Install them once with:
 #
-#   C:\vcpkg\vcpkg.exe install wxwidgets[core,webview]:x64-windows-static ^
-#                              md4c:x64-windows-static catch2:x64-windows-static
+#   C:\vcpkg\vcpkg.exe install wxwidgets:x64-windows-static ^
+#                              md4c:x64-windows-static catch2:x64-windows-static ^
+#                              nlohmann-json:x64-windows-static
+#
+# Note what is NOT in that line: wxwidgets[webview].  The preview is a
+# WebView2 this app creates and owns, because wxWebView's Edge backend never
+# delivers WebResourceRequested and so cannot block a remote request -- see
+# app/PreviewPane.h.  Installing the feature would offer a wx::webview that
+# must not be used, which is worse than not having it.
 #
 # Then configure, build and test.  There is no CMakePresets.json -- these are
 # the commands release.ps1 runs, so they are the ones kept working:

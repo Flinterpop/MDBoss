@@ -108,13 +108,14 @@ builds the AppImage.
 .\release.ps1 <version>       # e.g. .\release.ps1 0.1.11
 ```
 
-This bumps the version **everywhere it appears** — six files across both apps,
-listed in the script — builds the app folder (PyInstaller, one-dir), the
-installer (Inno Setup 6), the portable zip and the C++ installer, runs both
-test suites, commits and pushes, then publishes a GitHub release with all
-three assets. Requires `python` (with PyInstaller), CMake with a Visual Studio
-toolchain and vcpkg, Inno Setup 6, `gh` (authenticated), and `git`. Installed
-copies then pick up the new release via the in-app updater.
+This bumps the version **everywhere it appears** — seven files across both
+apps, listed in the script — builds the app folder (PyInstaller, one-dir), the
+installer (Inno Setup 6), the portable zip, the C++ installer and the Linux
+AppImage, runs both test suites, commits and pushes, then publishes a GitHub
+release with all five assets. Requires `python` (with PyInstaller), CMake with
+a Visual Studio toolchain and vcpkg, Inno Setup 6, `gh` (authenticated), `git`,
+and WSL for the AppImage. Installed copies then pick up the new release via the
+in-app updater.
 
 Bump the version by hand and you will miss a file; that is what the script and
 the lockstep test exist to prevent.
@@ -124,9 +125,13 @@ The build is **one-dir**, not one-file: MD Boss can be the Windows handler for
 about 3.8 s to a window, against 0.75 s for one-dir, measured on the dev
 machine. The cost is a larger install on disk (~600 MB unpacked).
 
-On Linux, `./build-appimage.sh` produces `dist/MDBoss-x86_64.AppImage` and its
-companion `dist/MDBoss-x86_64.AppImage.zsync`; upload both to the release
-alongside the Windows assets. Existing AppImages then self-update to it.
+`./build-appimage.sh` produces `dist/MDBoss-x86_64.AppImage` and its companion
+`dist/MDBoss-x86_64.AppImage.zsync`. `release.ps1` runs it through WSL from the
+same working tree and publishes both, so a release cannot ship without them by
+accident — `-SkipAppImage` is the only way to leave them out, and it says so
+loudly. **Both** matter: an installed AppImage reads the `.zsync` to find its
+update, so shipping one without the other breaks self-update as completely as
+shipping neither.
 
 ## The C++ port
 
