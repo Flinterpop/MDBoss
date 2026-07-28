@@ -12,7 +12,7 @@
 namespace mdboss {
 
 inline constexpr const char* kAppName = "MD Boss";
-inline constexpr const char* kAppVersion = "1.0.0";
+inline constexpr const char* kAppVersion = "1.1.0";
 inline constexpr const char* kAppStage = "C++ port (in development)";
 inline constexpr const char* kAttribution = "Bungee Studios 2026  B.Graham";
 
