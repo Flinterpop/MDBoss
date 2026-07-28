@@ -69,6 +69,13 @@ TEST_CASE("version is in lockstep across the repo", "[version]")
     REQUIRE_FALSE(iss.empty());
     CHECK(between(iss, "#define AppVersion \"", '"') == expected);
 
+    // installer-cpp.iss: this build's own installer.  Left unchecked it can
+    // drift from the exe it installs, so the setup reports one version in
+    // Add/Remove Programs while the application reports another.
+    const std::string cpp_iss = read_file(repo_root() / "installer-cpp.iss");
+    REQUIRE_FALSE(cpp_iss.empty());
+    CHECK(between(cpp_iss, "#define AppVersion \"", '"') == expected);
+
     // MDBoss.rc carries the version twice, and both forms matter: Explorer
     // shows the string, installers compare the numeric tuple.
     const std::string rc =

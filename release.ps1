@@ -1,7 +1,13 @@
 <#
-Release MD Boss: bump the version in app.py + installer.iss, build the
-one-dir app folder, the installer, and the portable zip, commit and push the
-bump, publish a GitHub release with both assets, then reinstall locally.
+Release MD Boss: bump the version everywhere it appears, build both apps,
+commit and push the bump, publish a GitHub release with all three assets,
+then reinstall locally.
+
+The repo holds two apps at one version -- the shipping Python app and the C++
+port -- so the version lives in six places: app.py, installer.iss,
+installer-cpp.iss, MDBossCpp/app/Version.h, and BOTH the string and numeric
+forms in MDBossCpp/app/MDBoss.rc.  This script owns all six; bumping by hand
+is how they drift.
 
 Usage:
   .\release.ps1 0.1.0
@@ -11,11 +17,14 @@ Usage:
 
 Refuses to build unless pytest, ruff and mypy --strict all pass (see the
 quality gate below); that check runs before the version bump, so a failure
-leaves the tree untouched.
+leaves the tree untouched.  ctest runs AFTER the bump instead, because
+test_version.cpp is what proves the bump reached every file -- before the
+bump it would only prove they agreed at the old number.
 
 Without -Notes/-NotesFile the GitHub notes are auto-generated from commits.
-Requires: python (with PyInstaller, pytest, ruff, mypy), Inno Setup 6,
-gh (authenticated), git. Windows PowerShell 5.1 compatible.
+Requires: python (with PyInstaller, pytest, ruff, mypy), CMake with a Visual
+Studio toolchain and vcpkg for the C++ port, Inno Setup 6, gh (authenticated),
+git. Windows PowerShell 5.1 compatible.
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -69,17 +78,59 @@ python -m mypy
 CheckExit "mypy"
 
 # --- Bump versions -----------------------------------------------------------
+# Six places, not two.  The C++ port carries the same version number, and
+# MDBossCpp/tests/test_version.cpp fails the build when they disagree -- so
+# bumping only the Python pair leaves the other tree broken, discovered at the
+# next C++ build rather than here.  The .rc needs BOTH forms: Explorer reads
+# the string, installers and update checks compare the numeric tuple.
 Write-Host "==> Bumping version to $Version" -ForegroundColor Cyan
-$appPy = Join-Path $PSScriptRoot "app.py"
-$iss   = Join-Path $PSScriptRoot "installer.iss"
 
-$text = [IO.File]::ReadAllText($appPy)
-if ($text -notmatch 'APP_VERSION = "[^"]+"') { Fail "APP_VERSION line not found in app.py" }
-[IO.File]::WriteAllText($appPy, ($text -replace 'APP_VERSION = "[^"]+"', "APP_VERSION = `"$Version`""))
+$parts = $Version.Split(".")
+if ($parts.Count -ne 3) { Fail "version must be major.minor.patch, got '$Version'" }
+$tuple = "$($parts[0]),$($parts[1]),$($parts[2]),0"
 
-$text = [IO.File]::ReadAllText($iss)
-if ($text -notmatch '#define AppVersion "[^"]+"') { Fail "AppVersion line not found in installer.iss" }
-[IO.File]::WriteAllText($iss, ($text -replace '#define AppVersion "[^"]+"', "#define AppVersion `"$Version`""))
+# Each entry is the file, a regex that must already match, and its replacement.
+# Requiring a match first means a renamed constant fails loudly here instead of
+# silently leaving one file behind.
+$bumps = @(
+    @{ File = "app.py";
+       Match = 'APP_VERSION = "[^"]+"';
+       New   = "APP_VERSION = `"$Version`"" },
+    @{ File = "installer.iss";
+       Match = '#define AppVersion "[^"]+"';
+       New   = "#define AppVersion `"$Version`"" },
+    @{ File = "installer-cpp.iss";
+       Match = '#define AppVersion "[^"]+"';
+       New   = "#define AppVersion `"$Version`"" },
+    @{ File = "MDBossCpp\app\Version.h";
+       Match = 'kAppVersion = "[^"]+"';
+       New   = "kAppVersion = `"$Version`"" },
+    @{ File = "MDBossCpp\app\MDBoss.rc";
+       Match = 'FILEVERSION\s+\d+,\d+,\d+,\d+';
+       New   = "FILEVERSION    $tuple" },
+    @{ File = "MDBossCpp\app\MDBoss.rc";
+       Match = 'PRODUCTVERSION\s+\d+,\d+,\d+,\d+';
+       New   = "PRODUCTVERSION $tuple" },
+    @{ File = "MDBossCpp\app\MDBoss.rc";
+       Match = 'VALUE "FileVersion",\s+"[^"]+"';
+       New   = "VALUE `"FileVersion`",      `"$Version`"" },
+    @{ File = "MDBossCpp\app\MDBoss.rc";
+       Match = 'VALUE "ProductVersion",\s+"[^"]+"';
+       New   = "VALUE `"ProductVersion`",   `"$Version`"" }
+)
+
+foreach ($bump in $bumps) {
+    $path = Join-Path $PSScriptRoot $bump.File
+    if (-not (Test-Path $path)) { Fail "version file not found: $($bump.File)" }
+    # ReadAllText/WriteAllText, never Get-Content|Set-Content: the latter round
+    # trips UTF-8 through the ANSI code page and mangles every non-ASCII
+    # character in the file.  MDBossCpp/tests/test_sources.cpp guards it.
+    $text = [IO.File]::ReadAllText($path)
+    if ($text -notmatch $bump.Match) {
+        Fail "pattern not found in $($bump.File): $($bump.Match)"
+    }
+    [IO.File]::WriteAllText($path, ($text -replace $bump.Match, $bump.New))
+}
 
 # --- Build -------------------------------------------------------------------
 try { Stop-Process -Name MDBoss -Force -Confirm:$false -ErrorAction Stop
@@ -93,6 +144,27 @@ Write-Host "==> Building installer (ISCC)" -ForegroundColor Cyan
 & $iscc installer.iss
 CheckExit "ISCC"
 
+# --- C++ port ----------------------------------------------------------------
+# Built and tested AFTER the bump, deliberately: test_version.cpp compares the
+# version in app.py, installer.iss, Version.h and both .rc forms, so running it
+# here is what proves the bump actually reached all six.  Running it before the
+# bump would only prove they agreed at the old number.
+Write-Host "==> Configuring C++ port (CMake)" -ForegroundColor Cyan
+cmake -S MDBossCpp -B MDBossCpp\build
+CheckExit "cmake configure"
+
+Write-Host "==> Building C++ port" -ForegroundColor Cyan
+cmake --build MDBossCpp\build --config Release
+CheckExit "cmake build"
+
+Write-Host "==> Tests (ctest)" -ForegroundColor Cyan
+ctest --test-dir MDBossCpp\build -C Release --output-on-failure
+CheckExit "ctest"
+
+Write-Host "==> Building C++ installer (ISCC)" -ForegroundColor Cyan
+& $iscc installer-cpp.iss
+CheckExit "ISCC (C++)"
+
 # One-dir build: the zip holds the whole MDBoss folder, and its root entry is
 # "MDBoss\" -- the updater looks for MDBoss.exe at either level.  The asset is
 # deliberately NOT called MDBoss-Portable.zip any more; see the comment on
@@ -101,13 +173,19 @@ Write-Host "==> Building portable zip" -ForegroundColor Cyan
 if (-not (Test-Path dist\MDBoss\MDBoss.exe)) { Fail "expected dist\MDBoss\MDBoss.exe (one-dir build)" }
 Compress-Archive -Force -Path dist\MDBoss -DestinationPath installer\MDBoss-Portable-App.zip
 
-# Both asset names are load-bearing: the in-app updater matches them exactly.
-foreach ($asset in "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable-App.zip") {
+# Every asset name is load-bearing: each app's in-app updater matches its own
+# exactly.  MDBoss-Cpp-Setup.exe is what Updater.h's kSetupAssetName looks for.
+$assets = @("installer\MDBoss-Setup.exe",
+            "installer\MDBoss-Portable-App.zip",
+            "installer\MDBoss-Cpp-Setup.exe")
+foreach ($asset in $assets) {
     if (-not (Test-Path $asset)) { Fail "expected artifact missing: $asset" }
 }
 
 # --- Commit + push -----------------------------------------------------------
-git add app.py installer.iss
+# All six version-bearing files, or the commit records a half-done bump.
+git add app.py installer.iss installer-cpp.iss `
+        MDBossCpp\app\Version.h MDBossCpp\app\MDBoss.rc
 $staged = git diff --cached --name-only
 if ($staged) {
     git commit -m "Bump version to $Version"
@@ -124,9 +202,7 @@ CheckExit "git push"
 
 # --- Publish release ---------------------------------------------------------
 Write-Host "==> Publishing GitHub release v$Version" -ForegroundColor Cyan
-$ghArgs = @("release", "create", "v$Version",
-            "installer\MDBoss-Setup.exe", "installer\MDBoss-Portable-App.zip",
-            "--title", "v$Version")
+$ghArgs = @("release", "create", "v$Version") + $assets + @("--title", "v$Version")
 if ($NotesFile)  { $ghArgs += @("--notes-file", $NotesFile) }
 elseif ($Notes)  { $ghArgs += @("--notes", $Notes) }
 else             { $ghArgs += "--generate-notes" }
