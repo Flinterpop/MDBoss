@@ -16,6 +16,7 @@ add_executable(MDBoss WIN32
     SingleInstance.cpp
     Templates.cpp
     DropTarget.cpp
+    DocumentWatcher.cpp
     Updater.cpp
     UpdaterHttp.cpp
     Config.cpp

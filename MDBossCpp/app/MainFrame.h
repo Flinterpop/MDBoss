@@ -16,6 +16,7 @@
 #include <string>
 
 #include "Config.h"
+#include "DocumentWatcher.h"
 #include "FileTreePanel.h"
 #include "OutlinePanel.h"
 #include "PathListPanel.h"
@@ -67,6 +68,11 @@ private:
 
     void render_preview();
     void update_title();
+    // The open document changed underneath us.  Never clobbers unsaved work:
+    // a modified buffer is kept and the user told, because the edits in the
+    // editor are the only copy of themselves and the file on disk is not.
+    void on_document_changed(const std::string& path, bool still_exists);
+    void reload_from_disk();
     bool save_to(const std::string& path);
     bool confirm_discard();
     void sync_preview_from_editor();
@@ -88,6 +94,7 @@ private:
     wxStyledTextCtrl* editor_ = nullptr;
     PreviewPane* preview_ = nullptr;
     wxTimer render_timer_;
+    DocumentWatcher watcher_;
 
     std::string current_path_;
     bool dirty_ = false;

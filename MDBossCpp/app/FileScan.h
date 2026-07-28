@@ -49,6 +49,30 @@ bool send_to_recycle_bin(const std::string& path);
 // offering it beats a drop that silently does nothing.  Empty if the list is.
 std::string choose_dropped_file(const std::vector<std::string>& filenames);
 
+// What a file looked like at a moment in time.
+//
+// This is how the document watcher tells an edit by another program from the
+// echo of our own save: writing a file raises exactly the same filesystem
+// event that an outside edit does, and the only thing distinguishing them is
+// whether the result is what we expected to be there.
+struct FileStamp {
+    bool exists = false;
+    // The filesystem clock's raw tick count, opaque on purpose: it is only
+    // ever compared with another stamp, never interpreted as a date.  Ticks
+    // rather than seconds because NTFS resolves to 100ns and an editor can
+    // easily write twice within one second without changing the length.
+    long long mtime_ticks = 0;
+    unsigned long long size = 0;
+};
+
+bool operator==(const FileStamp& a, const FileStamp& b);
+bool operator!=(const FileStamp& a, const FileStamp& b);
+
+// Never throws and never reports failure as a distinct state: a path that is
+// missing, unreadable or unstattable all yield `exists == false`, because the
+// caller's response to each is the same -- do not touch the open buffer.
+FileStamp stamp_of(const std::string& path);
+
 }  // namespace mdboss
 
 #endif  // MDBOSS_APP_FILE_SCAN_H

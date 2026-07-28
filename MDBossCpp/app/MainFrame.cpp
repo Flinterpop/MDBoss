@@ -13,6 +13,7 @@
 #include <wx/artprov.h>
 #include <wx/toolbar.h>
 
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -91,7 +92,12 @@ std::string base_href_for(const std::string& path)
 
 MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "MD Boss"),
-      render_timer_(this)
+      render_timer_(this),
+      // Safe to hand `this` over during construction: the watcher only ever
+      // calls back from the event loop, which is not running yet.
+      watcher_([this](const std::string& path, bool still_exists) {
+          on_document_changed(path, still_exists);
+      })
 {
     config_.load();
     SetSize(config_.window_width(), config_.window_height());
@@ -440,6 +446,9 @@ bool MainFrame::open_path(const std::string& path)
     editor_->EmptyUndoBuffer();
     current_path_ = path;
     dirty_ = false;
+    watcher_.watch(current_path_);
+    // Any warning on show belonged to the document being replaced.
+    SetStatusText(wxString());
     config_.push_recent(path);
     config_.save();
     refresh_lists();
@@ -470,6 +479,14 @@ void MainFrame::on_save(wxCommandEvent&)
     }
     if (save_to(current_path_)) {
         dirty_ = false;
+        // After the write, so the state adopted as "expected" is the one we
+        // just produced.  Our own save raises the same event an outside edit
+        // does; this is what stops it being reported back to us.
+        watcher_.watch(current_path_);
+        // A "your unsaved edits are kept" warning is about a conflict this
+        // save has just resolved; leaving it up would keep warning about
+        // edits that are now on disk.
+        SetStatusText(wxString());
         update_title();
     }
 }
@@ -492,6 +509,66 @@ bool MainFrame::save_to(const std::string& path)
         return false;
     }
     return true;
+}
+
+void MainFrame::on_document_changed(const std::string& path, bool still_exists)
+{
+    // The watch may outlive the document by a moment: a change reported for a
+    // file we have since navigated away from is not ours to act on.
+    if (path != current_path_) {
+        return;
+    }
+
+    if (!still_exists) {
+        // Emphatically not a reload -- there is nothing left to read.  The
+        // buffer is now the only copy, so it is left exactly as it is.
+        SetStatusText(L"Deleted or renamed on disk. The copy open here is "
+                      L"now the only one — save it to write it back.");
+        return;
+    }
+
+    if (dirty_) {
+        SetStatusText(L"Changed on disk. Your unsaved edits are kept — "
+                      L"save to overwrite the file, or reopen to discard.");
+        return;
+    }
+
+    reload_from_disk();
+}
+
+void MainFrame::reload_from_disk()
+{
+    assert(!current_path_.empty() && "reload needs an open document");
+    assert(!dirty_ && "reload must never discard unsaved edits");
+
+    bool ok = false;
+    const std::string text = read_text_file(current_path_, ok);
+    if (!ok) {
+        // Readable a moment ago, not now: mid-write, or locked by whatever is
+        // writing it.  Leave the buffer alone rather than blanking it.
+        SetStatusText(L"Changed on disk, but could not be read just now.");
+        return;
+    }
+
+    // Keep the reader where they were.  Both are clamped because the file may
+    // have shrunk since, and Scintilla is happy to be told about a line that
+    // no longer exists.
+    const int first_visible = editor_->GetFirstVisibleLine();
+    const int caret = editor_->GetCurrentPos();
+
+    editor_->SetText(wxString::FromUTF8(text));
+    editor_->EmptyUndoBuffer();
+    editor_->GotoPos(std::min(caret, editor_->GetLength()));
+    editor_->ScrollToLine(std::min(first_visible,
+                                   std::max(0, editor_->GetLineCount() - 1)));
+
+    // SetText raises the change event, which set the dirty flag; the document
+    // now matches the file, so it is clean whatever that handler concluded.
+    dirty_ = false;
+    watcher_.accept_current_state();
+    update_title();
+    render_preview();
+    SetStatusText(L"Reloaded — the file changed on disk.");
 }
 
 void MainFrame::on_exit(wxCommandEvent&)
@@ -564,6 +641,7 @@ void MainFrame::on_new(wxCommandEvent&)
     editor_->SetText("");
     editor_->EmptyUndoBuffer();
     current_path_.clear();
+    watcher_.watch(current_path_);
     dirty_ = false;
     update_title();
     render_preview();
@@ -618,6 +696,7 @@ void MainFrame::on_new_from_template(wxCommandEvent&)
     // Deliberately unsaved and unnamed: the document exists only in the
     // editor until the user chooses where it belongs.
     current_path_.clear();
+    watcher_.watch(current_path_);
     dirty_ = true;
     update_title();
     render_preview();

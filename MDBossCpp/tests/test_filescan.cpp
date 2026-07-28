@@ -12,8 +12,10 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 
 #include "FileScan.h"
+#include "PathUtf8.h"
 
 namespace {
 
@@ -183,4 +185,105 @@ TEST_CASE("a missing root yields no counts rather than zeros", "[filescan]")
     const auto counts =
         mdboss::md_counts_for_root("Z:\\definitely\\not\\here");
     CHECK(counts.empty());
+}
+
+// ---- File stamps ---------------------------------------------------------
+//
+// These decide whether the document watcher reloads.  Both mistakes are bad
+// and neither is loud: too eager and the app reloads on the echo of its own
+// save, wiping the caret out from under the user for no reason; too slack and
+// an outside edit is never noticed, which is the whole feature failing.
+
+namespace {
+
+std::string write_probe(const std::string& name, const std::string& body)
+{
+    const fs::path file = fs::temp_directory_path() / name;
+    std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+    REQUIRE(stream.good());
+    stream << body;
+    stream.close();
+    return mdboss::path_to_utf8(file);
+}
+
+}  // namespace
+
+TEST_CASE("a stamp is stable when nothing changes", "[filescan][stamp]")
+{
+    const std::string file =
+        write_probe("mdboss_stamp_stable.md", "# One\n");
+    const mdboss::FileStamp first = mdboss::stamp_of(file);
+    CHECK(first.exists);
+    // Re-stamping an untouched file must compare equal, or every filesystem
+    // event would look like a change and the app would reload constantly.
+    CHECK(first == mdboss::stamp_of(file));
+
+    std::error_code ec;
+    fs::remove(fs::path(mdboss::path_from_utf8(file)), ec);
+}
+
+TEST_CASE("a stamp notices a same-length edit", "[filescan][stamp]")
+{
+    // The case that a size comparison alone would miss, and the reason the
+    // stamp carries the modification time at tick resolution: a one-character
+    // correction leaves the file exactly as long as it was.
+    const std::string file = write_probe("mdboss_stamp_samelen.md", "# One\n");
+    const mdboss::FileStamp before = mdboss::stamp_of(file);
+
+    // Windows advances the file-time clock in ~15.6 ms steps, so two writes
+    // in immediate succession can genuinely carry the same timestamp.  The
+    // pause makes the test deterministic rather than papering over that; in
+    // the app the settle delay is 300 ms, comfortably clear of the step.
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+
+    const std::string again = write_probe("mdboss_stamp_samelen.md", "# Two\n");
+    CHECK(again == file);
+    const mdboss::FileStamp after = mdboss::stamp_of(file);
+
+    CHECK(before.size == after.size);
+    CHECK(before != after);
+
+    std::error_code ec;
+    fs::remove(fs::path(mdboss::path_from_utf8(file)), ec);
+}
+
+TEST_CASE("a stamp notices a length change", "[filescan][stamp]")
+{
+    const std::string file = write_probe("mdboss_stamp_grew.md", "# One\n");
+    const mdboss::FileStamp before = mdboss::stamp_of(file);
+    write_probe("mdboss_stamp_grew.md", "# One\n\nAnd a second paragraph.\n");
+    const mdboss::FileStamp after = mdboss::stamp_of(file);
+
+    CHECK(before != after);
+    CHECK(after.size > before.size);
+
+    std::error_code ec;
+    fs::remove(fs::path(mdboss::path_from_utf8(file)), ec);
+}
+
+TEST_CASE("a missing file stamps as absent, not as empty", "[filescan][stamp]")
+{
+    const std::string missing = mdboss::path_to_utf8(
+        fs::temp_directory_path() / "mdboss_stamp_absent.md");
+    std::error_code ec;
+    fs::remove(fs::path(mdboss::path_from_utf8(missing)), ec);
+
+    const mdboss::FileStamp gone = mdboss::stamp_of(missing);
+    CHECK_FALSE(gone.exists);
+    // Two absent stamps are equal, so a file that stays deleted is reported
+    // once rather than on every notification the folder happens to raise.
+    CHECK(gone == mdboss::stamp_of(missing));
+    // And absent must never equal present, whatever the other fields hold --
+    // that is what makes "the file came back" a change worth reloading for.
+    const std::string real = write_probe("mdboss_stamp_absent.md", "x");
+    CHECK(gone != mdboss::stamp_of(real));
+    fs::remove(fs::path(mdboss::path_from_utf8(real)), ec);
+}
+
+TEST_CASE("a directory does not stamp as a file", "[filescan][stamp]")
+{
+    // The watcher stamps whatever path it was given; a folder where a file
+    // was expected must read as absent rather than as a zero-length file.
+    const std::string dir = mdboss::path_to_utf8(fs::temp_directory_path());
+    CHECK_FALSE(mdboss::stamp_of(dir).exists);
 }

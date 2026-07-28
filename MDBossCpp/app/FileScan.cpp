@@ -191,4 +191,50 @@ std::vector<Entry> list_directory(const std::string& path)
     return out;
 }
 
+bool operator==(const FileStamp& a, const FileStamp& b)
+{
+    // Two absent files compare equal whatever the other fields hold, so a
+    // file that stays deleted is not reported as changing over and over.
+    if (!a.exists || !b.exists) {
+        return a.exists == b.exists;
+    }
+    return a.mtime_ticks == b.mtime_ticks && a.size == b.size;
+}
+
+bool operator!=(const FileStamp& a, const FileStamp& b)
+{
+    return !(a == b);
+}
+
+FileStamp stamp_of(const std::string& path)
+{
+    assert(!path.empty() && "stamp_of needs a path");
+    FileStamp out;
+    if (path.empty()) {
+        return out;
+    }
+
+    const fs::path target = path_from_utf8(path);
+    std::error_code ec;
+    // Every one of these throws on failure without the error_code overload,
+    // and a document can vanish between two of them, so each is checked
+    // rather than relying on the status of the one before.
+    if (!fs::is_regular_file(target, ec) || ec) {
+        return out;
+    }
+    const std::uintmax_t size = fs::file_size(target, ec);
+    if (ec) {
+        return out;
+    }
+    const fs::file_time_type written = fs::last_write_time(target, ec);
+    if (ec) {
+        return out;
+    }
+
+    out.exists = true;
+    out.size = static_cast<unsigned long long>(size);
+    out.mtime_ticks = static_cast<long long>(written.time_since_epoch().count());
+    return out;
+}
+
 }  // namespace mdboss
