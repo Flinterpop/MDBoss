@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "FileScan.h"
 #include "PathUtf8.h"
 #include "PreviewPane.h"
 #include "Version.h"
@@ -78,7 +79,7 @@ HelpDialog::HelpDialog(wxWindow* parent)
         std::ifstream stream(path_from_utf8(path), std::ios::binary);
         std::ostringstream buffer;
         buffer << stream.rdbuf();
-        text = buffer.str();
+        text = strip_utf8_bom(buffer.str());
 
         const std::u8string dir =
             path_from_utf8(path).parent_path().generic_u8string();

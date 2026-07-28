@@ -4,9 +4,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 #include <nlohmann/json.hpp>
 
+#include "FileScan.h"
 #include "PathUtf8.h"
 
 namespace mdboss {
@@ -47,7 +49,14 @@ json read_document()
     if (!stream) {
         return json{};
     }
-    json document = json::parse(stream, nullptr, false);
+    // Read through a buffer rather than parsing the stream directly, so a
+    // BOM can be removed first: a JSON parser rejects one outright, and the
+    // whole config would silently fall back to defaults -- losing the user's
+    // roots and favorites -- if anything ever wrote the file with one.
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    json document =
+        json::parse(strip_utf8_bom(buffer.str()), nullptr, false);
     if (document.is_discarded() || !document.is_object()) {
         return json{};
     }

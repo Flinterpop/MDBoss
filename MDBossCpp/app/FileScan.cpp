@@ -191,6 +191,16 @@ std::vector<Entry> list_directory(const std::string& path)
     return out;
 }
 
+std::string strip_utf8_bom(std::string text)
+{
+    if (text.size() >= 3 && static_cast<unsigned char>(text[0]) == 0xEF &&
+        static_cast<unsigned char>(text[1]) == 0xBB &&
+        static_cast<unsigned char>(text[2]) == 0xBF) {
+        text.erase(0, 3);
+    }
+    return text;
+}
+
 std::string ensure_markdown_extension(const std::string& name)
 {
     assert(!name.empty() && "a new document needs a name");

@@ -1705,7 +1705,12 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard():
             return False
         try:
-            with open(path, encoding="utf-8") as fh:
+            # utf-8-sig, not utf-8: Notepad and most Windows editors write a
+            # BOM, and a leading U+FEFF stops "# Heading" being a heading --
+            # the document opens looking like plain text.  The codec is a
+            # no-op on files without one.  Saving still writes plain utf-8,
+            # so a round trip quietly drops the BOM rather than keeping it.
+            with open(path, encoding="utf-8-sig") as fh:
                 text = fh.read()
         except (OSError, ValueError) as exc:
             QMessageBox.warning(
@@ -1796,7 +1801,9 @@ class MainWindow(QMainWindow):
         if template_path is None:
             return f"# {title}\n\n"
         try:
-            with open(template_path, encoding="utf-8") as fh:
+            # utf-8-sig: a template written in Notepad would otherwise put a
+            # BOM in front of the new document's first heading.
+            with open(template_path, encoding="utf-8-sig") as fh:
                 text = fh.read()
         except OSError as exc:
             QMessageBox.warning(
@@ -2095,7 +2102,10 @@ class MainWindow(QMainWindow):
 
     def _read_favorites_file(self, path: str) -> list[str] | None:
         try:
-            with open(path, encoding="utf-8") as fh:
+            # utf-8-sig: json.load rejects a BOM outright ("Unexpected UTF-8
+            # BOM"), so a favorites file saved by a Windows editor would fail
+            # to import with a message about JSON rather than about encoding.
+            with open(path, encoding="utf-8-sig") as fh:
                 data = json.load(fh)
         except (OSError, ValueError) as exc:
             QMessageBox.warning(
@@ -2321,7 +2331,7 @@ class MainWindow(QMainWindow):
     def _show_help(self) -> None:
         help_path = resource_path("HELP.md")
         try:
-            with open(help_path, encoding="utf-8") as fh:
+            with open(help_path, encoding="utf-8-sig") as fh:
                 text = fh.read()
         except OSError:
             text = f"# {DISPLAY_NAME}\n\nVersion {APP_VERSION}."

@@ -79,7 +79,7 @@ std::string read_text_file(const std::string& path, bool& ok)
     std::ostringstream buffer;
     buffer << stream.rdbuf();
     ok = true;
-    return buffer.str();
+    return strip_utf8_bom(buffer.str());
 }
 
 // A file:/// URL for the document's own folder, with the trailing slash

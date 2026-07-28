@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import app
+import mdrender
 
 # The registry round-trip is the only Windows-only test; the registration plan
 # itself is pure and is checked everywhere.
@@ -427,3 +428,24 @@ def test_extract_portable_rejects_a_zip_without_the_exe(tmp_path: Path) -> None:
         archive.writestr("readme.txt", "nope")
     with pytest.raises(ValueError):
         app.extract_portable(str(zip_path), str(tmp_path / "staging"))
+
+
+def test_a_document_with_a_byte_order_mark_still_renders_headings(
+    tmp_path: Path,
+) -> None:
+    """Notepad writes a BOM; the first heading must survive it.
+
+    The window reads documents with ``utf-8-sig``.  This pins the reason:
+    decoded as plain ``utf-8`` the mark stays in front of the ``#`` and the
+    heading silently stops being a heading, which looks like a rendering bug
+    rather than an encoding one.
+    """
+    document = tmp_path / "bom.md"
+    document.write_text("# Heading\n\nBody.\n", encoding="utf-8-sig")
+    assert document.read_bytes().startswith(b"\xef\xbb\xbf")
+
+    good = document.read_text(encoding="utf-8-sig")
+    assert "<h1" in mdrender.render_body(good)
+
+    bad = document.read_text(encoding="utf-8")
+    assert "<h1" not in mdrender.render_body(bad)

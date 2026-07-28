@@ -21,6 +21,16 @@ bool is_markdown(const std::string& name);
 // not depend on how a path was spelled.
 std::string norm_path(const std::string& path);
 
+// `text` without a leading UTF-8 byte-order mark.
+//
+// Notepad and most Windows editors write one, and a leading U+FEFF stops
+// "# Heading" being a heading -- the document renders as plain text -- and
+// makes a JSON parser reject the file outright.  Python's utf-8-sig codec
+// does this; C++ has no equivalent, so every read of user content goes
+// through here.  Saving writes plain UTF-8, so a round trip drops the mark
+// rather than preserving it.
+std::string strip_utf8_bom(std::string text);
+
 // The filename to actually create for a typed-in name.
 //
 // ".md" is appended only when there is NO extension, matching the Python

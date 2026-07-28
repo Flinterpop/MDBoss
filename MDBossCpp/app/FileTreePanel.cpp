@@ -83,7 +83,7 @@ std::string body_for_new_document(const std::string& template_path,
     }
     std::ostringstream buffer;
     buffer << stream.rdbuf();
-    return apply_template(buffer.str(), title);
+    return apply_template(strip_utf8_bom(buffer.str()), title);
 }
 
 std::string lowered(const std::string& text)

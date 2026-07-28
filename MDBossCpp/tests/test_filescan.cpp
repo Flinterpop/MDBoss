@@ -187,6 +187,26 @@ TEST_CASE("a missing root yields no counts rather than zeros", "[filescan]")
     CHECK(counts.empty());
 }
 
+TEST_CASE("a byte-order mark is stripped from content", "[filescan]")
+{
+    // The failure this prevents is quiet and confusing: with the mark still
+    // in front of it, "# Heading" is no longer a heading and the document
+    // renders as plain text.
+    const std::string bom = "\xEF\xBB\xBF";
+    CHECK(mdboss::strip_utf8_bom(bom + "# Heading\n") == "# Heading\n");
+
+    // Only at the start, and only once: a mark in the middle of a document
+    // is a zero-width no-break space the author put there.
+    CHECK(mdboss::strip_utf8_bom(bom + bom + "x") == bom + "x");
+    CHECK(mdboss::strip_utf8_bom("a" + bom + "b") == "a" + bom + "b");
+
+    // Files without one are the common case and must be untouched.
+    CHECK(mdboss::strip_utf8_bom("# Heading\n") == "# Heading\n");
+    CHECK(mdboss::strip_utf8_bom("").empty());
+    // Short inputs must not be mistaken for a truncated mark.
+    CHECK(mdboss::strip_utf8_bom("\xEF\xBB") == "\xEF\xBB");
+}
+
 TEST_CASE("a new document keeps the extension you typed", "[filescan]")
 {
     // Bare names become Markdown, which is the common case.
