@@ -1,7 +1,9 @@
 #include "HelpDialog.h"
 
-#include <wx/aboutdlg.h>
 #include <wx/button.h>
+#include <wx/statline.h>
+#include <wx/statbmp.h>
+#include <wx/hyperlink.h>
 #include <wx/filename.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
@@ -95,35 +97,91 @@ HelpDialog::HelpDialog(wxWindow* parent)
         text, base, std::string(kAppName) + " Help", false));
 }
 
+namespace {
+
+// An icon resource scaled to `size`.  wxIcon loads at its natural size, so
+// the round trip through wxImage is how a 16px studio mark is obtained from
+// the same resource that supplies the larger app icon.
+wxBitmap icon_at(const char* resource, int size)
+{
+    wxIcon icon;
+    if (!icon.LoadFile(resource, wxBITMAP_TYPE_ICO_RESOURCE)) {
+        return wxNullBitmap;
+    }
+    wxBitmap bitmap;
+    bitmap.CopyFromIcon(icon);
+    if (!bitmap.IsOk() || bitmap.GetWidth() == size) {
+        return bitmap;
+    }
+    wxImage image = bitmap.ConvertToImage();
+    image.Rescale(size, size, wxIMAGE_QUALITY_HIGH);
+    return wxBitmap(image);
+}
+
+}  // namespace
+
+// A dialog of its own rather than wxAboutBox, which supports exactly one
+// icon.  Two are wanted here and they mean different things: the product
+// icon identifies the application, the studio mark credits its author.
 void show_about_box(wxWindow* parent)
 {
-    wxAboutDialogInfo info;
-    info.SetName(kAppName);
-    // Version alone: kAppStage already carries its own parentheses, and
-    // wrapping it again read as "1.0.0 (C++ port (in development))".
-    info.SetVersion(kAppVersion);
-    // Every piece wide, so no fragment can quietly be an ANSI-decoded narrow
-    // literal (the em-dash below was exactly that on the first attempt).
-    info.SetDescription(
-        wxString(kAppStage) +
-        L" — not yet at parity with the Python build.\n\n"
+    wxDialog dialog(parent, wxID_ANY, wxString("About ") + kAppName,
+                    wxDefaultPosition, wxDefaultSize,
+                    wxDEFAULT_DIALOG_STYLE);
+
+    // Header: the PRODUCT icon, at the size a title normally carries.
+    auto* header = new wxBoxSizer(wxHORIZONTAL);
+    const wxBitmap product = icon_at("#1", 48);
+    if (product.IsOk()) {
+        header->Add(new wxStaticBitmap(&dialog, wxID_ANY, product), 0,
+                    wxRIGHT | wxALIGN_TOP, 12);
+    }
+    auto* titles = new wxBoxSizer(wxVERTICAL);
+    auto* name = new wxStaticText(&dialog, wxID_ANY,
+                                  wxString(kAppName) + " " + kAppVersion);
+    wxFont title_font = name->GetFont();
+    title_font.MakeBold().MakeLarger();
+    name->SetFont(title_font);
+    titles->Add(name, 0);
+    titles->Add(new wxStaticText(&dialog, wxID_ANY, kAppStage), 0, wxTOP, 2);
+    header->Add(titles, 1, wxALIGN_TOP);
+
+    auto* body = new wxStaticText(
+        &dialog, wxID_ANY,
         L"A local Markdown manager, editor and offline GitHub-style viewer.\n\n"
         L"Rendering is entirely offline: mermaid, KaTeX and highlight.js are "
         L"bundled,\nand the preview is network-locked, so a document cannot "
         L"reach the network.\n\n"
         L"C++ / wxWidgets port of the Python application in the same "
         L"repository,\nwhich remains the reference implementation.");
-    info.SetWebSite("https://github.com/Flinterpop/MDBoss");
-    info.SetCopyright(kAttribution);
 
-    // Resource #2, alongside the app icon at #1; see MDBoss.rc.  Supplying an
-    // icon makes wx use its own about dialog rather than the plain native
-    // one, which is what allows the icon and copyright line to show at all.
-    wxIcon studio;
-    if (studio.LoadFile("#2", wxBITMAP_TYPE_ICO_RESOURCE)) {
-        info.SetIcon(studio);
+    auto* link = new wxHyperlinkCtrl(&dialog, wxID_ANY,
+                                     "github.com/Flinterpop/MDBoss",
+                                     "https://github.com/Flinterpop/MDBoss");
+
+    // Footer: the STUDIO mark, beside the attribution and smaller than the
+    // product icon above it -- it credits the author, it does not identify
+    // the application.
+    auto* footer = new wxBoxSizer(wxHORIZONTAL);
+    const wxBitmap studio = icon_at("#2", 32);
+    if (studio.IsOk()) {
+        footer->Add(new wxStaticBitmap(&dialog, wxID_ANY, studio), 0,
+                    wxRIGHT | wxALIGN_CENTRE_VERTICAL, 6);
     }
-    wxAboutBox(info, parent);
+    footer->Add(new wxStaticText(&dialog, wxID_ANY, kAttribution), 0,
+                wxALIGN_CENTRE_VERTICAL);
+
+    auto* sizer = new wxBoxSizer(wxVERTICAL);
+    sizer->Add(header, 0, wxEXPAND | wxALL, 16);
+    sizer->Add(body, 0, wxLEFT | wxRIGHT, 16);
+    sizer->Add(link, 0, wxLEFT | wxRIGHT | wxTOP, 16);
+    sizer->Add(new wxStaticLine(&dialog), 0, wxEXPAND | wxALL, 12);
+    sizer->Add(footer, 0, wxLEFT | wxRIGHT | wxBOTTOM, 16);
+    sizer->Add(dialog.CreateStdDialogButtonSizer(wxOK), 0,
+               wxALIGN_RIGHT | wxALL, 12);
+    dialog.SetSizerAndFit(sizer);
+    dialog.CentreOnParent();
+    dialog.ShowModal();
 }
 
 }  // namespace mdboss
