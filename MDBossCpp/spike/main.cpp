@@ -30,88 +30,13 @@
 #include <string>
 #include <thread>
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <wrl/client.h>
 #include <wrl/event.h>     // Microsoft::WRL::Callback
 #include <WebView2.h>
 
-#pragma comment(lib, "Ws2_32.lib")
+#include "EgressProbe.h"
 
 namespace {
-
-// ------------------------------------------------------- egress detector --
-
-// A real listening socket, so "was the request blocked?" is answered by
-// whether a TCP connection ever arrived -- not by trusting our own filter.
-class EgressProbe {
-public:
-    bool start()
-    {
-        WSADATA wsa;
-        if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
-            return false;
-        }
-        listener_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (listener_ == INVALID_SOCKET) {
-            return false;
-        }
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        addr.sin_port = 0;   // let the OS choose
-        if (bind(listener_, reinterpret_cast<sockaddr*>(&addr),
-                 sizeof(addr)) != 0) {
-            return false;
-        }
-        int len = sizeof(addr);
-        if (getsockname(listener_, reinterpret_cast<sockaddr*>(&addr),
-                        &len) != 0) {
-            return false;
-        }
-        port_ = ntohs(addr.sin_port);
-        if (listen(listener_, 8) != 0) {
-            return false;
-        }
-        thread_ = std::thread([this] { accept_loop(); });
-        return true;
-    }
-
-    void stop()
-    {
-        running_ = false;
-        if (listener_ != INVALID_SOCKET) {
-            closesocket(listener_);
-            listener_ = INVALID_SOCKET;
-        }
-        if (thread_.joinable()) {
-            thread_.join();
-        }
-        WSACleanup();
-    }
-
-    unsigned short port() const { return port_; }
-    bool was_contacted() const { return contacted_.load(); }
-
-private:
-    void accept_loop()
-    {
-        while (running_.load()) {
-            const SOCKET client = accept(listener_, nullptr, nullptr);
-            if (client == INVALID_SOCKET) {
-                return;   // closed by stop(), or a real error
-            }
-            contacted_ = true;
-            closesocket(client);
-        }
-    }
-
-    SOCKET listener_ = INVALID_SOCKET;
-    unsigned short port_ = 0;
-    std::thread thread_;
-    std::atomic<bool> running_{true};
-    std::atomic<bool> contacted_{false};
-};
 
 // ------------------------------------------------------------ the frame --
 
@@ -122,14 +47,16 @@ constexpr int kWatchdogTimerId = 1002;
 
 class SpikeFrame : public wxFrame {
 public:
-    SpikeFrame(unsigned short probe_port, bool use_file_url)
+    SpikeFrame(unsigned short probe_port, bool use_file_url, bool late_install)
         : wxFrame(nullptr, wxID_ANY, "MDBoss spike", wxDefaultPosition,
                   wxSize(900, 600)),
           probe_port_(probe_port),
-          use_file_url_(use_file_url)
+          use_file_url_(use_file_url),
+          late_install_(late_install)
     {
-        wxPrintf("--- loading via %s ---\n",
-                 use_file_url_ ? "LoadURL(file://)" : "SetPage/NavigateToString");
+        wxPrintf("--- loading via %s, lock installed %s ---\n",
+                 use_file_url_ ? "LoadURL(file://)" : "SetPage/NavigateToString",
+                 late_install_ ? "on first LOADED" : "on CREATED");
         fflush(stdout);
         view_ = wxWebView::New(this, wxID_ANY, "about:blank",
                                wxDefaultPosition, wxDefaultSize,
@@ -350,7 +277,9 @@ private:
         created_ = true;
         report("webview-created", true,
                "wxEVT_WEBVIEW_CREATED fired; native backend now reachable");
-        install_network_lock();
+        if (!late_install_) {
+            install_network_lock();
+        }
         load_document();
         timer_.Start(600);
     }
@@ -358,6 +287,16 @@ private:
     void on_loaded(wxWebViewEvent&)
     {
         loaded_ = true;
+        // The Edge backend finishes its own initialisation after
+        // wxEVT_WEBVIEW_CREATED, so a lock installed there may be registered
+        // on a view wx then reconfigures.  --late re-tests the identical code
+        // from the first completed load instead, which tells a timing problem
+        // apart from a structural one.
+        if (late_install_ && !lock_installed_) {
+            lock_installed_ = true;
+            install_network_lock();
+            load_document();   // re-load so the <img> is fetched again
+        }
     }
 
     // Backstop: never let an unattended run hang.
@@ -491,6 +430,8 @@ private:
     wxTimer watchdog_{this, kWatchdogTimerId};
     unsigned short probe_port_ = 0;
     bool use_file_url_ = false;
+    bool late_install_ = false;
+    bool lock_installed_ = false;
     bool created_ = false;
     bool loaded_ = false;
     int step_ = 0;
@@ -521,12 +462,17 @@ public:
         }
         SpikeFrame::probe_contacted_ = [] { return g_probe.was_contacted(); };
         bool use_file_url = false;
+        bool late_install = false;
         for (int i = 1; i < argc; ++i) {
-            if (wxString(argv[i]) == "--file") {
+            const wxString arg(argv[i]);
+            if (arg == "--file") {
                 use_file_url = true;
+            } else if (arg == "--late") {
+                late_install = true;
             }
         }
-        auto* frame = new SpikeFrame(g_probe.port(), use_file_url);
+        auto* frame =
+            new SpikeFrame(g_probe.port(), use_file_url, late_install);
         frame->Show(true);
         return true;
     }
