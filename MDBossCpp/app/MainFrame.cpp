@@ -94,6 +94,15 @@ MainFrame::MainFrame()
     SetSize(config_.window_width(), config_.window_height());
     SetMinSize(wxSize(640, 400));
 
+    // Take the window icon from the executable's own resource, so there is
+    // one icon rather than a separate copy to keep in step.  An icon bundle
+    // picks the right size for the title bar, the task bar and Alt-Tab.
+    const wxIconBundle icons(wxStandardPaths::Get().GetExecutablePath(),
+                             wxBITMAP_TYPE_ICO);
+    if (icons.GetIconCount() > 0) {
+        SetIcons(icons);
+    }
+
     build_menu();
     build_panes();
     build_toolbar();   // after the panes: the toggles reflect their state

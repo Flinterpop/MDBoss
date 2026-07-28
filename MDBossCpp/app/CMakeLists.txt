@@ -16,6 +16,7 @@ add_executable(MDBoss WIN32
     SingleInstance.cpp
     Templates.cpp
     Config.cpp
+    MDBoss.rc        # version resource + application icon
     MDBoss.manifest   # per-monitor DPI awareness; see the file for why
 )
 

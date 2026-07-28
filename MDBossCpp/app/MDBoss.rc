@@ -1,0 +1,46 @@
+// Version resource and application icon.
+//
+// The repo versions its apps in lockstep: app.py's APP_VERSION,
+// installer.iss's AppVersion, app/Version.h's kAppVersion and the two forms
+// below must all agree, and a test in tests/test_version.cpp fails the build
+// if they drift.
+//
+// Both forms matter.  Explorer's Details tab reads the STRING "FileVersion",
+// while installers and update checks compare the NUMERIC FILEVERSION tuple;
+// updating one and not the other is the classic way to ship an installer that
+// refuses to upgrade.
+
+#include <windows.h>
+
+// The icon must be first by ordinal so Windows uses it for the exe.
+1 ICON "..\\..\\mdboss.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"          // US English, Unicode
+        BEGIN
+            VALUE "CompanyName",      "Flinterpop"
+            VALUE "FileDescription",  "MD Boss - Markdown manager and viewer"
+            VALUE "FileVersion",      "1.0.0"
+            VALUE "InternalName",     "MDBoss"
+            VALUE "LegalCopyright",   "MIT licensed"
+            VALUE "OriginalFilename", "MDBoss.exe"
+            VALUE "ProductName",      "MD Boss"
+            VALUE "ProductVersion",   "1.0.0"
+            VALUE "Comments",         "C++ / wxWidgets port"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
