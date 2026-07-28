@@ -1,10 +1,22 @@
 #include "FileTreePanel.h"
 
+#include <wx/clipbrd.h>
+#include <wx/filename.h>
+#include <wx/menu.h>
+#include <wx/msgdlg.h>
 #include <wx/sizer.h>
+#include <wx/textdlg.h>
+#include <wx/utils.h>
+
+#include <wx/app.h>
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <thread>
 
 #include "FileScan.h"
+#include "PathUtf8.h"
 
 namespace mdboss {
 namespace {
@@ -31,6 +43,15 @@ private:
     std::string path_;
     bool is_file_ = false;
 };
+
+constexpr int kIdOpen = wxID_HIGHEST + 60;
+constexpr int kIdNewFile = wxID_HIGHEST + 61;
+constexpr int kIdNewFolder = wxID_HIGHEST + 62;
+constexpr int kIdRename = wxID_HIGHEST + 63;
+constexpr int kIdDelete = wxID_HIGHEST + 64;
+constexpr int kIdReveal = wxID_HIGHEST + 65;
+constexpr int kIdCopyPath = wxID_HIGHEST + 66;
+constexpr int kIdFavorite = wxID_HIGHEST + 67;
 
 std::string lowered(const std::string& text)
 {
@@ -63,18 +84,71 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
     filter_->Bind(wxEVT_TEXT, &FileTreePanel::on_filter, this);
     tree_->Bind(wxEVT_TREE_ITEM_EXPANDING, &FileTreePanel::on_expanding, this);
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, &FileTreePanel::on_activated, this);
+    tree_->Bind(wxEVT_TREE_ITEM_MENU, &FileTreePanel::on_context_menu, this);
+}
+
+FileTreePanel::~FileTreePanel()
+{
+    // Runs on the UI thread, as does the completion lambda, so a scan that is
+    // still in flight can never touch a destroyed panel: either the lambda
+    // already ran, or it will see this flag.
+    if (alive_) {
+        alive_->store(false);
+    }
 }
 
 void FileTreePanel::set_roots(const std::vector<Root>& roots)
 {
     roots_ = roots;
     counts_.clear();
-    for (const Root& root : roots_) {
-        const std::map<std::string, int> counts =
-            md_counts_for_root(root.path);
-        counts_.insert(counts.begin(), counts.end());
+    rebuild();       // show the roots straight away, counts to follow
+    start_scan();
+}
+
+void FileTreePanel::start_scan()
+{
+    // Counting must not run on the UI thread.  It did once, in set_roots(),
+    // and three real root folders were enough to stall the message loop past
+    // the point where WebView2's asynchronous controller creation gives up --
+    // CreateCoreWebView2Controller returned E_ABORT and the preview silently
+    // never appeared.  The tree is cheap to show without counts; the counts
+    // arrive when they arrive.
+    const std::vector<Root> roots = roots_;
+    if (roots.empty()) {
+        return;
     }
-    rebuild();
+    if (!alive_) {
+        alive_ = std::make_shared<std::atomic<bool>>(true);
+    }
+    const unsigned generation = ++scan_generation_;
+    std::shared_ptr<std::atomic<bool>> alive = alive_;
+
+    std::thread([this, roots, generation, alive] {
+        std::map<std::string, int> counts;
+        // Nothing may escape a detached thread: an uncaught exception here is
+        // std::terminate, which is a hard crash with no message.
+        //
+        // The guard is per root, not around the loop. Wrapping the whole loop
+        // meant one unreadable root discarded every other root's counts too --
+        // a network folder that was briefly unavailable made every tree in the
+        // window read (0).
+        for (const Root& root : roots) {
+            try {
+                const std::map<std::string, int> one =
+                    md_counts_for_root(root.path);
+                counts.insert(one.begin(), one.end());
+            } catch (...) {
+                // This root contributes nothing; the others still count.
+            }
+        }
+        wxTheApp->CallAfter([this, counts, generation, alive] {
+            if (!alive->load() || generation != scan_generation_) {
+                return;   // panel gone, or a newer scan already superseded us
+            }
+            counts_ = counts;
+            rebuild_preserving_expansion();
+        });
+    }).detach();
 }
 
 void FileTreePanel::rebuild()
@@ -179,6 +253,270 @@ void FileTreePanel::on_filter(wxCommandEvent& event)
 {
     rebuild();
     event.Skip();
+}
+
+// ----------------------------------------------------------- refreshing --
+
+void FileTreePanel::refresh()
+{
+    // Show the change at once using the counts we have, then re-scan in the
+    // background to correct them.  Doing it the other way round would leave
+    // a renamed file looking untouched until the scan finished.
+    rebuild_preserving_expansion();
+    start_scan();
+}
+
+void FileTreePanel::rebuild_preserving_expansion()
+{
+    // Rebuilding blind would collapse the whole tree, so remember what was
+    // open and put it back.
+    std::vector<std::string> expanded;
+    const wxTreeItemId hidden = tree_->GetRootItem();
+    if (hidden.IsOk()) {
+        wxTreeItemIdValue cookie;
+        for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
+             root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
+            collect_expanded(root, expanded, 0);
+        }
+    }
+
+    rebuild();
+
+    const wxTreeItemId new_hidden = tree_->GetRootItem();
+    if (new_hidden.IsOk()) {
+        wxTreeItemIdValue cookie;
+        for (wxTreeItemId root = tree_->GetFirstChild(new_hidden, cookie);
+             root.IsOk(); root = tree_->GetNextChild(new_hidden, cookie)) {
+            restore_expanded(root, expanded, 0);
+        }
+    }
+}
+
+void FileTreePanel::collect_expanded(const wxTreeItemId& item,
+                                     std::vector<std::string>& out,
+                                     int depth) const
+{
+    if (depth > kMaxFilterDepth || !item.IsOk() || !tree_->IsExpanded(item)) {
+        return;
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+    if (data != nullptr && !data->is_file()) {
+        out.push_back(norm_path(data->path()));
+    }
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
+        collect_expanded(child, out, depth + 1);
+    }
+}
+
+void FileTreePanel::restore_expanded(const wxTreeItemId& item,
+                                     const std::vector<std::string>& paths,
+                                     int depth)
+{
+    if (depth > kMaxFilterDepth || !item.IsOk()) {
+        return;
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+    if (data == nullptr || data->is_file()) {
+        return;
+    }
+    const std::string key = norm_path(data->path());
+    bool wanted = false;
+    for (const std::string& path : paths) {
+        if (path == key) {
+            wanted = true;
+            break;
+        }
+    }
+    if (!wanted) {
+        return;
+    }
+    tree_->DeleteChildren(item);
+    populate(item, data->path());
+    tree_->Expand(item);
+
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
+        restore_expanded(child, paths, depth + 1);
+    }
+}
+
+// -------------------------------------------------------- context menu --
+
+void FileTreePanel::on_context_menu(wxTreeEvent& event)
+{
+    const wxTreeItemId item = event.GetItem();
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+    if (data == nullptr) {
+        return;
+    }
+    tree_->SelectItem(item);
+
+    const std::string path = data->path();
+    const bool is_file = data->is_file();
+    // New items land beside a file, or inside a folder.
+    const std::string dir =
+        is_file ? path_to_utf8(path_from_utf8(path).parent_path()) : path;
+
+    wxMenu menu;
+    if (is_file) {
+        menu.Append(kIdOpen, "&Open");
+        menu.AppendSeparator();
+    }
+    menu.Append(kIdNewFile, L"New &document…");
+    menu.Append(kIdNewFolder, L"New &folder…");
+    menu.AppendSeparator();
+    menu.Append(kIdRename, L"Re&name…");
+    menu.Append(kIdDelete, "&Delete");
+    menu.AppendSeparator();
+    menu.Append(kIdReveal, "Reveal in &Explorer");
+    menu.Append(kIdCopyPath, "&Copy path");
+    if (is_file && on_toggle_favorite_) {
+        const bool favorite = is_favorite_ && is_favorite_(path);
+        menu.Append(kIdFavorite,
+                    favorite ? "Remove from fa&vorites" : "Add to fa&vorites");
+    }
+
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_open_) {
+            on_open_(path);
+        }
+    }, kIdOpen);
+    menu.Bind(wxEVT_MENU, [this, dir](wxCommandEvent&) { new_document(dir); },
+              kIdNewFile);
+    menu.Bind(wxEVT_MENU, [this, dir](wxCommandEvent&) { new_folder(dir); },
+              kIdNewFolder);
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) { rename_path(path); },
+              kIdRename);
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) { delete_path(path); },
+              kIdDelete);
+    menu.Bind(wxEVT_MENU, [path](wxCommandEvent&) {
+        // The path must be quoted: unquoted, a space silently opens the
+        // wrong folder.
+        wxExecute("explorer.exe /select,\"" + wxString::FromUTF8(path) + "\"",
+                  wxEXEC_ASYNC);
+    }, kIdReveal);
+    menu.Bind(wxEVT_MENU, [path](wxCommandEvent&) {
+        if (wxTheClipboard->Open()) {
+            wxTheClipboard->SetData(
+                new wxTextDataObject(wxString::FromUTF8(path)));
+            wxTheClipboard->Close();
+        }
+    }, kIdCopyPath);
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_toggle_favorite_) {
+            on_toggle_favorite_(path);
+        }
+    }, kIdFavorite);
+
+    PopupMenu(&menu);
+}
+
+void FileTreePanel::new_document(const std::string& dir)
+{
+    const wxString name = wxGetTextFromUser(
+        "Name for the new document:", "MD Boss", "untitled.md", this);
+    if (name.IsEmpty()) {
+        return;
+    }
+    wxString filename = name;
+    if (!is_markdown(std::string(filename.ToUTF8()))) {
+        filename += ".md";
+    }
+    const std::filesystem::path target =
+        path_from_utf8(dir) / path_from_utf8(std::string(filename.ToUTF8()));
+
+    std::error_code ec;
+    if (std::filesystem::exists(target, ec)) {
+        wxMessageBox("That name is already taken.", "MD Boss",
+                     wxOK | wxICON_WARNING, this);
+        return;
+    }
+    std::ofstream stream(target, std::ios::binary);
+    if (!stream) {
+        wxMessageBox("Could not create the document.", "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    stream << "# "
+           << path_to_utf8(
+                  path_from_utf8(std::string(filename.ToUTF8())).stem())
+           << "\n\n";
+    stream.close();
+
+    refresh();
+    if (on_open_) {
+        on_open_(path_to_utf8(target));
+    }
+}
+
+void FileTreePanel::new_folder(const std::string& dir)
+{
+    const wxString name = wxGetTextFromUser("Name for the new folder:",
+                                            "MD Boss", "", this);
+    if (name.IsEmpty()) {
+        return;
+    }
+    const std::filesystem::path target =
+        path_from_utf8(dir) / path_from_utf8(std::string(name.ToUTF8()));
+    std::error_code ec;
+    if (!std::filesystem::create_directory(target, ec) || ec) {
+        wxMessageBox("Could not create the folder.", "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    // A brand new folder holds no Markdown, so the hiding rule would omit it.
+    // Show it anyway by seeding a count the scan will correct on the next
+    // refresh -- otherwise the folder the user just made appears not to exist.
+    counts_[norm_path(path_to_utf8(target))] = 0;
+    refresh();
+}
+
+void FileTreePanel::rename_path(const std::string& path)
+{
+    const std::filesystem::path source = path_from_utf8(path);
+    const wxString current = wxString::FromUTF8(path_to_utf8(source.filename()));
+    const wxString name =
+        wxGetTextFromUser("New name:", "MD Boss", current, this);
+    if (name.IsEmpty() || name == current) {
+        return;
+    }
+    const std::filesystem::path target =
+        source.parent_path() / path_from_utf8(std::string(name.ToUTF8()));
+
+    std::error_code ec;
+    if (std::filesystem::exists(target, ec)) {
+        wxMessageBox("That name is already taken.", "MD Boss",
+                     wxOK | wxICON_WARNING, this);
+        return;
+    }
+    std::filesystem::rename(source, target, ec);
+    if (ec) {
+        wxMessageBox("Could not rename:\n" + wxString::FromUTF8(ec.message()),
+                     "MD Boss", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    refresh();
+}
+
+void FileTreePanel::delete_path(const std::string& path)
+{
+    const wxString name =
+        wxString::FromUTF8(path_to_utf8(path_from_utf8(path).filename()));
+    const int answer = wxMessageBox(
+        "Send to the Recycle Bin?\n\n" + name, "MD Boss",
+        wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION, this);
+    if (answer != wxYES) {
+        return;
+    }
+    if (!send_to_recycle_bin(path)) {
+        wxMessageBox("Could not delete:\n" + name, "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    refresh();
 }
 
 }  // namespace mdboss

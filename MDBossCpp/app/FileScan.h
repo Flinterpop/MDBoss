@@ -39,6 +39,11 @@ struct Entry {
 
 std::vector<Entry> list_directory(const std::string& path);
 
+// Delete to the Recycle Bin rather than unlinking, so a mis-click is
+// recoverable -- the Python app uses Send2Trash for the same reason.
+// Returns false if the shell refused or the user cancelled.
+bool send_to_recycle_bin(const std::string& path);
+
 }  // namespace mdboss
 
 #endif  // MDBOSS_APP_FILE_SCAN_H

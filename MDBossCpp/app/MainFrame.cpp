@@ -13,6 +13,7 @@
 #include <sstream>
 
 #include "FoldersDialog.h"
+#include "PathUtf8.h"
 #include "mdrender/MdRender.h"
 
 namespace mdboss {
@@ -32,7 +33,7 @@ const char* const kOpenWildcard =
 
 std::string read_text_file(const std::string& path, bool& ok)
 {
-    std::ifstream stream(std::filesystem::path(path), std::ios::binary);
+    std::ifstream stream(path_from_utf8(path), std::ios::binary);
     if (!stream) {
         ok = false;
         return {};
@@ -47,11 +48,16 @@ std::string read_text_file(const std::string& path, bool& ok)
 // render_document() requires so relative images resolve.
 std::string base_href_for(const std::string& path)
 {
-    std::filesystem::path dir = std::filesystem::path(path).parent_path();
+    std::filesystem::path dir = path_from_utf8(path).parent_path();
     if (dir.empty()) {
         dir = std::filesystem::current_path();
     }
-    std::string text = dir.generic_string();
+    // generic_u8string(): forward slashes for the URL, and UTF-8 rather than
+    // the ANSI conversion string() would do (which throws on unmappable
+    // characters).
+    const std::u8string generic = dir.generic_u8string();
+    std::string text(reinterpret_cast<const char*>(generic.data()),
+                     generic.size());
     if (text.empty() || text.back() != '/') {
         text += '/';
     }
@@ -137,6 +143,17 @@ void MainFrame::build_panes()
 
     files_ = new FileTreePanel(favorites_split_);
     files_->set_on_open([this](const std::string& path) { open_path(path); });
+    files_->set_favorite_hooks(
+        [this](const std::string& path) {
+            if (config_.is_favorite(path)) {
+                config_.remove_favorite(path);
+            } else {
+                config_.add_favorite(path);
+            }
+            config_.save();
+            refresh_lists();
+        },
+        [this](const std::string& path) { return config_.is_favorite(path); });
 
     outline_split_ = new wxSplitterWindow(files_split_, wxID_ANY,
                                           wxDefaultPosition, wxDefaultSize,
@@ -268,7 +285,7 @@ void MainFrame::on_save(wxCommandEvent&)
 bool MainFrame::save_to(const std::string& path)
 {
     assert(!path.empty() && "save_to needs a path");
-    std::ofstream stream(std::filesystem::path(path),
+    std::ofstream stream(path_from_utf8(path),
                          std::ios::binary | std::ios::trunc);
     if (!stream) {
         wxMessageBox("Could not write:\n" + wxString::FromUTF8(path),
@@ -322,7 +339,7 @@ void MainFrame::render_preview()
     const std::string title =
         current_path_.empty()
             ? std::string("MD Boss")
-            : std::filesystem::path(current_path_).filename().string();
+            : path_to_utf8(path_from_utf8(current_path_).filename());
 
     preview_->show_page(mdrender::render_document(
         markdown, base, title, config_.hide_front_matter()));
@@ -403,7 +420,7 @@ void MainFrame::update_title()
     wxString name = "Untitled";
     if (!current_path_.empty()) {
         name = wxString::FromUTF8(
-            std::filesystem::path(current_path_).filename().string());
+            path_to_utf8(path_from_utf8(current_path_).filename()));
     }
     SetTitle(wxString(dirty_ ? "*" : "") + name + " - MD Boss");
 }

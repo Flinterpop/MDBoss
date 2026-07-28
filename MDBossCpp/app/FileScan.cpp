@@ -1,8 +1,17 @@
 #include "FileScan.h"
 
+#include "PathUtf8.h"
+
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <shellapi.h>
 
 namespace mdboss {
 namespace {
@@ -37,92 +46,121 @@ bool is_markdown(const std::string& name)
 std::string norm_path(const std::string& path)
 {
     std::error_code ec;
-    fs::path absolute = fs::absolute(fs::path(path), ec);
+    fs::path absolute = fs::absolute(path_from_utf8(path), ec);
     if (ec) {
-        absolute = fs::path(path);
+        absolute = path_from_utf8(path);
     }
-    return to_lower(absolute.lexically_normal().string());
+    return to_lower(path_to_utf8(absolute.lexically_normal()));
 }
 
 std::map<std::string, int> md_counts_for_root(const std::string& root)
 {
     std::map<std::string, int> counts;
     std::error_code ec;
-    if (!fs::is_directory(fs::path(root), ec) || ec) {
+    if (!fs::is_directory(path_from_utf8(root), ec) || ec) {
         return counts;
     }
 
-    // Collect directories first, then total them deepest-first so each parent
-    // can simply add its children's finished totals.
-    std::vector<fs::path> dirs{fs::path(root)};
+    // ONE walk.  An earlier version collected the directories and then
+    // re-listed each of them, walking the tree twice and normalising every
+    // path again on the second pass; over a few thousand files that was slow
+    // enough to matter, and it ran on the UI thread.
+    const fs::path root_path = path_from_utf8(root).lexically_normal();
+    std::vector<fs::path> dirs{root_path};
+    counts[norm_path(path_to_utf8(root_path))] = 0;
+
+    // Iterate with the error_code-taking increment.  A range-for uses the
+    // throwing operator++, which the error_code constructor does NOT make
+    // safe: one unreadable directory mid-walk raises filesystem_error, and on
+    // a worker thread that is an uncaught exception and a hard crash.
     fs::recursive_directory_iterator it(
-        fs::path(root), fs::directory_options::skip_permission_denied, ec);
-    if (!ec) {
-        int walked = 0;
-        for (const fs::directory_entry& entry : it) {
-            if (++walked > kMaxWalkedDirs) {
-                break;
-            }
-            std::error_code dir_ec;
-            if (entry.is_directory(dir_ec) && !dir_ec) {
-                dirs.push_back(entry.path());
+        root_path, fs::directory_options::skip_permission_denied, ec);
+    const fs::recursive_directory_iterator end;
+    int walked = 0;
+    while (!ec && it != end && walked < kMaxWalkedDirs) {
+        ++walked;
+        const fs::directory_entry entry = *it;
+        std::error_code kind_ec;
+        if (entry.is_directory(kind_ec) && !kind_ec) {
+            dirs.push_back(entry.path());
+            counts.emplace(norm_path(path_to_utf8(entry.path())), 0);
+        } else if (is_markdown(path_to_utf8(entry.path().filename()))) {
+            const auto found =
+                counts.find(norm_path(path_to_utf8(entry.path().parent_path())));
+            if (found != counts.end()) {
+                ++found->second;
             }
         }
+        it.increment(ec);
     }
 
+    // Roll the direct counts up, deepest first, so each parent adds its
+    // children's finished totals exactly once.
     std::sort(dirs.begin(), dirs.end(),
               [](const fs::path& a, const fs::path& b) {
-                  return a.string().size() > b.string().size();
+                  return a.native().size() > b.native().size();
               });
-
     for (const fs::path& dir : dirs) {
-        int total = 0;
-        std::error_code list_ec;
-        fs::directory_iterator entries(
-            dir, fs::directory_options::skip_permission_denied, list_ec);
-        if (list_ec) {
-            continue;   // unreadable: leave it absent, not zero
+        if (dir == root_path) {
+            continue;
         }
-        std::size_t seen = 0;
-        for (const fs::directory_entry& entry : entries) {
-            if (++seen > kMaxEntriesPerDir) {
-                break;
-            }
-            std::error_code entry_ec;
-            if (entry.is_directory(entry_ec) && !entry_ec) {
-                const auto found = counts.find(norm_path(entry.path().string()));
-                if (found != counts.end()) {
-                    total += found->second;
-                }
-            } else if (is_markdown(entry.path().filename().string())) {
-                ++total;
-            }
+        const auto self = counts.find(norm_path(path_to_utf8(dir)));
+        const auto parent =
+            counts.find(norm_path(path_to_utf8(dir.parent_path())));
+        if (self != counts.end() && parent != counts.end()) {
+            parent->second += self->second;
         }
-        counts[norm_path(dir.string())] = total;
     }
     return counts;
+}
+
+bool send_to_recycle_bin(const std::string& path)
+{
+    assert(!path.empty() && "deleting an empty path would be a bug");
+    if (path.empty()) {
+        return false;
+    }
+    // SHFileOperation wants an absolute path and a DOUBLE-null-terminated
+    // list, not a plain string.  A relative path silently resolves against
+    // the process's current directory, which is not where the tree is.
+    std::error_code ec;
+    const fs::path absolute = fs::absolute(path_from_utf8(path), ec);
+    if (ec) {
+        return false;
+    }
+    std::wstring wide = absolute.wstring();
+    wide.push_back(L'\0');
+    wide.push_back(L'\0');
+
+    SHFILEOPSTRUCTW op{};
+    op.wFunc = FO_DELETE;
+    op.pFrom = wide.c_str();
+    // FOF_ALLOWUNDO is what routes this to the Recycle Bin rather than
+    // deleting outright; without it the operation is unrecoverable.  The
+    // caller has already confirmed, hence NOCONFIRMATION.
+    op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_NOERRORUI |
+                FOF_SILENT;
+    return SHFileOperationW(&op) == 0 && op.fAnyOperationsAborted == FALSE;
 }
 
 std::vector<Entry> list_directory(const std::string& path)
 {
     std::vector<Entry> out;
     std::error_code ec;
-    fs::directory_iterator entries(
-        fs::path(path), fs::directory_options::skip_permission_denied, ec);
-    if (ec) {
-        return out;
-    }
-    for (const fs::directory_entry& entry : entries) {
-        if (out.size() >= kMaxEntriesPerDir) {
-            break;
-        }
+    fs::directory_iterator it(
+        path_from_utf8(path), fs::directory_options::skip_permission_denied, ec);
+    const fs::directory_iterator end;
+    // Same reason as md_counts_for_root: increment(ec) rather than a
+    // range-for, so an unreadable entry cannot throw.
+    while (!ec && it != end && out.size() < kMaxEntriesPerDir) {
+        const fs::directory_entry entry = *it;
         std::error_code kind_ec;
         const bool dir = entry.is_directory(kind_ec) && !kind_ec;
-        const std::string name = entry.path().filename().string();
-        if (!dir && !is_markdown(name)) {
-            continue;
+        const std::string name = path_to_utf8(entry.path().filename());
+        if (dir || is_markdown(name)) {
+            out.push_back(Entry{path_to_utf8(entry.path()), name, dir});
         }
-        out.push_back(Entry{entry.path().string(), name, dir});
+        it.increment(ec);
     }
 
     std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) {

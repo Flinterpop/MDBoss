@@ -7,6 +7,7 @@ add_executable(MDBoss WIN32
     PreviewPane.cpp
     FileTreePanel.cpp
     FileScan.cpp
+    PathUtf8.cpp
     OutlinePanel.cpp
     PathListPanel.cpp
     FoldersDialog.cpp

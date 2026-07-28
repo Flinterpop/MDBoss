@@ -110,7 +110,9 @@ HRESULT PreviewPane::on_controller_ready(HRESULT result,
                                          ICoreWebView2Controller* controller)
 {
     if (FAILED(result) || controller == nullptr) {
-        wxLogWarning("Preview: WebView2 controller could not be created.");
+        wxLogWarning("Preview: WebView2 controller could not be created "
+                     "(0x%08lx).",
+                     static_cast<unsigned long>(result));
         return S_OK;
     }
     controller_ = controller;
