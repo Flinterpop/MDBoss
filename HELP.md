@@ -192,6 +192,29 @@ A portable copy updates the same way, by copying the new build over its own
 folder. If that copy fails for any reason the old version is left intact and
 still runs, so a failed update never leaves you without a working app.
 
+## Two builds
+
+There are two MD Boss builds and this help is shipped with both, so a couple of
+things below differ depending on which one you are running. **About** (Help →
+About) tells you: the C++ build says so under its version number.
+
+- **MD Boss** — the Python build. This is the one that ships, on Windows and
+  Linux, and everything in this document applies to it.
+- **MD Boss (C++)** — a Windows-only rewrite in C++/wxWidgets. It installs
+  separately, and shares your folders, favorites and recents, because both
+  builds read the same settings file.
+
+Where the C++ build differs on purpose:
+
+- It **reloads a document you have open when it changes on disk**, as long as
+  you have no unsaved edits. If you do have unsaved edits it keeps them and
+  says so in the status bar; it never overwrites your work. The Python build
+  does not watch files — press **F5** to rescan.
+- Code blocks are highlighted by a different engine, so colours in a fenced
+  block may not match exactly.
+- **Help → Check for updates** points you at the releases page rather than
+  installing the update itself.
+
 ## Privacy
 
 The preview's web view is **network-locked**: any remote image, script, or

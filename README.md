@@ -108,11 +108,16 @@ builds the AppImage.
 .\release.ps1 <version>       # e.g. .\release.ps1 0.1.11
 ```
 
-This bumps the version, builds the app folder (PyInstaller, one-dir), the
-installer (Inno Setup 6), and the portable zip, commits and pushes, then
-publishes a GitHub release with both assets. Requires `python` (with
-PyInstaller), Inno Setup 6, `gh` (authenticated), and `git`. Installed copies
-then pick up the new release via the in-app updater.
+This bumps the version **everywhere it appears** — six files across both apps,
+listed in the script — builds the app folder (PyInstaller, one-dir), the
+installer (Inno Setup 6), the portable zip and the C++ installer, runs both
+test suites, commits and pushes, then publishes a GitHub release with all
+three assets. Requires `python` (with PyInstaller), CMake with a Visual Studio
+toolchain and vcpkg, Inno Setup 6, `gh` (authenticated), and `git`. Installed
+copies then pick up the new release via the in-app updater.
+
+Bump the version by hand and you will miss a file; that is what the script and
+the lockstep test exist to prevent.
 
 The build is **one-dir**, not one-file: MD Boss can be the Windows handler for
 `.md`, and a one-file build unpacks ~230 MB into `%TEMP%` on every launch —
@@ -122,6 +127,38 @@ machine. The cost is a larger install on disk (~600 MB unpacked).
 On Linux, `./build-appimage.sh` produces `dist/MDBoss-x86_64.AppImage` and its
 companion `dist/MDBoss-x86_64.AppImage.zsync`; upload both to the release
 alongside the Windows assets. Existing AppImages then self-update to it.
+
+## The C++ port
+
+`MDBossCpp/` holds a C++ / wxWidgets port of the same application, Windows
+only. **The Python app above is the one that ships**, and it is the reference
+implementation: where the two disagree, Python is right and the port is wrong.
+
+The port exists for toolchain consistency with the other C++ projects it sits
+beside, and for size — the installer is about 5 MB against roughly 157 MB of
+packaged Python, and it needs no VC++ redistributable. Start-up is not the
+reason: both embed Chromium to render, so both are dominated by that.
+
+It reads and writes the **same** `%APPDATA%\MDBoss\config.json`, keeping its
+own window layout under separate `wx_*` keys, so you can run either against
+one profile without them fighting.
+
+Two differences are deliberate rather than unfinished:
+
+- Code is highlighted in the browser by **highlight.js** rather than
+  server-side by Pygments, so a fenced block's markup differs.
+- The port **reloads the open document when it changes on disk**; the Python
+  app rescans only on F5.
+
+```
+cmake -S MDBossCpp -B MDBossCpp/build
+cmake --build MDBossCpp/build --config Release
+ctest --test-dir MDBossCpp/build -C Release
+```
+
+Needs vcpkg at `C:\vcpkg` (triplet `x64-windows-static`). The renderer is
+tested against a golden corpus generated from the Python renderer, so parity
+is checked rather than assumed.
 
 ## License
 
