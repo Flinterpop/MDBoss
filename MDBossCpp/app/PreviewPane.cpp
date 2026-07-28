@@ -173,17 +173,88 @@ void PreviewPane::install_viewport_probe()
         &token);
 }
 
+namespace {
+
+// Collect class name and screen rect for every child window, so the
+// WebView2's own visual can be compared against the pane hosting it.
+BOOL CALLBACK collect_child(HWND child, LPARAM param)
+{
+    auto* out = reinterpret_cast<std::string*>(param);
+    wchar_t klass[128]{};
+    ::GetClassNameW(child, klass, 128);
+    RECT r{};
+    ::GetWindowRect(child, &r);
+    char line[256]{};
+    _snprintf_s(line, sizeof(line), _TRUNCATE,
+                "  child %-24ls screen %d,%d %dx%d dpi %u\n", klass,
+                static_cast<int>(r.left), static_cast<int>(r.top),
+                static_cast<int>(r.right - r.left),
+                static_cast<int>(r.bottom - r.top),
+                ::GetDpiForWindow(child));
+    *out += line;
+    return TRUE;
+}
+
+}  // namespace
+
 void PreviewPane::report_viewport(const std::wstring& json)
 {
-    RECT rect{};
     const HWND hwnd = static_cast<HWND>(GetHandle());
-    if (hwnd != nullptr) {
-        ::GetClientRect(hwnd, &rect);
+    if (hwnd == nullptr) {
+        return;
     }
+
+    RECT client{};
+    ::GetClientRect(hwnd, &client);
+    RECT screen{};
+    ::GetWindowRect(hwnd, &screen);
+
+    // What the engine believes its bounds are, read back rather than assumed.
+    RECT engine{};
+    if (controller_) {
+        controller_->get_Bounds(&engine);
+    }
+
+    std::string report;
+    report += "pane client " + std::to_string(client.right - client.left) +
+              "x" + std::to_string(client.bottom - client.top) +
+              "  screen " + std::to_string(screen.left) + "," +
+              std::to_string(screen.top) + " " +
+              std::to_string(screen.right - screen.left) + "x" +
+              std::to_string(screen.bottom - screen.top) + "  dpi " +
+              std::to_string(::GetDpiForWindow(hwnd)) + "\n";
+    report += "engine bounds " + std::to_string(engine.left) + "," +
+              std::to_string(engine.top) + " " +
+              std::to_string(engine.right - engine.left) + "x" +
+              std::to_string(engine.bottom - engine.top) + "\n";
+    ::EnumChildWindows(hwnd, &collect_child,
+                       reinterpret_cast<LPARAM>(&report));
+
+    // Walk up too: if the pane is the wrong size, the question is whether the
+    // splitter and frame above it are sized as expected.
     if (wxWindow* top = wxGetTopLevelParent(this)) {
-        top->SetLabel(wxString::Format("pane %d | page %s",
-                                       static_cast<int>(rect.right - rect.left),
-                                       wxString(json)));
+        const wxSize frame_client = top->GetClientSize();
+        report += "frame client " + std::to_string(frame_client.GetWidth()) +
+                  "x" + std::to_string(frame_client.GetHeight()) + "\n";
+        for (wxWindow* w = GetParent(); w != nullptr && w != top;
+             w = w->GetParent()) {
+            const wxRect r = w->GetRect();
+            report += std::string("ancestor ") +
+                      std::string(wxString(w->GetClassInfo()->GetClassName())
+                                      .ToUTF8()) +
+                      " " +
+                      std::to_string(r.x) + "," + std::to_string(r.y) + " " +
+                      std::to_string(r.width) + "x" +
+                      std::to_string(r.height) + "\n";
+        }
+    }
+    report += "page " + std::string(wxString(json).ToUTF8()) + "\n";
+
+    const wxString path =
+        wxFileName::GetTempDir() + "\\mdboss_layout_probe.txt";
+    std::ofstream stream(path.ToStdWstring(), std::ios::trunc);
+    if (stream) {
+        stream << report;
     }
 }
 
