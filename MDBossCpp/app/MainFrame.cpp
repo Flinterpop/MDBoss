@@ -20,6 +20,8 @@
 
 #include "FileAssoc.h"
 #include "FoldersDialog.h"
+#include "Version.h"
+#include "HelpDialog.h"
 #include "PathUtf8.h"
 #include "SingleInstance.h"
 #include "Templates.h"
@@ -118,9 +120,16 @@ void MainFrame::build_menu()
                           "Hide &YAML front matter\tCtrl+Y");
     view->Check(kIdToggleFrontMatter, config_.hide_front_matter());
 
+    auto* help = new wxMenu();
+    // F1 rides the menu item, so it needs no accelerator table entry.
+    help->Append(kIdHelp, "&Help\tF1");
+    help->AppendSeparator();
+    help->Append(wxID_ABOUT, wxString("&About ") + kAppName + L"…");
+
     auto* bar = new wxMenuBar();
     bar->Append(file, "&File");
     bar->Append(view, "&View");
+    bar->Append(help, "&Help");
     SetMenuBar(bar);
 }
 
@@ -164,9 +173,10 @@ void MainFrame::build_toolbar()
         {kIdToggleFrontMatter, L"Hide YAML", wxART_MINUS,
          L"Hide a YAML front-matter block at the top of the file", true, true},
 
+        // Help lives on the Help menu, not here: it is not something reached
+        // often enough to earn a permanent button.
         {kIdFileTypes, L"File types…", wxART_EXECUTABLE_FILE,
          L"Register MD Boss as a handler for Markdown files", false, false},
-        {kIdHelp, L"Help", wxART_HELP, L"About MD Boss (F1)", false, false},
     };
 
     wxToolBar* bar = CreateToolBar(wxTB_HORIZONTAL | wxTB_FLAT);
@@ -197,13 +207,12 @@ void MainFrame::build_toolbar()
     bar->ToggleTool(kIdToggleFrontMatter, config_.hide_front_matter());
     bar->Realize();
 
-    // F5 and F1 are toolbar-only in the Python app, so they need an
-    // accelerator of their own rather than riding a menu item.
+    // Refresh has no menu item, so F5 needs an accelerator of its own.  F1
+    // does not: it rides the Help menu entry.
     const wxAcceleratorEntry accelerators[] = {
         wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, kIdRefresh),
-        wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F1, kIdHelp),
     };
-    SetAcceleratorTable(wxAcceleratorTable(2, accelerators));
+    SetAcceleratorTable(wxAcceleratorTable(1, accelerators));
 }
 
 void MainFrame::build_panes()
@@ -372,6 +381,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_toggle_editor, this, kIdToggleEditor);
     Bind(wxEVT_MENU, &MainFrame::on_file_types, this, kIdFileTypes);
     Bind(wxEVT_MENU, &MainFrame::on_help, this, kIdHelp);
+    Bind(wxEVT_MENU, &MainFrame::on_about, this, wxID_ABOUT);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
     Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
 
@@ -658,23 +668,15 @@ void MainFrame::on_file_types(wxCommandEvent&)
 
 void MainFrame::on_help(wxCommandEvent&)
 {
-    // Prefer the real HELP.md if it shipped beside the app: it is the same
-    // document the Python build shows, kept in one place.
-    for (const wxString& candidate :
-         {wxString("HELP.md"), wxString("..\\HELP.md"),
-          wxString("..\\..\\..\\..\\HELP.md")}) {
-        wxFileName help(wxStandardPaths::Get().GetExecutablePath());
-        help.SetFullName("");
-        wxFileName resolved(help.GetPath() + "\\" + candidate);
-        resolved.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
-        if (resolved.FileExists()) {
-            open_path(std::string(resolved.GetFullPath().ToUTF8()));
-            return;
-        }
-    }
-    wxMessageBox("MD Boss (C++ port)\n\nA local Markdown manager, editor and "
-                 "offline GitHub-style viewer.",
-                 "About MD Boss", wxOK | wxICON_INFORMATION, this);
+    // A window of its own rather than opening HELP.md as a document: reading
+    // the help should not replace whatever the user was editing.
+    HelpDialog dialog(this);
+    dialog.ShowModal();
+}
+
+void MainFrame::on_about(wxCommandEvent&)
+{
+    show_about_box(this);
 }
 
 void MainFrame::on_manage_folders(wxCommandEvent&)
