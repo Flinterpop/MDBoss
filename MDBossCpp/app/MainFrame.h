@@ -57,6 +57,7 @@ private:
     void on_file_types(wxCommandEvent& event);
     void on_help(wxCommandEvent& event);
     void on_about(wxCommandEvent& event);
+    void on_check_updates(wxCommandEvent& event);
     void on_toggle_favorite(wxCommandEvent& event);
     void refresh_lists();
     void on_text_changed(wxStyledTextEvent& event);

@@ -10,11 +10,13 @@ add_executable(mdrender_tests
     test_sources.cpp
     test_version.cpp
     test_droptarget.cpp
+    test_updater.cpp
     ../app/FileScan.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp
     ../app/Templates.cpp
     ../app/Config.cpp
+    ../app/Updater.cpp
 )
 
 target_include_directories(mdrender_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../app)

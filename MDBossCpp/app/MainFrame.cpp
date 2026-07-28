@@ -26,6 +26,7 @@
 #include "PathUtf8.h"
 #include "SingleInstance.h"
 #include "Templates.h"
+#include "Updater.h"
 #include "mdrender/MdRender.h"
 
 namespace mdboss {
@@ -46,6 +47,7 @@ constexpr int kIdToggleOutline = wxID_HIGHEST + 8;
 constexpr int kIdToggleEditor = wxID_HIGHEST + 9;
 constexpr int kIdFileTypes = wxID_HIGHEST + 10;
 constexpr int kIdHelp = wxID_HIGHEST + 11;
+constexpr int kIdCheckUpdates = wxID_HIGHEST + 12;
 
 // Kept in step with app.py's MARKDOWN_EXTS.
 const char* const kOpenWildcard =
@@ -95,14 +97,17 @@ MainFrame::MainFrame()
     SetSize(config_.window_width(), config_.window_height());
     SetMinSize(wxSize(640, 400));
 
-    // Take the window icon from the executable's own resource, so there is
-    // one icon rather than a separate copy to keep in step.  An icon bundle
-    // picks the right size for the title bar, the task bar and Alt-Tab.
-    const wxIconBundle icons(wxStandardPaths::Get().GetExecutablePath(),
-                             wxBITMAP_TYPE_ICO);
-    if (icons.GetIconCount() > 0) {
-        SetIcons(icons);
+    // Load the icon as a RESOURCE, not by reading the exe as an image file.
+    // The file form needs an ICO image handler registered and, without one,
+    // pops "No image handler for type 3 defined" at every launch -- while the
+    // title bar looked right anyway, because Windows falls back to the exe's
+    // own first icon. "#1" is the ordinal the .rc assigns it.
+    wxIcon icon;
+    if (icon.LoadFile("#1", wxBITMAP_TYPE_ICO_RESOURCE)) {
+        SetIcon(icon);
     }
+
+    CreateStatusBar();
 
     build_menu();
     build_panes();
@@ -133,6 +138,7 @@ void MainFrame::build_menu()
     auto* help = new wxMenu();
     // F1 rides the menu item, so it needs no accelerator table entry.
     help->Append(kIdHelp, "&Help\tF1");
+    help->Append(kIdCheckUpdates, L"Check for &updates…");
     help->AppendSeparator();
     help->Append(wxID_ABOUT, wxString("&About ") + kAppName + L"…");
 
@@ -408,6 +414,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_file_types, this, kIdFileTypes);
     Bind(wxEVT_MENU, &MainFrame::on_help, this, kIdHelp);
     Bind(wxEVT_MENU, &MainFrame::on_about, this, wxID_ABOUT);
+    Bind(wxEVT_MENU, &MainFrame::on_check_updates, this, kIdCheckUpdates);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
     Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
 
@@ -703,6 +710,62 @@ void MainFrame::on_help(wxCommandEvent&)
 void MainFrame::on_about(wxCommandEvent&)
 {
     show_about_box(this);
+}
+
+void MainFrame::on_check_updates(wxCommandEvent&)
+{
+    // Only ever started by the user from the menu.  There is no check on
+    // launch: an app that phones home unasked is not what this one is for.
+    SetStatusText(L"Checking for updates…");
+    check_for_update([this](const ReleaseInfo& info, const std::string& error) {
+        SetStatusText(wxString());
+        if (!error.empty()) {
+            wxMessageBox("Could not check for updates.\n\n" +
+                             wxString::FromUTF8(error),
+                         "MD Boss", wxOK | wxICON_WARNING, this);
+            return;
+        }
+        const std::optional<std::vector<int>> current =
+            parse_version(kAppVersion);
+        if (info.version.empty() || !current) {
+            wxMessageBox("GitHub did not return a version this build "
+                         "understands.",
+                         "MD Boss", wxOK | wxICON_WARNING, this);
+            return;
+        }
+        if (!is_newer(info.version, *current)) {
+            wxMessageBox(wxString("You are up to date (v") + kAppVersion +
+                             ").",
+                         "MD Boss", wxOK | wxICON_INFORMATION, this);
+            return;
+        }
+
+        // A release may carry the Python installer but not this build's, in
+        // which case there is nothing to download -- say so and offer the
+        // page rather than failing silently.
+        if (info.setup_url.empty()) {
+            const int answer = wxMessageBox(
+                wxString("v") + wxString::FromUTF8(info.version_str) +
+                    " is available, but it has no installer for this build.\n\n"
+                    "Open the releases page?",
+                "MD Boss", wxYES_NO | wxICON_INFORMATION, this);
+            if (answer == wxYES) {
+                wxLaunchDefaultBrowser(wxString::FromUTF8(info.html_url));
+            }
+            return;
+        }
+        const int answer = wxMessageBox(
+            wxString("v") + wxString::FromUTF8(info.version_str) +
+                " is available (you have v" + kAppVersion + ").\n\n"
+                "Open the download page?",
+            "MD Boss", wxYES_NO | wxICON_QUESTION, this);
+        if (answer == wxYES) {
+            // Deliberately the page, not a silent download-and-run: this
+            // build has never been through an update cycle, and handing the
+            // user a link they can see beats an unattended installer.
+            wxLaunchDefaultBrowser(wxString::FromUTF8(info.html_url));
+        }
+    });
 }
 
 void MainFrame::on_manage_folders(wxCommandEvent&)
