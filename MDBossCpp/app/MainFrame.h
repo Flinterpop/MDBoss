@@ -69,6 +69,9 @@ private:
     void on_text_changed(wxStyledTextEvent& event);
     void on_editor_scrolled(wxStyledTextEvent& event);
     void on_render_timer(wxTimerEvent& event);
+    // Drops the guard on the preview's scroll echo once it can no longer be
+    // ours; see kScrollEchoMs.
+    void on_scroll_echo_timer(wxTimerEvent& event);
     void on_close(wxCloseEvent& event);
 
     void render_preview();
@@ -99,6 +102,7 @@ private:
     wxStyledTextCtrl* editor_ = nullptr;
     PreviewPane* preview_ = nullptr;
     wxTimer render_timer_;
+    wxTimer scroll_echo_timer_;
     DocumentWatcher watcher_;
 
     std::string current_path_;

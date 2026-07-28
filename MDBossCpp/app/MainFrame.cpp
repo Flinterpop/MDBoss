@@ -14,6 +14,7 @@
 #include <wx/toolbar.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -38,6 +39,17 @@ namespace {
 // Matches app.py's PREVIEW_DEBOUNCE_MS: long enough that typing does not
 // re-render on every keystroke, short enough to feel live.
 constexpr int kRenderDebounceMs = 300;
+// How long the preview's scroll echo is ignored after we scroll it
+// ourselves.  ExecuteScript is asynchronous: it returns before the preview
+// has moved, and the echo arrives later still, so the guard has to outlive
+// the call rather than wrap it.  Matches the Python app's 120 ms.
+constexpr int kScrollEchoMs = 120;
+
+// Distinct ids because a wxTimer constructed with an owner posts its events
+// to that owner: two timers on this frame with the default id would both
+// arrive at whichever handler was bound without one.
+constexpr int kIdRenderTimer = wxID_HIGHEST + 20;
+constexpr int kIdScrollEchoTimer = wxID_HIGHEST + 21;
 
 constexpr int kIdToggleFrontMatter = wxID_HIGHEST + 1;
 constexpr int kIdManageFolders = wxID_HIGHEST + 2;
@@ -94,7 +106,8 @@ std::string base_href_for(const std::string& path)
 
 MainFrame::MainFrame()
     : wxFrame(nullptr, wxID_ANY, "MD Boss"),
-      render_timer_(this),
+      render_timer_(this, kIdRenderTimer),
+      scroll_echo_timer_(this, kIdScrollEchoTimer),
       // Safe to hand `this` over during construction: the watcher only ever
       // calls back from the event loop, which is not running yet.
       watcher_([this](const std::string& path, bool still_exists) {
@@ -438,7 +451,9 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_about, this, wxID_ABOUT);
     Bind(wxEVT_MENU, &MainFrame::on_check_updates, this, kIdCheckUpdates);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
-    Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
+    Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this, kIdRenderTimer);
+    Bind(wxEVT_TIMER, &MainFrame::on_scroll_echo_timer, this,
+         kIdScrollEchoTimer);
 
     editor_->Bind(wxEVT_STC_CHANGE, &MainFrame::on_text_changed, this);
     editor_->Bind(wxEVT_STC_UPDATEUI, &MainFrame::on_editor_scrolled, this);
@@ -1051,8 +1066,20 @@ void MainFrame::sync_preview_from_editor()
         return;
     }
     const double ratio = static_cast<double>(first) / span;
+    // Held until the timer fires, not cleared on the next line: scroll_to()
+    // runs ExecuteScript, which returns before the preview has scrolled, so
+    // clearing here would leave the echo unguarded.  That echo maps back
+    // through a different document height and lands a line or so off, which
+    // is invisible on a fast scroll and looks like a bounce on a slow one.
     suppress_preview_scroll_ = true;
     preview_->scroll_to(ratio);
+    // Restarting rather than scheduling a fresh callback per sync means a
+    // burst of wheel events stays suppressed until 120 ms after the last.
+    scroll_echo_timer_.Start(kScrollEchoMs, wxTIMER_ONE_SHOT);
+}
+
+void MainFrame::on_scroll_echo_timer(wxTimerEvent&)
+{
     suppress_preview_scroll_ = false;
 }
 
@@ -1067,8 +1094,15 @@ void MainFrame::on_preview_scrolled(double ratio)
     if (span <= 0) {
         return;
     }
+    // Clamped because a rubber-band overscroll reports outside [0,1], and
+    // rounded rather than truncated: truncation always biases towards the
+    // top, so the round trip loses a line at a time instead of landing back
+    // where it started.  SetFirstVisibleLine's echo IS synchronous, so this
+    // guard can wrap the call -- unlike the one in sync_preview_from_editor.
+    const double clamped = std::min(1.0, std::max(0.0, ratio));
     suppress_editor_scroll_ = true;
-    editor_->SetFirstVisibleLine(static_cast<int>(ratio * span));
+    editor_->SetFirstVisibleLine(
+        static_cast<int>(std::lround(clamped * span)));
     suppress_editor_scroll_ = false;
 }
 
@@ -1139,3 +1173,4 @@ void MainFrame::on_close(wxCloseEvent& event)
 }
 
 }  // namespace mdboss
+
