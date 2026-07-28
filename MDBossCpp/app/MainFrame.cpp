@@ -10,6 +10,7 @@
 #include <wx/textfile.h>
 #include <wx/stdpaths.h>
 #include <wx/accel.h>
+#include <wx/artprov.h>
 #include <wx/toolbar.h>
 
 #include <cassert>
@@ -125,41 +126,66 @@ void MainFrame::build_menu()
 
 void MainFrame::build_toolbar()
 {
-    // Text-only, in the Python app's order.  wxTB_NOICONS means the empty
-    // bitmap bundles below are never drawn; supplying real icons would mean
-    // shipping a bitmap set this port does not have yet.
-    wxToolBar* bar = CreateToolBar(wxTB_HORIZONTAL | wxTB_TEXT | wxTB_NOICONS |
-                                   wxTB_FLAT);
+    // Icons from wxArtProvider rather than a shipped bitmap set: they follow
+    // the platform's own theme and there is nothing extra to package.  The
+    // button's label is carried in the tooltip, since the buttons no longer
+    // show text.
+    struct Tool {
+        int id;
+        const wchar_t* label;
+        const wxArtID art;
+        const wchar_t* detail;   // appended after the label in the tooltip
+        bool check;
+        bool separator_after;
+    };
 
-    bar->AddTool(kIdManageFolders, L"Manage folders…", wxBitmapBundle(),
-                 "Add, remove, or reorder root folders");
-    bar->AddTool(kIdRefresh, "Refresh", wxBitmapBundle(),
-                 "Rescan all roots (F5)");
-    bar->AddSeparator();
-    bar->AddTool(wxID_OPEN, L"Open…", wxBitmapBundle(),
-                 "Open a Markdown file from anywhere on disk (Ctrl+O)");
-    bar->AddTool(wxID_NEW, "New", wxBitmapBundle(),
-                 "Create a new Markdown file (Ctrl+N)");
-    bar->AddTool(kIdNewFromTemplate, L"New from template…", wxBitmapBundle(),
-                 "Create a new file from a template");
-    bar->AddTool(wxID_SAVE, "Save", wxBitmapBundle(),
-                 "Save the current document (Ctrl+S)");
-    bar->AddSeparator();
+    const Tool tools[] = {
+        {kIdManageFolders, L"Manage folders…", wxART_FOLDER_OPEN,
+         L"Add, remove, or reorder root folders", false, false},
+        {kIdRefresh, L"Refresh", wxART_REFRESH, L"Rescan all roots (F5)",
+         false, true},
 
-    // Toggles ordered to match the columns: Files | Outline | Edit.
-    bar->AddCheckTool(kIdToggleFiles, "Files", wxBitmapBundle(),
-                      wxBitmapBundle(), "Show or hide the file tree");
-    bar->AddCheckTool(kIdToggleOutline, "Outline", wxBitmapBundle(),
-                      wxBitmapBundle(), "Show or hide the outline pane");
-    bar->AddCheckTool(kIdToggleEditor, "Edit", wxBitmapBundle(),
-                      wxBitmapBundle(), "Show or hide the source editor");
-    bar->AddCheckTool(kIdToggleFrontMatter, "Hide YAML", wxBitmapBundle(),
-                      wxBitmapBundle(),
-                      "Hide a YAML front-matter block at the top of the file");
-    bar->AddSeparator();
-    bar->AddTool(kIdFileTypes, L"File types…", wxBitmapBundle(),
-                 "Register MD Boss as a handler for Markdown files");
-    bar->AddTool(kIdHelp, "Help", wxBitmapBundle(), "About MD Boss (F1)");
+        {wxID_OPEN, L"Open…", wxART_FILE_OPEN,
+         L"Open a Markdown file from anywhere on disk (Ctrl+O)", false, false},
+        {wxID_NEW, L"New", wxART_NEW, L"Create a new Markdown file (Ctrl+N)",
+         false, false},
+        {kIdNewFromTemplate, L"New from template…", wxART_NORMAL_FILE,
+         L"Create a new file from a template", false, false},
+        {wxID_SAVE, L"Save", wxART_FILE_SAVE,
+         L"Save the current document (Ctrl+S)", false, true},
+
+        // Toggles ordered to match the columns: Files | Outline | Edit.
+        {kIdToggleFiles, L"Files", wxART_LIST_VIEW,
+         L"Show or hide the file tree", true, false},
+        {kIdToggleOutline, L"Outline", wxART_REPORT_VIEW,
+         L"Show or hide the outline pane", true, false},
+        {kIdToggleEditor, L"Edit", wxART_EDIT,
+         L"Show or hide the source editor", true, false},
+        {kIdToggleFrontMatter, L"Hide YAML", wxART_MINUS,
+         L"Hide a YAML front-matter block at the top of the file", true, true},
+
+        {kIdFileTypes, L"File types…", wxART_EXECUTABLE_FILE,
+         L"Register MD Boss as a handler for Markdown files", false, false},
+        {kIdHelp, L"Help", wxART_HELP, L"About MD Boss (F1)", false, false},
+    };
+
+    wxToolBar* bar = CreateToolBar(wxTB_HORIZONTAL | wxTB_FLAT);
+    for (const Tool& tool : tools) {
+        // The tooltip leads with the label, so an icon whose meaning is not
+        // obvious still names itself.
+        const wxString tip =
+            wxString(tool.label) + "  —  " + wxString(tool.detail);
+        const wxBitmapBundle icon =
+            wxArtProvider::GetBitmapBundle(tool.art, wxART_TOOLBAR);
+        if (tool.check) {
+            bar->AddCheckTool(tool.id, tool.label, icon, wxBitmapBundle(), tip);
+        } else {
+            bar->AddTool(tool.id, tool.label, icon, tip);
+        }
+        if (tool.separator_after) {
+            bar->AddSeparator();
+        }
+    }
 
     bar->ToggleTool(kIdToggleFiles, config_.show_files());
     bar->ToggleTool(kIdToggleOutline, config_.show_outline());
