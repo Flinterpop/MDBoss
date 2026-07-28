@@ -128,15 +128,15 @@ TEST_CASE("the real GitHub payload parses as expected", "[updater]")
                            std::istreambuf_iterator<char>());
 
     const mdboss::ReleaseInfo info = mdboss::parse_release(body);
-    CHECK(info.version == std::vector<int>{1, 1, 0});
-    CHECK(info.version_str == "1.1.0");
+    CHECK(info.version == std::vector<int>{1, 1, 1});
+    CHECK(info.version_str == "1.1.1");
     CHECK(info.html_url ==
-          "https://github.com/Flinterpop/MDBoss/releases/tag/v1.1.0");
+          "https://github.com/Flinterpop/MDBoss/releases/tag/v1.1.1");
 
-    // v1.1.0 is the first release to carry this build's installer, so the
-    // asset lookup is now exercised against the real payload rather than
-    // against its absence.  Five assets are present and it must pick this
-    // one -- MDBoss-Setup.exe is the Python installer and sorts adjacent.
+    // v1.1.0 was the first release to carry this build's installer, so the
+    // asset lookup is exercised against the real payload rather than against
+    // its absence.  Several assets are present and it must pick this one --
+    // MDBoss-Setup.exe is the Python installer and sorts adjacent to it.
     CHECK(info.setup_url.find("MDBoss-Cpp-Setup.exe") != std::string::npos);
     CHECK(info.setup_url.find("github.com") != std::string::npos);
 
