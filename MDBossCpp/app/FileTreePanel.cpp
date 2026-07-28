@@ -29,7 +29,8 @@ constexpr int kMaxFilterDepth = 24;
 
 // Non-ASCII UI text must be a WIDE literal.  A narrow "…" in a UTF-8 source
 // is handed to wxString as bytes and decoded in the current ANSI codepage,
-// which renders as "â€¦".  Wide literals are unambiguous.
+// which renders as "â€¦".  Wide literals are unambiguous.  mojibake-ok: that
+// example is meant to look broken; see the encoding guard in test_sources.
 const wchar_t* const kLazyPlaceholder = L"…";
 
 // Per-item payload: the path, and whether it is a file we can open.
