@@ -129,15 +129,62 @@ HRESULT PreviewPane::on_controller_ready(HRESULT result,
     // gives us, so ask for raw pixels.
     Microsoft::WRL::ComPtr<ICoreWebView2Controller3> controller3;
     if (SUCCEEDED(controller_.As(&controller3)) && controller3) {
+        // Bounds are the raw pixels GetClientRect() gives us, not DIPs.
         controller3->put_BoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);
         controller3->put_ShouldDetectMonitorScaleChanges(TRUE);
     }
 
     install_network_lock();
     install_scroll_bridge();
+    if (std::getenv("MDBOSS_LAYOUT_LOG") != nullptr) {
+        install_viewport_probe();
+    }
     resize_webview();
     navigate_to_pending();
     return S_OK;
+}
+
+// Diagnostic, off unless MDBOSS_LAYOUT_LOG is set.  Asks the page itself how
+// wide it thinks it is, instead of inferring the viewport from a screenshot.
+void PreviewPane::install_viewport_probe()
+{
+    EventRegistrationToken token{};
+    webview_->add_NavigationCompleted(
+        Callback<ICoreWebView2NavigationCompletedEventHandler>(
+            [this](ICoreWebView2*,
+                   ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
+                webview_->ExecuteScript(
+                    L"JSON.stringify({innerWidth: window.innerWidth,"
+                    L"clientWidth: document.documentElement.clientWidth,"
+                    L"scrollWidth: document.documentElement.scrollWidth,"
+                    L"dpr: window.devicePixelRatio,"
+                    L"article: (document.querySelector('.markdown-body')||{})"
+                    L".getBoundingClientRect?document.querySelector("
+                    L"'.markdown-body').getBoundingClientRect().width:-1})",
+                    Callback<ICoreWebView2ExecuteScriptCompletedHandler>(
+                        [this](HRESULT, LPCWSTR result) -> HRESULT {
+                            report_viewport(result == nullptr ? L"" : result);
+                            return S_OK;
+                        })
+                        .Get());
+                return S_OK;
+            })
+            .Get(),
+        &token);
+}
+
+void PreviewPane::report_viewport(const std::wstring& json)
+{
+    RECT rect{};
+    const HWND hwnd = static_cast<HWND>(GetHandle());
+    if (hwnd != nullptr) {
+        ::GetClientRect(hwnd, &rect);
+    }
+    if (wxWindow* top = wxGetTopLevelParent(this)) {
+        top->SetLabel(wxString::Format("pane %d | page %s",
+                                       static_cast<int>(rect.right - rect.left),
+                                       wxString(json)));
+    }
 }
 
 void PreviewPane::install_network_lock()

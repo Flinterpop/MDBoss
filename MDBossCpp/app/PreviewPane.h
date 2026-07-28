@@ -58,6 +58,8 @@ private:
                                 ICoreWebView2Controller* controller);
     void install_network_lock();
     void install_scroll_bridge();
+    void install_viewport_probe();
+    void report_viewport(const std::wstring& json);
     HRESULT on_resource_requested(
         ICoreWebView2WebResourceRequestedEventArgs* args);
     void on_size(wxSizeEvent& event);
