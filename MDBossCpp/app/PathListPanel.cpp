@@ -1,0 +1,143 @@
+#include "PathListPanel.h"
+
+#include <wx/clipbrd.h>
+#include <wx/filename.h>
+#include <wx/menu.h>
+#include <wx/sizer.h>
+#include <wx/stattext.h>
+
+#include <filesystem>
+
+namespace mdboss {
+namespace {
+
+constexpr int kIdOpen = wxID_HIGHEST + 40;
+constexpr int kIdExtra = wxID_HIGHEST + 41;
+constexpr int kIdReveal = wxID_HIGHEST + 42;
+constexpr int kIdCopyPath = wxID_HIGHEST + 43;
+constexpr int kIdClear = wxID_HIGHEST + 44;
+
+}  // namespace
+
+PathListPanel::PathListPanel(wxWindow* parent, const wxString& title,
+                             const wxString& extra_label)
+    : wxPanel(parent, wxID_ANY), extra_label_(extra_label)
+{
+    auto* header = new wxStaticText(this, wxID_ANY, title);
+    wxFont bold = header->GetFont();
+    bold.MakeBold();
+    header->SetFont(bold);
+
+    list_ = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                           wxLC_REPORT | wxLC_NO_HEADER | wxLC_SINGLE_SEL);
+    list_->AppendColumn("", wxLIST_FORMAT_LEFT, 400);
+
+    auto* sizer = new wxBoxSizer(wxVERTICAL);
+    sizer->Add(header, 0, wxLEFT | wxTOP | wxBOTTOM, 4);
+    sizer->Add(list_, 1, wxEXPAND);
+    SetSizer(sizer);
+
+    list_->Bind(wxEVT_LIST_ITEM_ACTIVATED, &PathListPanel::on_activated, this);
+    list_->Bind(wxEVT_LIST_ITEM_RIGHT_CLICK, &PathListPanel::on_context_menu,
+                this);
+}
+
+void PathListPanel::set_paths(const std::vector<std::string>& paths)
+{
+    if (paths == paths_) {
+        return;   // avoid clearing the user's selection on every render
+    }
+    paths_ = paths;
+
+    list_->DeleteAllItems();
+    for (std::size_t i = 0; i < paths_.size(); ++i) {
+        const wxString full = wxString::FromUTF8(paths_[i]);
+        const wxString name = wxFileName(full).GetFullName();
+        const long row = list_->InsertItem(static_cast<long>(i),
+                                           name.IsEmpty() ? full : name);
+        std::error_code ec;
+        const bool missing =
+            !std::filesystem::exists(std::filesystem::path(paths_[i]), ec) ||
+            ec;
+        if (missing) {
+            list_->SetItemTextColour(row, *wxRED);
+        }
+        list_->SetItem(row, 0, name.IsEmpty() ? full : name);
+    }
+    list_->SetColumnWidth(0, wxLIST_AUTOSIZE_USEHEADER);
+}
+
+std::string PathListPanel::selected_path() const
+{
+    const long row =
+        list_->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+    if (row < 0 || static_cast<std::size_t>(row) >= paths_.size()) {
+        return {};
+    }
+    return paths_[static_cast<std::size_t>(row)];
+}
+
+void PathListPanel::on_activated(wxListEvent& event)
+{
+    const long row = event.GetIndex();
+    if (row >= 0 && static_cast<std::size_t>(row) < paths_.size() &&
+        on_activate_) {
+        on_activate_(paths_[static_cast<std::size_t>(row)]);
+    }
+}
+
+void PathListPanel::on_context_menu(wxListEvent& event)
+{
+    const long row = event.GetIndex();
+    if (row < 0 || static_cast<std::size_t>(row) >= paths_.size()) {
+        return;
+    }
+    const std::string path = paths_[static_cast<std::size_t>(row)];
+
+    wxMenu menu;
+    menu.Append(kIdOpen, "&Open");
+    if (!extra_label_.IsEmpty()) {
+        menu.Append(kIdExtra, extra_label_);
+    }
+    menu.AppendSeparator();
+    menu.Append(kIdReveal, "Reveal in &Explorer");
+    menu.Append(kIdCopyPath, "&Copy path");
+    if (on_clear_) {
+        menu.AppendSeparator();
+        menu.Append(kIdClear, "C&lear list");
+    }
+
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_activate_) {
+            on_activate_(path);
+        }
+    }, kIdOpen);
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_extra_) {
+            on_extra_(path);
+        }
+    }, kIdExtra);
+    menu.Bind(wxEVT_MENU, [path](wxCommandEvent&) {
+        // /select, needs the path quoted; an unquoted space silently opens
+        // the wrong folder.
+        const wxString command =
+            "explorer.exe /select,\"" + wxString::FromUTF8(path) + "\"";
+        wxExecute(command, wxEXEC_ASYNC);
+    }, kIdReveal);
+    menu.Bind(wxEVT_MENU, [path](wxCommandEvent&) {
+        if (wxTheClipboard->Open()) {
+            wxTheClipboard->SetData(
+                new wxTextDataObject(wxString::FromUTF8(path)));
+            wxTheClipboard->Close();
+        }
+    }, kIdCopyPath);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        if (on_clear_) {
+            on_clear_();
+        }
+    }, kIdClear);
+
+    PopupMenu(&menu);
+}
+
+}  // namespace mdboss

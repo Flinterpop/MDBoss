@@ -18,6 +18,7 @@
 #include "Config.h"
 #include "FileTreePanel.h"
 #include "OutlinePanel.h"
+#include "PathListPanel.h"
 #include "PreviewPane.h"
 
 namespace mdboss {
@@ -40,6 +41,8 @@ private:
     void on_exit(wxCommandEvent& event);
     void on_toggle_front_matter(wxCommandEvent& event);
     void on_manage_folders(wxCommandEvent& event);
+    void on_toggle_favorite(wxCommandEvent& event);
+    void refresh_lists();
     void on_text_changed(wxStyledTextEvent& event);
     void on_editor_scrolled(wxStyledTextEvent& event);
     void on_render_timer(wxTimerEvent& event);
@@ -53,10 +56,16 @@ private:
     void on_preview_scrolled(double ratio);
 
     Config config_;
-    // Three nested splitters: files | (outline | (editor | preview)).
+    // Left column is Recent over Favorites over Files; that column then sits
+    // left of Outline, which sits left of the editor/preview pair.  Five
+    // splitters, because wxSplitterWindow only ever holds two panes.
     wxSplitterWindow* files_split_ = nullptr;
+    wxSplitterWindow* recent_split_ = nullptr;
+    wxSplitterWindow* favorites_split_ = nullptr;
     wxSplitterWindow* outline_split_ = nullptr;
     wxSplitterWindow* split_ = nullptr;
+    PathListPanel* recent_ = nullptr;
+    PathListPanel* favorites_ = nullptr;
     FileTreePanel* files_ = nullptr;
     OutlinePanel* outline_ = nullptr;
     wxStyledTextCtrl* editor_ = nullptr;

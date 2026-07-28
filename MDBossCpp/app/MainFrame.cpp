@@ -24,6 +24,7 @@ constexpr int kRenderDebounceMs = 300;
 
 constexpr int kIdToggleFrontMatter = wxID_HIGHEST + 1;
 constexpr int kIdManageFolders = wxID_HIGHEST + 2;
+constexpr int kIdToggleFavorite = wxID_HIGHEST + 3;
 
 const char* const kOpenWildcard =
     "Markdown files (*.md;*.markdown;*.mdown;*.mkd)|"
@@ -80,6 +81,7 @@ void MainFrame::build_menu()
     file->Append(wxID_SAVE, "&Save\tCtrl+S");
     file->AppendSeparator();
     file->Append(kIdManageFolders, L"&Manage folders…");
+    file->Append(kIdToggleFavorite, "Add to &favorites\tCtrl+D");
     file->AppendSeparator();
     file->Append(wxID_EXIT, "E&xit\tAlt+F4");
 
@@ -103,7 +105,37 @@ void MainFrame::build_panes()
                                         wxSP_LIVE_UPDATE | wxSP_THIN_SASH);
     files_split_->SetMinimumPaneSize(140);
 
-    files_ = new FileTreePanel(files_split_);
+    recent_split_ = new wxSplitterWindow(files_split_, wxID_ANY,
+                                         wxDefaultPosition, wxDefaultSize,
+                                         wxSP_LIVE_UPDATE | wxSP_THIN_SASH);
+    recent_split_->SetMinimumPaneSize(80);
+    recent_ = new PathListPanel(recent_split_, "Recent", "");
+    recent_->set_on_activate([this](const std::string& p) { open_path(p); });
+    recent_->set_on_clear([this] {
+        config_.clear_recents();
+        config_.save();
+        refresh_lists();
+    });
+
+    favorites_split_ = new wxSplitterWindow(recent_split_, wxID_ANY,
+                                            wxDefaultPosition, wxDefaultSize,
+                                            wxSP_LIVE_UPDATE | wxSP_THIN_SASH);
+    favorites_split_->SetMinimumPaneSize(80);
+    favorites_ =
+        new PathListPanel(favorites_split_, "Favorites", "&Remove favorite");
+    favorites_->set_on_activate([this](const std::string& p) { open_path(p); });
+    favorites_->set_on_extra([this](const std::string& p) {
+        config_.remove_favorite(p);
+        config_.save();
+        refresh_lists();
+    });
+    favorites_->set_on_clear([this] {
+        config_.clear_favorites();
+        config_.save();
+        refresh_lists();
+    });
+
+    files_ = new FileTreePanel(favorites_split_);
     files_->set_on_open([this](const std::string& path) { open_path(path); });
 
     outline_split_ = new wxSplitterWindow(files_split_, wxID_ANY,
@@ -141,7 +173,11 @@ void MainFrame::build_panes()
 
     split_->SplitVertically(editor_, preview_, config_.editor_sash());
     outline_split_->SplitVertically(outline_, split_, config_.outline_sash());
-    files_split_->SplitVertically(files_, outline_split_,
+    favorites_split_->SplitHorizontally(favorites_, files_,
+                                        config_.favorites_sash());
+    recent_split_->SplitHorizontally(recent_, favorites_split_,
+                                     config_.recent_sash());
+    files_split_->SplitVertically(recent_split_, outline_split_,
                                   config_.files_sash());
 
     // The top-level child goes in a sizer: wxFrame will stretch a lone child
@@ -152,6 +188,13 @@ void MainFrame::build_panes()
     Layout();
 
     files_->set_roots(config_.roots());
+    refresh_lists();
+}
+
+void MainFrame::refresh_lists()
+{
+    recent_->set_paths(config_.recents());
+    favorites_->set_paths(config_.favorites());
 }
 
 void MainFrame::bind_events()
@@ -162,6 +205,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_toggle_front_matter, this,
          kIdToggleFrontMatter);
     Bind(wxEVT_MENU, &MainFrame::on_manage_folders, this, kIdManageFolders);
+    Bind(wxEVT_MENU, &MainFrame::on_toggle_favorite, this, kIdToggleFavorite);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
     Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
 
@@ -188,6 +232,8 @@ bool MainFrame::open_path(const std::string& path)
     current_path_ = path;
     dirty_ = false;
     config_.push_recent(path);
+    config_.save();
+    refresh_lists();
     update_title();
     render_preview();
     return true;
@@ -287,6 +333,20 @@ void MainFrame::render_preview()
         mdrender::extract_outline(markdown, config_.hide_front_matter()));
 }
 
+void MainFrame::on_toggle_favorite(wxCommandEvent&)
+{
+    if (current_path_.empty()) {
+        return;   // nothing open; silently no-op rather than favourite ""
+    }
+    if (config_.is_favorite(current_path_)) {
+        config_.remove_favorite(current_path_);
+    } else {
+        config_.add_favorite(current_path_);
+    }
+    config_.save();
+    refresh_lists();
+}
+
 void MainFrame::on_manage_folders(wxCommandEvent&)
 {
     FoldersDialog dialog(this, config_.roots());
@@ -383,6 +443,12 @@ void MainFrame::on_close(wxCloseEvent& event)
     }
     if (files_split_ != nullptr) {
         config_.set_files_sash(files_split_->GetSashPosition());
+    }
+    if (recent_split_ != nullptr) {
+        config_.set_recent_sash(recent_split_->GetSashPosition());
+    }
+    if (favorites_split_ != nullptr) {
+        config_.set_favorites_sash(favorites_split_->GetSashPosition());
     }
     config_.save();
     event.Skip();

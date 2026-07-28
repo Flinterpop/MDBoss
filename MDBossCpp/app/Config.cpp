@@ -132,6 +132,14 @@ void Config::load()
         document["wx_outline_sash"].is_number_integer()) {
         outline_sash_ = document["wx_outline_sash"].get<int>();
     }
+    if (document.contains("wx_recent_sash") &&
+        document["wx_recent_sash"].is_number_integer()) {
+        recent_sash_ = document["wx_recent_sash"].get<int>();
+    }
+    if (document.contains("wx_favorites_sash") &&
+        document["wx_favorites_sash"].is_number_integer()) {
+        favorites_sash_ = document["wx_favorites_sash"].get<int>();
+    }
 }
 
 bool Config::save() const
@@ -156,6 +164,8 @@ bool Config::save() const
     document["wx_editor_sash"] = editor_sash_;
     document["wx_files_sash"] = files_sash_;
     document["wx_outline_sash"] = outline_sash_;
+    document["wx_recent_sash"] = recent_sash_;
+    document["wx_favorites_sash"] = favorites_sash_;
 
     const std::filesystem::path file(path());
     std::error_code ec;
@@ -181,6 +191,36 @@ void Config::push_recent(const std::string& path)
     recents_.insert(recents_.begin(), path);
     if (recents_.size() > kMaxRecents) {
         recents_.resize(kMaxRecents);
+    }
+}
+
+bool Config::is_favorite(const std::string& path) const
+{
+    for (const std::string& favorite : favorites_) {
+        if (favorite == path) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Config::add_favorite(const std::string& path)
+{
+    assert(!path.empty() && "a favorite needs a path");
+    remove_favorite(path);
+    favorites_.insert(favorites_.begin(), path);
+    if (favorites_.size() > kMaxFavorites) {
+        favorites_.resize(kMaxFavorites);
+    }
+}
+
+void Config::remove_favorite(const std::string& path)
+{
+    for (auto it = favorites_.begin(); it != favorites_.end(); ++it) {
+        if (*it == path) {
+            favorites_.erase(it);
+            return;
+        }
     }
 }
 

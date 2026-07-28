@@ -1,0 +1,58 @@
+// A titled list of document paths, used for both Recent and Favorites.
+//
+// Rows show the filename only, with the full path as the tooltip, and a
+// missing file is drawn in red rather than silently opening nothing --
+// matching the Python app.  wxListCtrl rather than wxListBox because only the
+// former can colour an individual row.
+
+#ifndef MDBOSS_APP_PATH_LIST_PANEL_H
+#define MDBOSS_APP_PATH_LIST_PANEL_H
+
+#include <wx/listctrl.h>
+#include <wx/panel.h>
+
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace mdboss {
+
+class PathListPanel : public wxPanel {
+public:
+    // `extra_label` names the list-specific context-menu action -- "Remove
+    // from favorites", "Add to favorites" -- or is empty for none.
+    PathListPanel(wxWindow* parent, const wxString& title,
+                  const wxString& extra_label);
+
+    void set_paths(const std::vector<std::string>& paths);
+
+    void set_on_activate(std::function<void(const std::string&)> handler)
+    {
+        on_activate_ = std::move(handler);
+    }
+    // Invoked for the list-specific action named by `extra_label`.
+    void set_on_extra(std::function<void(const std::string&)> handler)
+    {
+        on_extra_ = std::move(handler);
+    }
+    void set_on_clear(std::function<void()> handler)
+    {
+        on_clear_ = std::move(handler);
+    }
+
+private:
+    void on_activated(wxListEvent& event);
+    void on_context_menu(wxListEvent& event);
+    std::string selected_path() const;
+
+    wxListCtrl* list_ = nullptr;
+    wxString extra_label_;
+    std::vector<std::string> paths_;
+    std::function<void(const std::string&)> on_activate_;
+    std::function<void(const std::string&)> on_extra_;
+    std::function<void()> on_clear_;
+};
+
+}  // namespace mdboss
+
+#endif  // MDBOSS_APP_PATH_LIST_PANEL_H

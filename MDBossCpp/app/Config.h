@@ -51,6 +51,13 @@ public:
     // Push `path` to the front of the recents list, de-duplicated, capped at
     // the same limit the Python app uses.
     void push_recent(const std::string& path);
+    void clear_recents() { recents_.clear(); }
+
+    bool is_favorite(const std::string& path) const;
+    // Newest first, de-duplicated; adding past the cap drops the oldest.
+    void add_favorite(const std::string& path);
+    void remove_favorite(const std::string& path);
+    void clear_favorites() { favorites_.clear(); }
 
     // This app's own window layout, kept apart from the Qt blobs.
     int window_width() const { return window_width_; }
@@ -58,10 +65,14 @@ public:
     int editor_sash() const { return editor_sash_; }
     int files_sash() const { return files_sash_; }
     int outline_sash() const { return outline_sash_; }
+    int recent_sash() const { return recent_sash_; }
+    int favorites_sash() const { return favorites_sash_; }
     void set_window_size(int width, int height);
     void set_editor_sash(int sash) { editor_sash_ = sash; }
     void set_files_sash(int sash) { files_sash_ = sash; }
     void set_outline_sash(int sash) { outline_sash_ = sash; }
+    void set_recent_sash(int sash) { recent_sash_ = sash; }
+    void set_favorites_sash(int sash) { favorites_sash_ = sash; }
 
 private:
     std::vector<Root> roots_;
@@ -73,6 +84,8 @@ private:
     int editor_sash_ = 520;
     int files_sash_ = 260;
     int outline_sash_ = 220;
+    int recent_sash_ = 150;
+    int favorites_sash_ = 170;
 };
 
 }  // namespace mdboss
