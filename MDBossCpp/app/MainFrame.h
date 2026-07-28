@@ -38,6 +38,7 @@ public:
 
 private:
     void build_menu();
+    void build_toolbar();
     void build_panes();
     void bind_events();
 
@@ -49,6 +50,12 @@ private:
     void on_new(wxCommandEvent& event);
     void on_new_from_template(wxCommandEvent& event);
     void on_open_templates_folder(wxCommandEvent& event);
+    void on_refresh(wxCommandEvent& event);
+    void on_toggle_files(wxCommandEvent& event);
+    void on_toggle_outline(wxCommandEvent& event);
+    void on_toggle_editor(wxCommandEvent& event);
+    void on_file_types(wxCommandEvent& event);
+    void on_help(wxCommandEvent& event);
     void on_toggle_favorite(wxCommandEvent& event);
     void refresh_lists();
     void on_text_changed(wxStyledTextEvent& event);
@@ -82,6 +89,11 @@ private:
 
     std::string current_path_;
     bool dirty_ = false;
+    // Sash positions remembered across a hide, so showing a pane again
+    // restores the width the user had chosen rather than a default.
+    int hidden_files_sash_ = 0;
+    int hidden_outline_sash_ = 0;
+    int hidden_editor_sash_ = 0;
     // Scroll sync echoes: a programmatic scroll on one side raises the same
     // event a user scroll would, so each side ignores movement it caused.
     bool suppress_editor_scroll_ = false;

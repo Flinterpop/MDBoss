@@ -137,6 +137,14 @@ void Config::load()
         document["wx_outline_sash"].is_number_integer()) {
         outline_sash_ = document["wx_outline_sash"].get<int>();
     }
+    for (const auto& [key, target] :
+         {std::pair<const char*, bool*>{"wx_show_files", &show_files_},
+          {"wx_show_outline", &show_outline_},
+          {"wx_show_editor", &show_editor_}}) {
+        if (document.contains(key) && document[key].is_boolean()) {
+            *target = document[key].get<bool>();
+        }
+    }
     if (document.contains("wx_recent_sash") &&
         document["wx_recent_sash"].is_number_integer()) {
         recent_sash_ = document["wx_recent_sash"].get<int>();
@@ -169,6 +177,9 @@ bool Config::save() const
     document["wx_editor_sash"] = editor_sash_;
     document["wx_files_sash"] = files_sash_;
     document["wx_outline_sash"] = outline_sash_;
+    document["wx_show_files"] = show_files_;
+    document["wx_show_outline"] = show_outline_;
+    document["wx_show_editor"] = show_editor_;
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
 

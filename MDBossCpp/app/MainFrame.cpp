@@ -8,12 +8,16 @@
 #include <wx/textdlg.h>
 #include <wx/sizer.h>
 #include <wx/textfile.h>
+#include <wx/stdpaths.h>
+#include <wx/accel.h>
+#include <wx/toolbar.h>
 
 #include <cassert>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
+#include "FileAssoc.h"
 #include "FoldersDialog.h"
 #include "PathUtf8.h"
 #include "SingleInstance.h"
@@ -32,6 +36,12 @@ constexpr int kIdManageFolders = wxID_HIGHEST + 2;
 constexpr int kIdToggleFavorite = wxID_HIGHEST + 3;
 constexpr int kIdNewFromTemplate = wxID_HIGHEST + 4;
 constexpr int kIdOpenTemplates = wxID_HIGHEST + 5;
+constexpr int kIdRefresh = wxID_HIGHEST + 6;
+constexpr int kIdToggleFiles = wxID_HIGHEST + 7;
+constexpr int kIdToggleOutline = wxID_HIGHEST + 8;
+constexpr int kIdToggleEditor = wxID_HIGHEST + 9;
+constexpr int kIdFileTypes = wxID_HIGHEST + 10;
+constexpr int kIdHelp = wxID_HIGHEST + 11;
 
 // Kept in step with app.py's MARKDOWN_EXTS.
 const char* const kOpenWildcard =
@@ -83,6 +93,7 @@ MainFrame::MainFrame()
 
     build_menu();
     build_panes();
+    build_toolbar();   // after the panes: the toggles reflect their state
     bind_events();
     update_title();
 }
@@ -110,6 +121,59 @@ void MainFrame::build_menu()
     bar->Append(file, "&File");
     bar->Append(view, "&View");
     SetMenuBar(bar);
+}
+
+void MainFrame::build_toolbar()
+{
+    // Text-only, in the Python app's order.  wxTB_NOICONS means the empty
+    // bitmap bundles below are never drawn; supplying real icons would mean
+    // shipping a bitmap set this port does not have yet.
+    wxToolBar* bar = CreateToolBar(wxTB_HORIZONTAL | wxTB_TEXT | wxTB_NOICONS |
+                                   wxTB_FLAT);
+
+    bar->AddTool(kIdManageFolders, L"Manage folders…", wxBitmapBundle(),
+                 "Add, remove, or reorder root folders");
+    bar->AddTool(kIdRefresh, "Refresh", wxBitmapBundle(),
+                 "Rescan all roots (F5)");
+    bar->AddSeparator();
+    bar->AddTool(wxID_OPEN, L"Open…", wxBitmapBundle(),
+                 "Open a Markdown file from anywhere on disk (Ctrl+O)");
+    bar->AddTool(wxID_NEW, "New", wxBitmapBundle(),
+                 "Create a new Markdown file (Ctrl+N)");
+    bar->AddTool(kIdNewFromTemplate, L"New from template…", wxBitmapBundle(),
+                 "Create a new file from a template");
+    bar->AddTool(wxID_SAVE, "Save", wxBitmapBundle(),
+                 "Save the current document (Ctrl+S)");
+    bar->AddSeparator();
+
+    // Toggles ordered to match the columns: Files | Outline | Edit.
+    bar->AddCheckTool(kIdToggleFiles, "Files", wxBitmapBundle(),
+                      wxBitmapBundle(), "Show or hide the file tree");
+    bar->AddCheckTool(kIdToggleOutline, "Outline", wxBitmapBundle(),
+                      wxBitmapBundle(), "Show or hide the outline pane");
+    bar->AddCheckTool(kIdToggleEditor, "Edit", wxBitmapBundle(),
+                      wxBitmapBundle(), "Show or hide the source editor");
+    bar->AddCheckTool(kIdToggleFrontMatter, "Hide YAML", wxBitmapBundle(),
+                      wxBitmapBundle(),
+                      "Hide a YAML front-matter block at the top of the file");
+    bar->AddSeparator();
+    bar->AddTool(kIdFileTypes, L"File types…", wxBitmapBundle(),
+                 "Register MD Boss as a handler for Markdown files");
+    bar->AddTool(kIdHelp, "Help", wxBitmapBundle(), "About MD Boss (F1)");
+
+    bar->ToggleTool(kIdToggleFiles, config_.show_files());
+    bar->ToggleTool(kIdToggleOutline, config_.show_outline());
+    bar->ToggleTool(kIdToggleEditor, config_.show_editor());
+    bar->ToggleTool(kIdToggleFrontMatter, config_.hide_front_matter());
+    bar->Realize();
+
+    // F5 and F1 are toolbar-only in the Python app, so they need an
+    // accelerator of their own rather than riding a menu item.
+    const wxAcceleratorEntry accelerators[] = {
+        wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, kIdRefresh),
+        wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F1, kIdHelp),
+    };
+    SetAcceleratorTable(wxAcceleratorTable(2, accelerators));
 }
 
 void MainFrame::build_panes()
@@ -216,6 +280,21 @@ void MainFrame::build_panes()
 
     files_->set_roots(config_.roots());
     refresh_lists();
+
+    // Re-apply hidden columns from last time.  The sash positions are already
+    // loaded, so a pane shown again returns to the width it had.
+    hidden_files_sash_ = config_.files_sash();
+    hidden_outline_sash_ = config_.outline_sash();
+    hidden_editor_sash_ = config_.editor_sash();
+    if (!config_.show_files()) {
+        files_split_->Unsplit(recent_split_);
+    }
+    if (!config_.show_outline()) {
+        outline_split_->Unsplit(outline_);
+    }
+    if (!config_.show_editor()) {
+        split_->Unsplit(editor_);
+    }
 }
 
 WXLRESULT MainFrame::MSWWindowProc(WXUINT message, WXWPARAM wparam,
@@ -257,6 +336,12 @@ void MainFrame::bind_events()
          kIdNewFromTemplate);
     Bind(wxEVT_MENU, &MainFrame::on_open_templates_folder, this,
          kIdOpenTemplates);
+    Bind(wxEVT_MENU, &MainFrame::on_refresh, this, kIdRefresh);
+    Bind(wxEVT_MENU, &MainFrame::on_toggle_files, this, kIdToggleFiles);
+    Bind(wxEVT_MENU, &MainFrame::on_toggle_outline, this, kIdToggleOutline);
+    Bind(wxEVT_MENU, &MainFrame::on_toggle_editor, this, kIdToggleEditor);
+    Bind(wxEVT_MENU, &MainFrame::on_file_types, this, kIdFileTypes);
+    Bind(wxEVT_MENU, &MainFrame::on_help, this, kIdHelp);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::on_close, this);
     Bind(wxEVT_TIMER, &MainFrame::on_render_timer, this);
 
@@ -472,6 +557,96 @@ void MainFrame::on_open_templates_folder(wxCommandEvent&)
     wxExecute("explorer.exe \"" + dir + "\"", wxEXEC_ASYNC);
 }
 
+void MainFrame::on_refresh(wxCommandEvent&)
+{
+    files_->refresh();
+}
+
+void MainFrame::on_toggle_files(wxCommandEvent&)
+{
+    if (files_split_->IsSplit()) {
+        hidden_files_sash_ = files_split_->GetSashPosition();
+        files_split_->Unsplit(recent_split_);
+    } else {
+        files_split_->SplitVertically(recent_split_, outline_split_,
+                                      hidden_files_sash_);
+    }
+}
+
+void MainFrame::on_toggle_outline(wxCommandEvent&)
+{
+    if (outline_split_->IsSplit()) {
+        hidden_outline_sash_ = outline_split_->GetSashPosition();
+        outline_split_->Unsplit(outline_);
+    } else {
+        outline_split_->SplitVertically(outline_, split_,
+                                        hidden_outline_sash_);
+    }
+}
+
+void MainFrame::on_toggle_editor(wxCommandEvent&)
+{
+    if (split_->IsSplit()) {
+        hidden_editor_sash_ = split_->GetSashPosition();
+        split_->Unsplit(editor_);
+    } else {
+        split_->SplitVertically(editor_, preview_, hidden_editor_sash_);
+    }
+}
+
+void MainFrame::on_file_types(wxCommandEvent&)
+{
+    const std::string command = handler_command();
+    const bool registered = is_registered(command);
+
+    wxString message;
+    message << (registered
+                    ? "MD Boss is registered as a Markdown handler.\n\n"
+                    : "MD Boss is not currently the registered handler.\n\n");
+    message << "Windows does not let an application make itself the "
+               "default.\nRegistering only adds MD Boss to \"Open with\" and "
+               "to\nSettings > Default apps, where you can choose it.\n\n";
+    message << "Command:\n" << wxString::FromUTF8(command);
+
+    const int answer = wxMessageBox(
+        message + (registered ? "\n\nUnregister?" : "\n\nRegister now?"),
+        "MD Boss file types", wxYES_NO | wxICON_INFORMATION, this);
+    if (answer != wxYES) {
+        return;
+    }
+
+    const RegPlan plan = current_registration_plan();
+    if (registered) {
+        remove_registration(plan);
+    } else if (!apply_registration(plan)) {
+        wxMessageBox("Registration did not complete.", "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    notify_assoc_changed();
+}
+
+void MainFrame::on_help(wxCommandEvent&)
+{
+    // Prefer the real HELP.md if it shipped beside the app: it is the same
+    // document the Python build shows, kept in one place.
+    for (const wxString& candidate :
+         {wxString("HELP.md"), wxString("..\\HELP.md"),
+          wxString("..\\..\\..\\..\\HELP.md")}) {
+        wxFileName help(wxStandardPaths::Get().GetExecutablePath());
+        help.SetFullName("");
+        wxFileName resolved(help.GetPath() + "\\" + candidate);
+        resolved.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+        if (resolved.FileExists()) {
+            open_path(std::string(resolved.GetFullPath().ToUTF8()));
+            return;
+        }
+    }
+    wxMessageBox("MD Boss (C++ port)\n\nA local Markdown manager, editor and "
+                 "offline GitHub-style viewer.",
+                 "About MD Boss", wxOK | wxICON_INFORMATION, this);
+}
+
 void MainFrame::on_manage_folders(wxCommandEvent&)
 {
     FoldersDialog dialog(this, config_.roots());
@@ -560,14 +735,24 @@ void MainFrame::on_close(wxCloseEvent& event)
     }
     const wxSize size = GetSize();
     config_.set_window_size(size.GetWidth(), size.GetHeight());
+    // Save the sash a hidden pane *would* return to, not the meaningless
+    // value an unsplit splitter reports.
     if (split_ != nullptr) {
-        config_.set_editor_sash(split_->GetSashPosition());
+        config_.set_show_editor(split_->IsSplit());
+        config_.set_editor_sash(split_->IsSplit() ? split_->GetSashPosition()
+                                                  : hidden_editor_sash_);
     }
     if (outline_split_ != nullptr) {
-        config_.set_outline_sash(outline_split_->GetSashPosition());
+        config_.set_show_outline(outline_split_->IsSplit());
+        config_.set_outline_sash(outline_split_->IsSplit()
+                                     ? outline_split_->GetSashPosition()
+                                     : hidden_outline_sash_);
     }
     if (files_split_ != nullptr) {
-        config_.set_files_sash(files_split_->GetSashPosition());
+        config_.set_show_files(files_split_->IsSplit());
+        config_.set_files_sash(files_split_->IsSplit()
+                                   ? files_split_->GetSashPosition()
+                                   : hidden_files_sash_);
     }
     if (recent_split_ != nullptr) {
         config_.set_recent_sash(recent_split_->GetSashPosition());

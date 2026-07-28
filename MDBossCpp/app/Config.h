@@ -70,6 +70,14 @@ public:
     int files_sash() const { return files_sash_; }
     int outline_sash() const { return outline_sash_; }
     int recent_sash() const { return recent_sash_; }
+    // Which columns are showing.  Hiding a pane is a deliberate choice and
+    // should survive a restart, not be undone by it.
+    bool show_files() const { return show_files_; }
+    bool show_outline() const { return show_outline_; }
+    bool show_editor() const { return show_editor_; }
+    void set_show_files(bool v) { show_files_ = v; }
+    void set_show_outline(bool v) { show_outline_ = v; }
+    void set_show_editor(bool v) { show_editor_ = v; }
     int favorites_sash() const { return favorites_sash_; }
     void set_window_size(int width, int height);
     void set_editor_sash(int sash) { editor_sash_ = sash; }
@@ -88,6 +96,9 @@ private:
     int editor_sash_ = 520;
     int files_sash_ = 260;
     int outline_sash_ = 220;
+    bool show_files_ = true;
+    bool show_outline_ = true;
+    bool show_editor_ = true;
     int recent_sash_ = 150;
     int favorites_sash_ = 170;
 };
