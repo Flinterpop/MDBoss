@@ -114,6 +114,15 @@ void show_about_box(wxWindow* parent)
         L"C++ / wxWidgets port of the Python application in the same "
         L"repository,\nwhich remains the reference implementation.");
     info.SetWebSite("https://github.com/Flinterpop/MDBoss");
+    info.SetCopyright(kAttribution);
+
+    // Resource #2, alongside the app icon at #1; see MDBoss.rc.  Supplying an
+    // icon makes wx use its own about dialog rather than the plain native
+    // one, which is what allows the icon and copyright line to show at all.
+    wxIcon studio;
+    if (studio.LoadFile("#2", wxBITMAP_TYPE_ICO_RESOURCE)) {
+        info.SetIcon(studio);
+    }
     wxAboutBox(info, parent);
 }
 

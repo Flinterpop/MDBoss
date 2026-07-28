@@ -12,8 +12,14 @@
 
 #include <windows.h>
 
-// The icon must be first by ordinal so Windows uses it for the exe.
+// The application icon must be first by ordinal, because Windows uses the
+// LOWEST-numbered icon resource for the executable itself.
 1 ICON "..\\..\\mdboss.ico"
+
+// The studio icon shown in the About box.  Embedded rather than installed
+// beside the exe so there is no extra file for the installer to place, and
+// none to go missing.
+2 ICON "..\\..\\bungee.ico"
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION    1,0,0,0
