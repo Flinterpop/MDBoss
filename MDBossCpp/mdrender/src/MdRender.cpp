@@ -11,11 +11,24 @@
 namespace mdrender {
 namespace {
 
-// Placeholders substituted into assets/template.html.  These must stay in
-// step with mdrender.py's _PH_* constants and with the template itself.
+// The C++ port renders through its own template, not the Python app's.  Two
+// differences force that split, and neither is a matter of taste:
+//
+//   * template.html's scroll bridge loads qrc:///qtwebchannel/qwebchannel.js,
+//     a resource that only exists inside QtWebEngine.  Under WebView2 the
+//     bridge has to be window.chrome.webview instead.
+//   * the Python renderer highlights code server-side with Pygments; this one
+//     emits plain <pre><code class="language-x"> and lets the bundled
+//     highlight.js do it in the page.
+//
+// So there is no @@MDBOSS_PYG_CSS@@ here, and two highlight.js placeholders
+// the Python template does not have.
+constexpr std::string_view kTemplateName = "template-webview2.html";
+
 constexpr std::string_view kPhBase = "@@MDBOSS_BASE_HREF@@";
 constexpr std::string_view kPhGhCss = "@@MDBOSS_GH_CSS@@";
-constexpr std::string_view kPhPygCss = "@@MDBOSS_PYG_CSS@@";
+constexpr std::string_view kPhHljsCss = "@@MDBOSS_HLJS_CSS@@";
+constexpr std::string_view kPhHljsJs = "@@MDBOSS_HLJS_JS@@";
 constexpr std::string_view kPhMermaid = "@@MDBOSS_MERMAID_JS@@";
 constexpr std::string_view kPhKatexCss = "@@MDBOSS_KATEX_CSS@@";
 constexpr std::string_view kPhKatexJs = "@@MDBOSS_KATEX_JS@@";
@@ -175,7 +188,7 @@ std::string render_document(std::string_view md_text,
            "base_href needs a trailing slash");
 
     const std::filesystem::path template_path =
-        std::filesystem::path(asset_dir()) / "template.html";
+        std::filesystem::path(asset_dir()) / kTemplateName;
     std::ifstream stream(template_path, std::ios::binary);
     if (!stream) {
         return {};   // caller sees an empty page rather than a partial one
@@ -187,7 +200,8 @@ std::string render_document(std::string_view md_text,
     const std::pair<std::string_view, std::string> values[] = {
         {kPhBase, std::string(base_href)},
         {kPhGhCss, asset_uri("github-markdown-light.css")},
-        {kPhPygCss, asset_uri("pygments-github.css")},
+        {kPhHljsCss, asset_uri("highlight/github.min.css")},
+        {kPhHljsJs, asset_uri("highlight/highlight.min.js")},
         {kPhMermaid, asset_uri("mermaid.min.js")},
         {kPhKatexCss, asset_uri("katex/katex.min.css")},
         {kPhKatexJs, asset_uri("katex/katex.min.js")},

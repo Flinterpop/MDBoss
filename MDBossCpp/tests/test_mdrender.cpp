@@ -250,6 +250,38 @@ TEST_CASE("render_document fills every placeholder", "[document]")
     CHECK(page.find("katex.min.css") != std::string::npos);
     CHECK(page.find("<title>Doc</title>") != std::string::npos);
     CHECK(page.find("id=\"title\"") != std::string::npos);
+    // This port highlights client-side, so the page must carry highlight.js
+    // and must not reference the Python renderer's Pygments stylesheet.
+    CHECK(page.find("highlight.min.js") != std::string::npos);
+    CHECK(page.find("pygments-github.css") == std::string::npos);
+    // The scroll bridge must be the WebView2 one.  The check is for a loaded
+    // qrc: script rather than the bare word: the template's header comment
+    // explains why Qt's channel cannot be used here, and that prose is
+    // documentation, not a dependency.
+    CHECK(page.find("chrome.webview") != std::string::npos);
+    CHECK(page.find("src=\"qrc:") == std::string::npos);
+}
+
+// The bundled render assets must all exist and stay local: the preview is
+// network-locked, so anything the template references by URL has to be on
+// disk or it simply will not load.
+TEST_CASE("bundled assets referenced by the template exist", "[assets]")
+{
+    REQUIRE(mdrender::set_asset_dir(MDBOSS_ASSET_DIR));
+    const std::filesystem::path root{MDBOSS_ASSET_DIR};
+    const char* const required[] = {
+        "template-webview2.html",
+        "github-markdown-light.css",
+        "mermaid.min.js",
+        "katex/katex.min.css",
+        "katex/katex.min.js",
+        "highlight/highlight.min.js",
+        "highlight/github.min.css",
+    };
+    for (const char* name : required) {
+        INFO("missing bundled asset: " << name);
+        CHECK(std::filesystem::exists(root / name));
+    }
 }
 
 TEST_CASE("front matter is only stripped when asked", "[frontmatter]")
