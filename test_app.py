@@ -430,6 +430,20 @@ def test_extract_portable_rejects_a_zip_without_the_exe(tmp_path: Path) -> None:
         app.extract_portable(str(zip_path), str(tmp_path / "staging"))
 
 
+def test_send2trash_is_importable() -> None:
+    """Deleting must reach the Recycle Bin, so the dependency must be present.
+
+    It is declared in requirements.txt, but a declaration is not an install:
+    PyInstaller bundles what is importable in the build environment, and when
+    Send2Trash was missing there the shipped app fell through to os.remove --
+    a permanent delete, with no message, where the user expected the bin.
+    Importing it here is what makes that gap fail the build instead.
+    """
+    import send2trash  # type: ignore[import-untyped]
+
+    assert callable(send2trash.send2trash)
+
+
 def test_a_document_with_a_byte_order_mark_still_renders_headings(
     tmp_path: Path,
 ) -> None:

@@ -69,6 +69,14 @@ TEST_CASE("version is in lockstep across the repo", "[version]")
     REQUIRE_FALSE(iss.empty());
     CHECK(between(iss, "#define AppVersion \"", '"') == expected);
 
+    // CMakeLists.txt: project(VERSION), which CPack and any IDE reads.  It
+    // sat at 1.0.0 through the 1.1.0 release because nothing bumped it and
+    // nothing looked.
+    const std::string cmake =
+        read_file(repo_root() / "MDBossCpp" / "CMakeLists.txt");
+    REQUIRE_FALSE(cmake.empty());
+    CHECK(between(cmake, "project(MDBossCpp VERSION ", ' ') == expected);
+
     // installer-cpp.iss: this build's own installer.  Left unchecked it can
     // drift from the exe it installs, so the setup reports one version in
     // Add/Remove Programs while the application reports another.

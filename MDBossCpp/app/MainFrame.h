@@ -1,9 +1,11 @@
-// The application window: source editor beside a live preview.
+// The application window: file tree, outline, source editor and live preview.
 //
-// This is the first slice of the C++ port's UI.  The file tree, outline,
-// recents and favorites panes come next; what is here is the spine everything
-// else hangs off -- open, edit, render, save -- so it is worth getting the
-// render and scroll-sync behaviour right before adding panes around it.
+// This class is deliberately the only place that knows about all of them.  The
+// panes are self-contained and report what happened through std::function
+// hooks rather than reaching for the frame, so each can be read on its own;
+// what they cannot do is decide policy.  Whether a changed file is reloaded,
+// whether a document may be discarded, where a new file lands -- that lives
+// here, because those answers depend on state no single pane holds.
 
 #ifndef MDBOSS_APP_MAIN_FRAME_H
 #define MDBOSS_APP_MAIN_FRAME_H

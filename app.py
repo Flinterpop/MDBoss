@@ -2239,6 +2239,23 @@ class MainWindow(QMainWindow):
             from send2trash import send2trash  # type: ignore[import-untyped]
             send2trash(path)
         except ImportError:
+            # Send2Trash is in requirements.txt, so this should not happen --
+            # but if it is missing from a build, deleting must not quietly
+            # become permanent.  The dialog above says "delete", and a user
+            # who has been told their files go to the Recycle Bin will not
+            # look in it for something that never arrived.  Ask again, saying
+            # plainly what is about to happen.
+            confirmed = QMessageBox.question(
+                self, DISPLAY_NAME,
+                "This copy of MD Boss cannot use the Recycle Bin, so this "
+                "would delete permanently:\n\n"
+                f"{os.path.basename(path)}\n\n"
+                "Delete it permanently?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if confirmed != QMessageBox.StandardButton.Yes:
+                return
             try:
                 if os.path.isdir(path):
                     os.rmdir(path)

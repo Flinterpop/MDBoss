@@ -4,10 +4,10 @@ commit and push the bump, publish a GitHub release with all three assets,
 then reinstall locally.
 
 The repo holds two apps at one version -- the shipping Python app and the C++
-port -- so the version lives in six places: app.py, installer.iss,
-installer-cpp.iss, MDBossCpp/app/Version.h, and BOTH the string and numeric
-forms in MDBossCpp/app/MDBoss.rc.  This script owns all six; bumping by hand
-is how they drift.
+port -- so the version lives in seven places: app.py, installer.iss,
+installer-cpp.iss, MDBossCpp/app/Version.h, MDBossCpp/CMakeLists.txt, and BOTH
+the string and numeric forms in MDBossCpp/app/MDBoss.rc.  This script owns all
+seven; bumping by hand is how they drift.
 
 Usage:
   .\release.ps1 0.1.0
@@ -78,7 +78,7 @@ python -m mypy
 CheckExit "mypy"
 
 # --- Bump versions -----------------------------------------------------------
-# Six places, not two.  The C++ port carries the same version number, and
+# Seven places, not two.  The C++ port carries the same version number, and
 # MDBossCpp/tests/test_version.cpp fails the build when they disagree -- so
 # bumping only the Python pair leaves the other tree broken, discovered at the
 # next C++ build rather than here.  The .rc needs BOTH forms: Explorer reads
@@ -105,6 +105,9 @@ $bumps = @(
     @{ File = "MDBossCpp\app\Version.h";
        Match = 'kAppVersion = "[^"]+"';
        New   = "kAppVersion = `"$Version`"" },
+    @{ File = "MDBossCpp\CMakeLists.txt";
+       Match = 'project\(MDBossCpp VERSION [0-9.]+';
+       New   = "project(MDBossCpp VERSION $Version" },
     @{ File = "MDBossCpp\app\MDBoss.rc";
        Match = 'FILEVERSION\s+\d+,\d+,\d+,\d+';
        New   = "FILEVERSION    $tuple" },
@@ -146,9 +149,9 @@ CheckExit "ISCC"
 
 # --- C++ port ----------------------------------------------------------------
 # Built and tested AFTER the bump, deliberately: test_version.cpp compares the
-# version in app.py, installer.iss, Version.h and both .rc forms, so running it
-# here is what proves the bump actually reached all six.  Running it before the
-# bump would only prove they agreed at the old number.
+# version across every file that carries one, so running it here is what
+# proves the bump actually reached all seven.  Running it before the bump
+# would only prove they agreed at the old number.
 Write-Host "==> Configuring C++ port (CMake)" -ForegroundColor Cyan
 cmake -S MDBossCpp -B MDBossCpp\build
 CheckExit "cmake configure"
@@ -183,9 +186,9 @@ foreach ($asset in $assets) {
 }
 
 # --- Commit + push -----------------------------------------------------------
-# All six version-bearing files, or the commit records a half-done bump.
+# All seven version-bearing files, or the commit records a half-done bump.
 git add app.py installer.iss installer-cpp.iss `
-        MDBossCpp\app\Version.h MDBossCpp\app\MDBoss.rc
+        MDBossCpp\app\Version.h MDBossCpp\app\MDBoss.rc MDBossCpp\CMakeLists.txt
 $staged = git diff --cached --name-only
 if ($staged) {
     git commit -m "Bump version to $Version"

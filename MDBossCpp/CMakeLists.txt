@@ -11,15 +11,17 @@
 #   C:\vcpkg\vcpkg.exe install wxwidgets[core,webview]:x64-windows-static ^
 #                              md4c:x64-windows-static catch2:x64-windows-static
 #
-# Configure with the preset (which points at the vcpkg toolchain):
+# Then configure, build and test.  There is no CMakePresets.json -- these are
+# the commands release.ps1 runs, so they are the ones kept working:
 #
-#   cmake --preset windows-static
+#   cmake -S . -B build
 #   cmake --build build --config Release
 #   ctest --test-dir build -C Release --output-on-failure
 
 cmake_minimum_required(VERSION 3.21)
 
-project(MDBossCpp VERSION 1.0.0 LANGUAGES CXX)
+# Kept in step with app/Version.h by release.ps1; test_version.cpp enforces it.
+project(MDBossCpp VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
