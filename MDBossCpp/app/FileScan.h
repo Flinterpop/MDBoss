@@ -44,6 +44,11 @@ std::vector<Entry> list_directory(const std::string& path);
 // Returns false if the shell refused or the user cancelled.
 bool send_to_recycle_bin(const std::string& path);
 
+// Which of several dropped files to open: the first Markdown one, else the
+// first file at all.  The app asks before opening a non-Markdown file, so
+// offering it beats a drop that silently does nothing.  Empty if the list is.
+std::string choose_dropped_file(const std::vector<std::string>& filenames);
+
 }  // namespace mdboss
 
 #endif  // MDBOSS_APP_FILE_SCAN_H

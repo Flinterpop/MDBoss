@@ -129,6 +129,15 @@ HRESULT PreviewPane::on_controller_ready(HRESULT result,
     // view is rendered half again wider than the pane hosting it and the page
     // runs off the edge of the window.  Raw pixels is what GetClientRect()
     // gives us, so ask for raw pixels.
+    // Let dropped files reach the application instead of the engine.  Left
+    // enabled, WebView2 handles the drop itself and navigates to the file,
+    // so dropping a document on the preview replaced the rendered page with
+    // the raw text rather than opening it.
+    Microsoft::WRL::ComPtr<ICoreWebView2Controller4> controller4;
+    if (SUCCEEDED(controller_.As(&controller4)) && controller4) {
+        controller4->put_AllowExternalDrop(FALSE);
+    }
+
     Microsoft::WRL::ComPtr<ICoreWebView2Controller3> controller3;
     if (SUCCEEDED(controller_.As(&controller3)) && controller3) {
         // Bounds are the raw pixels GetClientRect() gives us, not DIPs.

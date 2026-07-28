@@ -9,6 +9,7 @@ add_executable(mdrender_tests
     test_templates.cpp
     test_sources.cpp
     test_version.cpp
+    test_droptarget.cpp
     ../app/FileScan.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp

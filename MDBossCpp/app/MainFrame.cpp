@@ -18,6 +18,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "DropTarget.h"
 #include "FileAssoc.h"
 #include "FoldersDialog.h"
 #include "Version.h"
@@ -325,6 +326,22 @@ void MainFrame::build_panes()
     sizer->Add(files_split_, 1, wxEXPAND);
     SetSizer(sizer);
     Layout();
+
+    // A drop is consumed by whichever child window is under the cursor, so
+    // every pane the user might aim at needs its own target.  Each
+    // SetDropTarget takes ownership, hence a fresh instance per window.
+    const auto open_dropped = [this](const std::string& path) {
+        open_path(path);
+    };
+    for (wxWindow* target : {static_cast<wxWindow*>(this),
+                             static_cast<wxWindow*>(editor_),
+                             static_cast<wxWindow*>(preview_),
+                             static_cast<wxWindow*>(files_),
+                             static_cast<wxWindow*>(outline_),
+                             static_cast<wxWindow*>(recent_),
+                             static_cast<wxWindow*>(favorites_)}) {
+        target->SetDropTarget(new DocumentDropTarget(open_dropped));
+    }
 
     files_->set_roots(config_.roots());
     refresh_lists();

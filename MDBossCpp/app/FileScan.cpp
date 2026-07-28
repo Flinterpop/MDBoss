@@ -144,6 +144,24 @@ bool send_to_recycle_bin(const std::string& path)
     return SHFileOperationW(&op) == 0 && op.fAnyOperationsAborted == FALSE;
 }
 
+std::string choose_dropped_file(const std::vector<std::string>& filenames)
+{
+    if (filenames.empty()) {
+        return {};
+    }
+    for (const std::string& name : filenames) {
+        // Match on the leaf: a directory called "notes.md" further up the
+        // path must not make a .txt file look like Markdown.
+        const std::size_t slash = name.find_last_of("/\\");
+        const std::string leaf =
+            (slash == std::string::npos) ? name : name.substr(slash + 1);
+        if (is_markdown(leaf)) {
+            return name;
+        }
+    }
+    return filenames.front();
+}
+
 std::vector<Entry> list_directory(const std::string& path)
 {
     std::vector<Entry> out;
