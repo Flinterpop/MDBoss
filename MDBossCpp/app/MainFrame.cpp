@@ -1091,9 +1091,18 @@ void MainFrame::hand_off_to_installer(const std::string& setup_path)
         }
     }
 
-    // Detached and windowless.  It has to outlive us -- its whole job starts
-    // once this process is gone -- so it cannot be a child that dies with us,
-    // and a console flashing up would look like something had gone wrong.
+    // Windowless, in its own process group, and NOT detached -- exactly what
+    // the Python app uses, and the difference is not cosmetic.
+    //
+    // DETACHED_PROCESS was tried and hung the update: it is mutually
+    // exclusive with CREATE_NO_WINDOW, and the batch's `tasklist | find`
+    // inherited no usable stdin, so find.exe blocked forever reading it and
+    // the installer was never reached.  The app had already exited by then,
+    // so the update simply did not happen and nothing said why -- the exact
+    // failure the wait loop's own comments were written about.
+    //
+    // CREATE_NO_WINDOW keeps the console hidden; the batch still outlives us
+    // because cmd.exe is not tied to this process's lifetime.
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
@@ -1101,7 +1110,7 @@ void MainFrame::hand_off_to_installer(const std::string& setup_path)
                            path_from_utf8(batch_path).wstring() + L"\"";
     const BOOL started = ::CreateProcessW(
         nullptr, command.data(), nullptr, nullptr, FALSE,
-        CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
+        CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
         nullptr, nullptr, &startup, &process);
     if (!started) {
         wxMessageBox("Could not start the installer.", "MD Boss",
