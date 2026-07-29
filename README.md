@@ -148,12 +148,18 @@ It reads and writes the **same** `%APPDATA%\MDBoss\config.json`, keeping its
 own window layout under separate `wx_*` keys, so you can run either against
 one profile without them fighting.
 
-Two differences are deliberate rather than unfinished:
+It installs separately (as *MD Boss (C++)*) and updates itself the same way the
+Python build does — `Help → Check for updates` downloads its own installer,
+waits for the app to close, installs and reopens.
+
+Three differences are deliberate rather than unfinished:
 
 - Code is highlighted in the browser by **highlight.js** rather than
   server-side by Pygments, so a fenced block's markup differs.
-- The port **reloads the open document when it changes on disk**; the Python
-  app rescans only on F5.
+- The port **reloads the open document when it changes on disk**, keeping your
+  caret and never discarding unsaved edits; the Python app rescans only on F5.
+- The port **never checks for updates on launch**, only when asked. The Python
+  app checks at start-up.
 
 ```
 cmake -S MDBossCpp -B MDBossCpp/build
@@ -161,9 +167,14 @@ cmake --build MDBossCpp/build --config Release
 ctest --test-dir MDBossCpp/build -C Release
 ```
 
-Needs vcpkg at `C:\vcpkg` (triplet `x64-windows-static`). The renderer is
-tested against a golden corpus generated from the Python renderer, so parity
-is checked rather than assumed.
+Needs vcpkg at `C:\vcpkg` (triplet `x64-windows-static`), installed **without**
+the `webview` feature — the preview is a WebView2 this app creates and owns,
+because `wxWebView`'s Edge backend never delivers `WebResourceRequested` and so
+cannot enforce the network lock.
+
+The renderer is tested against a golden corpus generated from the Python
+renderer, so parity is checked rather than assumed. `CLAUDE.md` records the
+conventions and the traps that produced them.
 
 ## License
 
