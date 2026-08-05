@@ -135,10 +135,10 @@ TEST_CASE("the real GitHub payload parses as expected", "[updater]")
                            std::istreambuf_iterator<char>());
 
     const mdboss::ReleaseInfo info = mdboss::parse_release(body);
-    CHECK(info.version == std::vector<int>{1, 1, 1});
-    CHECK(info.version_str == "1.1.1");
+    CHECK(info.version == std::vector<int>{1, 2, 0});
+    CHECK(info.version_str == "1.2.0");
     CHECK(info.html_url ==
-          "https://github.com/Flinterpop/MDBoss/releases/tag/v1.1.1");
+          "https://github.com/Flinterpop/MDBoss/releases/tag/v1.2.0");
 
     // v1.1.0 was the first release to carry this build's installer, so the
     // asset lookup is exercised against the real payload rather than against
@@ -146,6 +146,10 @@ TEST_CASE("the real GitHub payload parses as expected", "[updater]")
     // MDBoss-Setup.exe is the Python installer and sorts adjacent to it.
     CHECK(info.setup_url.find("MDBoss-Cpp-Setup.exe") != std::string::npos);
     CHECK(info.setup_url.find("github.com") != std::string::npos);
+    // v1.2.0 is the first release to carry the portable zip, so that lookup
+    // is exercised against the real payload too.
+    CHECK(info.portable_url.find("MDBoss-Cpp-Portable.zip") !=
+          std::string::npos);
 
     // And against this build's own version it is not an update: the fixture
     // is refreshed with each release, so this stays true and a stale fixture

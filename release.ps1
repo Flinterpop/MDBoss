@@ -293,13 +293,21 @@ CheckExit "gh release create"
 # both scopes' folders rather than assumed.
 if (-not $SkipInstall) {
     Write-Host "==> Reinstalling locally and relaunching" -ForegroundColor Cyan
-    Start-Process (Join-Path $PSScriptRoot "installer\MDBoss-Cpp-Setup.exe") `
-        -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -Wait
-    $exe = @("$env:ProgramFiles\MD Boss Cpp\MDBoss.exe",
-             "$env:LOCALAPPDATA\Programs\MD Boss Cpp\MDBoss.exe") |
-        Where-Object { Test-Path $_ } | Select-Object -First 1
-    if ($exe) { Start-Process $exe }
-    else { Write-Host "    installed, but MDBoss.exe was not found to relaunch" -ForegroundColor Yellow }
+    $setup = Start-Process (Join-Path $PSScriptRoot "installer\MDBoss-Cpp-Setup.exe") `
+        -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -Wait -PassThru
+    if ($setup.ExitCode -ne 0) {
+        # 2 = cancelled, which includes a declined or unseen UAC prompt: a
+        # fresh install defaults to per-machine and needs elevation.
+        Write-Host ("    installer exited with code $($setup.ExitCode) -- " +
+                    "not installed (declined UAC?). The release itself is " +
+                    "already published.") -ForegroundColor Yellow
+    } else {
+        $exe = @("$env:ProgramFiles\MD Boss Cpp\MDBoss.exe",
+                 "$env:LOCALAPPDATA\Programs\MD Boss Cpp\MDBoss.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+        if ($exe) { Start-Process $exe }
+        else { Write-Host "    installed, but MDBoss.exe was not found to relaunch" -ForegroundColor Yellow }
+    }
 }
 
 Write-Host "==> Done: https://github.com/Flinterpop/MDBoss/releases/tag/v$Version" -ForegroundColor Green
