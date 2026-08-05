@@ -23,6 +23,7 @@ struct ReleaseInfo {
     std::vector<int> version;     // empty when the tag was unusable
     std::string version_str;      // tag without a leading v
     std::string setup_url;        // installer asset, empty if absent
+    std::string portable_url;     // portable zip asset, empty if absent
     std::string html_url;         // the release page, for the fallback
 };
 
@@ -42,9 +43,17 @@ ReleaseInfo parse_release(const std::string& json_body);
 void check_for_update(
     std::function<void(const ReleaseInfo&, const std::string& error)> done);
 
-// The asset this build would install.  Distinct from the Python build's, so
-// one release can carry both.
+// The assets this build would install.  Distinct from the Python build's
+// asset names, so one release can carry both without either app grabbing the
+// other's build.
 extern const char* const kSetupAssetName;
+extern const char* const kPortableAssetName;
+
+// True when this looks like a loose portable copy: no Inno uninstaller
+// (unins*.exe) beside the exe.  Mirrors running_portable() in app.py,
+// including its lean: a directory that cannot be listed is treated as
+// portable, which at worst downloads a zip instead of an installer.
+bool portable_install(const std::string& exe_dir_utf8);
 
 // The batch that installs an update after we have exited, then relaunches.
 //
@@ -60,8 +69,31 @@ extern const char* const kSetupAssetName;
 //
 // Every line runs whether or not the one before it worked, so a failed
 // install still relaunches the intact old version.
+//
+// The install line carries install_scope_flag(app_exe): the installer defaults
+// to per-machine and a /VERYSILENT run takes the default, so a per-user copy
+// updating without /CURRENTUSER would elevate and plant a second install in
+// Program Files instead of updating itself.
 std::string installer_batch(const std::string& setup_path,
                             const std::string& app_exe, unsigned long pid);
+
+// "/ALLUSERS" when app_exe lives under Program Files, "/CURRENTUSER"
+// otherwise.  Mirrors _install_scope_flag in app.py.
+std::string install_scope_flag(const std::string& app_exe);
+
+// The batch that swaps a portable copy for a downloaded update zip.
+//
+// DELIBERATE divergence from app.py, which unpacks the zip in-process before
+// closing: this app has no zip library, so the batch extracts with the
+// bsdtar Windows ships as %SystemRoot%\System32\tar.exe (absolute path, like
+// every other tool here) into `staging_dir` and only robocopies if it finds
+// MDBoss.exe there -- at the zip root or one folder down, the two layouts
+// app.py accepts.  Same no-brick property either way: robocopy copies OVER
+// the install rather than replacing it, the relaunch runs whatever happened,
+// and a junk zip updates nothing.
+std::string portable_batch(const std::string& zip_path,
+                           const std::string& staging_dir,
+                           const std::string& app_exe, unsigned long pid);
 
 // Download `url` to `dest`.  `done` runs on the UI thread; `error` is empty
 // on success.  Nothing else in the app downloads anything.

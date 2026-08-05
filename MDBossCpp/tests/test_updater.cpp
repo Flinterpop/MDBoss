@@ -6,12 +6,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
 
+#include "PathUtf8.h"
 #include "Updater.h"
 #include "Version.h"
 
@@ -83,15 +85,19 @@ TEST_CASE("a release payload yields tag and matching asset", "[updater]")
         {"name": "MDBoss-Cpp-Setup.exe",
          "browser_download_url": "https://example.invalid/cpp.exe"},
         {"name": "MDBoss-Portable-App.zip",
-         "browser_download_url": "https://example.invalid/portable.zip"}
+         "browser_download_url": "https://example.invalid/python-portable.zip"},
+        {"name": "MDBoss-Cpp-Portable.zip",
+         "browser_download_url": "https://example.invalid/cpp-portable.zip"}
       ]
     })";
 
     const mdboss::ReleaseInfo info = mdboss::parse_release(body);
     CHECK(info.version == std::vector<int>{1, 2, 0});
     CHECK(info.version_str == "1.2.0");          // the leading v is stripped
-    // Must pick THIS build's installer, not the Python one that sorts first.
+    // Must pick THIS build's assets -- the Python installer sorts first and
+    // the Python portable zip's name is almost this one's.
     CHECK(info.setup_url == "https://example.invalid/cpp.exe");
+    CHECK(info.portable_url == "https://example.invalid/cpp-portable.zip");
     CHECK(info.html_url ==
           "https://github.com/Flinterpop/MDBoss/releases/tag/v1.2.0");
 }
@@ -108,6 +114,7 @@ TEST_CASE("a release with no matching asset still reports its version",
     const mdboss::ReleaseInfo info = mdboss::parse_release(body);
     CHECK(info.version == std::vector<int>{9, 9, 9});
     CHECK(info.setup_url.empty());
+    CHECK(info.portable_url.empty());
     CHECK_FALSE(info.html_url.empty());   // falls back to the releases page
 }
 
@@ -179,10 +186,11 @@ TEST_CASE("the handoff batch waits before it installs", "[updater]")
     // The wait has to come before the install, or it is decoration.
     CHECK(batch.find("PID eq 4321") < batch.find("/VERYSILENT"));
 
-    // Unattended, and it relaunches afterwards.
+    // Unattended, relaunches afterwards, and pinned to this copy's scope
+    // (C:\Apps is not Program Files, so per-user here).
     CHECK(batch.find("/VERYSILENT") != std::string::npos);
     CHECK(batch.find("/NORESTART") != std::string::npos);
-    CHECK(batch.find("/SUPPRESSMSGBOXES") != std::string::npos);
+    CHECK(batch.find("/SUPPRESSMSGBOXES /CURRENTUSER") != std::string::npos);
     CHECK(batch.find("start \"\" \"C:\\Apps\\MDBoss.exe\"") !=
           std::string::npos);
 
@@ -205,6 +213,35 @@ TEST_CASE("the handoff batch waits before it installs", "[updater]")
           std::string::npos);
 }
 
+TEST_CASE("a silent update keeps the scope it was installed with", "[updater]")
+{
+    // The installer defaults to per-machine and /VERYSILENT takes the
+    // default, so a per-user copy updating without /CURRENTUSER would elevate
+    // and plant a second install in Program Files instead of updating itself.
+    const std::string pf = env_or_empty("ProgramFiles");
+    REQUIRE_FALSE(pf.empty());   // always set on Windows, where this runs
+
+    const std::string inside = pf + "\\MD Boss Cpp\\MDBoss.exe";
+    CHECK(mdboss::install_scope_flag(inside) == "/ALLUSERS");
+
+    // Case-insensitive, like the file system.
+    std::string upper = inside;
+    for (char& ch : upper) {
+        ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+    }
+    CHECK(mdboss::install_scope_flag(upper) == "/ALLUSERS");
+
+    // A sibling folder sharing the prefix is not Program Files.
+    CHECK(mdboss::install_scope_flag(pf + "X\\MDBoss.exe") == "/CURRENTUSER");
+    CHECK(mdboss::install_scope_flag(
+              "C:\\Users\\b\\AppData\\Local\\Programs\\MD Boss Cpp\\"
+              "MDBoss.exe") == "/CURRENTUSER");
+
+    // And the batch carries the answer.
+    const std::string batch = mdboss::installer_batch("C:\\t\\s.exe", inside, 7);
+    CHECK(batch.find("/SUPPRESSMSGBOXES /ALLUSERS") != std::string::npos);
+}
+
 TEST_CASE("the batch gives up rather than waiting forever", "[updater]")
 {
     // A process that never exits must not leave a batch spinning for good.
@@ -212,6 +249,81 @@ TEST_CASE("the batch gives up rather than waiting forever", "[updater]")
         mdboss::installer_batch("C:\\s.exe", "C:\\a.exe", 7);
     CHECK(batch.find("GEQ 60") != std::string::npos);
     CHECK(batch.find("goto mdgo") != std::string::npos);
+}
+
+TEST_CASE("the portable batch extracts, checks, and only then copies",
+          "[updater]")
+{
+    const std::string zip = "C:\\Temp\\MDBoss-Cpp-Portable.zip";
+    const std::string staging = zip + ".new";
+    const std::string batch =
+        mdboss::portable_batch(zip, staging, "C:\\Apps\\MDBoss.exe", 4321);
+
+    // Same wait discipline as the installer batch: by pid, and before
+    // anything touches the install.
+    CHECK(batch.find("PID eq 4321") != std::string::npos);
+    CHECK(batch.find("PID eq 4321") < batch.find("tar.exe"));
+    CHECK(batch.find("GEQ 60") != std::string::npos);
+
+    // Absolute tar: the bsdtar Windows ships lives in System32, and Git for
+    // Windows puts a GNU tar on PATH that must not be picked up instead --
+    // the same shadowing that once broke find.exe in this very batch family.
+    CHECK(batch.find("\"%SystemRoot%\\System32\\tar.exe\" -xf \"" + zip +
+                     "\"") != std::string::npos);
+
+    // No copy unless the zip actually held MDBoss.exe, at the root or one
+    // folder down -- the layouts app.py's extract_portable accepts.
+    CHECK(batch.find("if exist \"" + staging + "\\MDBoss.exe\"") !=
+          std::string::npos);
+    CHECK(batch.find("if exist \"" + staging + "\\MDBoss\\MDBoss.exe\"") !=
+          std::string::npos);
+    CHECK(batch.find("goto mdrelaunch") != std::string::npos);
+    CHECK(batch.find("goto mdrelaunch") < batch.find("robocopy"));
+
+    // Copies OVER the install (a half-done robocopy leaves an app that still
+    // runs); never a delete-then-move.
+    CHECK(batch.find("/E /IS /IT /R:2 /W:2") != std::string::npos);
+    CHECK(batch.find("\"C:\\Apps\"") != std::string::npos);
+    CHECK(batch.find("move /y") == std::string::npos);
+    CHECK(batch.find("rd /s /q \"C:\\Apps\"") == std::string::npos);
+
+    // The relaunch label sits after the copy and before cleanup, so a junk
+    // zip still relaunches the intact old exe.
+    CHECK(batch.find(":mdrelaunch") < batch.find("start \"\" \"C:\\Apps\\"
+                                                 "MDBoss.exe\""));
+    CHECK(batch.find("rd /s /q \"" + staging + "\"") != std::string::npos);
+    CHECK(batch.find("del /q \"" + zip + "\"") != std::string::npos);
+    CHECK(batch.find("del /q \"%~f0\"") != std::string::npos);
+
+    // cmd.exe wants CRLF, and every line must have it.
+    for (std::size_t i = 0; i + 1 < batch.size(); ++i) {
+        if (batch[i] == '\n') {
+            INFO("bare LF at offset " << i);
+            REQUIRE(i > 0);
+            CHECK(batch[i - 1] == '\r');
+        }
+    }
+}
+
+TEST_CASE("a copy without an uninstaller beside it is portable", "[updater]")
+{
+    namespace fs = std::filesystem;
+    const fs::path base = fs::temp_directory_path() / "mdboss_portable_probe";
+    fs::remove_all(base);
+    REQUIRE(fs::create_directories(base / "installed"));
+    REQUIRE(fs::create_directories(base / "loose"));
+    std::ofstream(base / "installed" / "unins000.exe").put('x');
+    std::ofstream(base / "installed" / "MDBoss.exe").put('x');
+    std::ofstream(base / "loose" / "MDBoss.exe").put('x');
+
+    CHECK_FALSE(
+        mdboss::portable_install(mdboss::path_to_utf8(base / "installed")));
+    CHECK(mdboss::portable_install(mdboss::path_to_utf8(base / "loose")));
+    // A directory that cannot be listed counts as portable -- the same lean
+    // app.py's running_portable takes on an OSError.
+    CHECK(mdboss::portable_install(mdboss::path_to_utf8(base / "missing")));
+
+    fs::remove_all(base);
 }
 
 // Writes the real batch out so the wait can be exercised against a live

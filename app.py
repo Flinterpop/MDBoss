@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import ntpath
 import os
 import shutil
 import subprocess
@@ -393,16 +394,39 @@ _WAIT_FOR_EXIT = (
 )
 
 
+def _install_scope_flag(app_exe: str) -> str:
+    """Inno scope switch matching where this copy lives: /ALLUSERS under
+    Program Files, /CURRENTUSER anywhere else.
+
+    The installer asks per-user or per-machine and defaults to per-machine
+    (Program Files), and a /VERYSILENT run takes that default -- so without an
+    explicit switch a silent self-update of a per-user install would elevate
+    and plant a second copy in Program Files instead of updating this one.
+    Windows path semantics (ntpath) on purpose: the paths are Windows paths
+    even when the test suite runs elsewhere.
+    """
+    assert app_exe, "no exe path to classify"
+    exe = ntpath.normcase(app_exe)
+    for name in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
+        root = os.environ.get(name)
+        if root and exe.startswith(ntpath.normcase(root) + "\\"):
+            return "/ALLUSERS"
+    return "/CURRENTUSER"
+
+
 def _installer_batch(setup_path: str, app_exe: str) -> str:
     """Batch that installs an update and relaunches, run after we exit.
 
     Waits for every MDBoss.exe to exit (so the exe lock is released), installs
-    silently, relaunches, then cleans up.  Each line runs even if an earlier
-    one failed, so a failed install still relaunches the intact old exe.
+    silently -- pinned to the scope this copy is installed in -- relaunches,
+    then cleans up.  Each line runs even if an earlier one failed, so a failed
+    install still relaunches the intact old exe.
     """
+    scope = _install_scope_flag(app_exe)
     return (
         _WAIT_FOR_EXIT
-        + f'"{setup_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES\r\n'
+        + f'"{setup_path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES '
+        + scope + "\r\n"
         + f'start "" "{app_exe}"\r\n'
         + f'del /q "{setup_path}"\r\n'
         + 'del /q "%~f0"\r\n'
@@ -514,8 +538,10 @@ def md_counts_for_root(root_path: str) -> dict[str, int]:
 # --------------------------------------------------------------------------- #
 # Windows file associations.
 #
-# Registration is per-user (HKEY_CURRENT_USER), matching the per-user installer,
-# so no admin rights are needed.  Note what this can and cannot do: since
+# Registration is per-user (HKEY_CURRENT_USER) whatever the install scope, so
+# no admin rights are needed; the installer's [Run] entry uses
+# runasoriginaluser so an elevated per-machine install still writes the real
+# user's hive.  Note what this can and cannot do: since
 # Windows 8 the UserChoice key is hash-protected, so no application can make
 # itself the default handler.  These entries put MD Boss in the "Open with"
 # list and in Settings > Default apps; choosing it there is the user's step.
@@ -1106,8 +1132,7 @@ class MainWindow(QMainWindow):
         self._inbox_path: str | None = None
         # Recursive Markdown counts per folder, shown beside folder names.
         self._md_counts: dict[str, int] = {}
-        # Hide a leading YAML front-matter block in the preview (default on).
-        self._init_hide_yaml = bool(cfg.get("hide_front_matter", True))
+        self._init_pane_flags(cfg)
         # Bidirectional scroll-sync echo guards (one flag per direction).
         self._suppress_from_editor = False
         self._suppress_from_preview = False
@@ -1151,6 +1176,7 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self._build_panes()
+        self._apply_pane_toggles()
         self._start_ipc_server()
         self._restore_geometry(cfg)
         self._reload_tree()
@@ -1162,6 +1188,26 @@ class MainWindow(QMainWindow):
         if cfg.get("check_updates", True) and (
                 sys.platform.startswith("win") or running_appimage()):
             QTimer.singleShot(2000, self._start_update_check)
+
+    def _init_pane_flags(self, cfg: ConfigDict) -> None:
+        """Saved preview/pane toggle states, read before the UI is built."""
+        # Hide a leading YAML front-matter block in the preview (default on).
+        self._init_hide_yaml = bool(cfg.get("hide_front_matter", True))
+        # Which panes are visible (the Files | Outline | Edit toggles),
+        # remembered across runs.  Unprefixed keys are this app's; the port
+        # keeps its own pane state under wx_show_* because visibility there
+        # is tied to its own splitters.
+        self._init_show_tree = bool(cfg.get("show_files", True))
+        self._init_show_outline = bool(cfg.get("show_outline", True))
+        self._init_show_editor = bool(cfg.get("show_editor", True))
+
+    def _apply_pane_toggles(self) -> None:
+        """Re-apply the saved pane toggles once the actions and the panes both
+        exist -- and before the splitter states restore, so sizes saved with a
+        pane hidden are applied to the same arrangement."""
+        self._toggle_tree()
+        self._toggle_outline()
+        self._toggle_editor()
 
     # ---- UI construction ------------------------------------------------- #
     def _build_toolbar(self) -> None:
@@ -1194,15 +1240,15 @@ class MainWindow(QMainWindow):
         self._act_tree = add("Files", self._toggle_tree,
                              tip="Show or hide the file tree")
         self._act_tree.setCheckable(True)
-        self._act_tree.setChecked(True)
+        self._act_tree.setChecked(self._init_show_tree)
         self._act_outline = add("Outline", self._toggle_outline,
                                 tip="Show or hide the outline pane")
         self._act_outline.setCheckable(True)
-        self._act_outline.setChecked(True)
+        self._act_outline.setChecked(self._init_show_outline)
         self._act_editor = add("Edit", self._toggle_editor,
                                tip="Show or hide the source editor")
         self._act_editor.setCheckable(True)
-        self._act_editor.setChecked(True)
+        self._act_editor.setChecked(self._init_show_editor)
         self._act_yaml = add(
             "Hide YAML", self._toggle_yaml,
             tip="Hide a YAML front-matter block at the top of the file",
@@ -2775,6 +2821,9 @@ class MainWindow(QMainWindow):
             "split_main": _b64(self._main_split.saveState()),
             "split_left_v2": _b64(self._left.saveState()),
             "split_right": _b64(self._right.saveState()),
+            "show_files": self._act_tree.isChecked(),
+            "show_outline": self._act_outline.isChecked(),
+            "show_editor": self._act_editor.isChecked(),
         })
         event.accept()
 
@@ -2793,6 +2842,33 @@ def cli_path(argv: list[str]) -> str | None:
     return first if first and not first.startswith("-") else None
 
 
+def _grant_foreground_to_receiver() -> None:
+    """Let the instance we are forwarding to take the foreground.
+
+    Windows only lets a process take the foreground if it holds foreground
+    rights -- which the long-running instance does not, so its
+    ``activateWindow()`` alone is quietly reduced to a taskbar flash and the
+    double-clicked document opens *behind* whatever the user was doing.  THIS
+    process was just launched by that double-click, so it does hold the
+    rights; hand them over before forwarding the path.  ASFW_ANY because the
+    local socket does not expose the server's pid, and the grant lapses at
+    the next user input anyway.
+    """
+    if not sys.platform.startswith("win"):
+        return
+    asfw_any = ctypes.c_ulong(0xFFFFFFFF)          # ((DWORD)-1): any process
+    try:
+        granted = bool(
+            ctypes.windll.user32.AllowSetForegroundWindow(asfw_any)
+        )
+    except (AttributeError, OSError):
+        granted = False
+    if not granted:
+        # We had no rights to give (e.g. launched from a background script).
+        # The receiver's raise then degrades to the old taskbar flash.
+        return
+
+
 def forward_to_running(path: str | None) -> bool:
     """Hand ``path`` to an already-running MD Boss.  True when one took it.
 
@@ -2804,6 +2880,7 @@ def forward_to_running(path: str | None) -> bool:
     socket.connectToServer(IPC_SERVER_NAME)
     if not socket.waitForConnected(IPC_TIMEOUT_MS):
         return False
+    _grant_foreground_to_receiver()
     socket.write((path or "").encode("utf-8"))
     socket.flush()
     delivered = socket.waitForBytesWritten(IPC_TIMEOUT_MS)

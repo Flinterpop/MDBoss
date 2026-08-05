@@ -31,8 +31,13 @@ OutputDir=installer
 OutputBaseFilename=MDBoss-Cpp-Setup
 Compression=lzma2
 SolidCompression=yes
-; Per-user install so no admin rights are needed.
-PrivilegesRequired=lowest
+; Ask per-user or per-machine at install time; per-machine (Program Files) is
+; the recommended default, matching installer.iss.  A silent run takes the
+; per-machine default, so the in-app updater passes /CURRENTUSER or /ALLUSERS
+; to keep an update in the scope it is already installed in -- see
+; install_scope_flag in MDBossCpp\app\Updater.cpp.
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
 
 ; A single static exe -- no _internal folder, because nothing is interpreted --
@@ -61,15 +66,19 @@ Name: "associate"; Description: "&Register this build as the Markdown (.md) hand
 
 ; The registry layout lives in MDBossCpp\app\FileAssoc.cpp and is applied by
 ; the exe itself, so the installer and the in-app "File types…" command cannot
-; drift apart.  Per-user keys only.
+; drift apart.  The keys are per-user (HKCU) whatever the install scope, so
+; runasoriginaluser matters: an elevated per-machine install would otherwise
+; write the elevating admin's hive, not the user's.
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "--register-file-types"; \
     StatusMsg: "Registering Markdown file types..."; \
-    Flags: runhidden waituntilterminated; Tasks: associate
+    Flags: runhidden waituntilterminated runasoriginaluser; Tasks: associate
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; \
     Flags: nowait postinstall skipifsilent
 
 ; Runs before the exe is deleted, and is harmless when nothing was registered.
+; UninstallRun has no runasoriginaluser, so an elevated uninstall unregisters
+; the elevating account's hive -- correct for the usual one-admin-user case.
 [UninstallRun]
 Filename: "{app}\{#AppExe}"; Parameters: "--unregister-file-types"; \
     Flags: runhidden waituntilterminated; RunOnceId: "UnregisterFileTypes"

@@ -62,11 +62,17 @@ private:
     void on_help(wxCommandEvent& event);
     void on_about(wxCommandEvent& event);
     void on_check_updates(wxCommandEvent& event);
-    // Download this build's installer, then hand over to it and exit.  Split
-    // in two because the download is asynchronous: the second half runs from
-    // its completion callback.
-    void install_update(const ReleaseInfo& info);
+    // Download the right asset for this copy -- the installer, or the
+    // portable zip when no uninstaller sits beside the exe -- then hand over
+    // to a batch and exit.  Split in two because the download is
+    // asynchronous: the second half runs from its completion callback.
+    void install_update(const ReleaseInfo& info, bool portable);
     void hand_off_to_installer(const std::string& setup_path);
+    void hand_off_to_portable(const std::string& zip_path);
+    // Shared tail of both hand-offs: write the batch, spawn it hidden, and
+    // close the app so the batch's wait loop can finish.
+    void spawn_handoff_and_close(const std::string& batch_path,
+                                 const std::string& text);
     void on_toggle_favorite(wxCommandEvent& event);
     void on_export_favorites();
     void on_import_favorites();

@@ -7,11 +7,12 @@ Guidance for Claude Code working in this repository.
 **Two applications, one version, one release.** A Markdown manager/editor with
 an offline GitHub-style preview:
 
-- **`app.py` + `mdrender.py`** — Python/PySide6. This is the **shipping**
-  product, on Windows and Linux, and the **parity oracle**: where the two
-  disagree, Python is right and the port is wrong.
-- **`MDBossCpp/`** — a C++20/wxWidgets port, Windows only. At feature parity,
-  but younger and with fewer miles on it.
+- **`app.py` + `mdrender.py`** — Python/PySide6. The **reference
+  implementation and parity oracle**: where the two disagree, Python is right
+  and the port is wrong. It ships **only on Linux** (as the AppImage); its
+  Windows installer and portable zip are no longer released.
+- **`MDBossCpp/`** — a C++20/wxWidgets port, Windows only, and **the app that
+  ships on Windows** (installer + portable zip).
 
 Both read and write the **same** `%APPDATA%\MDBoss\config.json`. That imposes
 a hard rule: *never drop a key you do not understand.* Python stores window
@@ -22,7 +23,7 @@ port keeps its own layout under separate `wx_*` keys.
 The repo is **public**. Everything here is world-readable the moment it is
 pushed.
 
-## The three deliberate divergences
+## The four deliberate divergences
 
 Anything else that differs is a bug. These are not:
 
@@ -33,6 +34,12 @@ Anything else that differs is a bug. These are not:
    on disk (never discarding unsaved edits); Python rescans on F5 only, which
    its `_refresh_watcher()` comment says was a deliberate choice.
 3. **Update checks.** Python checks on launch; the port only when asked.
+4. **Portable-update extraction.** Python unpacks the update zip in-process
+   (`zipfile`) and validates it before closing; the port has no zip library,
+   so its handoff batch extracts with `%SystemRoot%\System32\tar.exe` and
+   gates the copy on finding `MDBoss.exe` in the result — same no-brick
+   guarantee, different place. See `portable_batch` in
+   `MDBossCpp/app/Updater.cpp`.
 
 ## Before you change anything
 
@@ -51,14 +58,18 @@ worth reading before working near what they guard:
 ## Releasing
 
 `.\release.ps1 <version>` — and **only** that. It owns the version in seven
-places, builds both Windows apps *and* the Linux AppImage (through WSL), runs
-both suites, commits, pushes and publishes. Bumping by hand misses a file.
+places, builds the C++ installer and portable zip *and* the Linux AppImage
+(through WSL), runs both suites, commits, pushes and publishes. Bumping by
+hand misses a file. The Windows Python assets (`MDBoss-Setup.exe`,
+`MDBoss-Portable-App.zip`) are **gone deliberately** and must not reappear:
+an old Python install seeing its asset name would silently "update" itself
+with whatever that asset holds.
 
 Two traps, both learned the hard way:
 
 - **Do not pipe it through `2>&1 |`.** PowerShell 5.1 wraps a native command's
-  stderr in ErrorRecords and `$ErrorActionPreference = "Stop"` turns
-  PyInstaller's first INFO line into a terminating error. Run it bare.
+  stderr in ErrorRecords and `$ErrorActionPreference = "Stop"` turns a
+  build tool's first stderr line into a terminating error. Run it bare.
 - **Test the update path against a real release**, by installing the previous
   build and letting it update itself. Unit tests pass while the handoff is
   broken; that is exactly how v1.1.2 shipped unable to update.

@@ -1,7 +1,14 @@
 <#
-Release MD Boss: bump the version everywhere it appears, build both Windows
-apps and the Linux AppImage, commit and push the bump, publish a GitHub
-release with every asset, then reinstall locally.
+Release MD Boss: bump the version everywhere it appears, build the C++ app's
+installer and portable zip plus the Linux AppImage, commit and push the bump,
+publish a GitHub release with every asset, then reinstall locally.
+
+The Windows release is the C++ port ONLY -- no MDBoss-Setup.exe and no
+MDBoss-Portable-App.zip any more.  The Python app remains the reference
+implementation and parity oracle (its tests still gate every release), and it
+still ships on Linux: the AppImage is built from it.  Windows users of the
+old Python build get no further updates; their updater finds no matching
+asset and falls back to opening the releases page.
 
 The AppImage is built through WSL from this same working tree.  It is part of
 the release rather than a manual step afterwards because the manual step got
@@ -9,11 +16,13 @@ missed once, and a release without it silently breaks self-update for anyone
 already running one.  -SkipAppImage opts out; there is no way to omit it by
 accident.
 
-The repo holds two apps at one version -- the shipping Python app and the C++
-port -- so the version lives in seven places: app.py, installer.iss,
-installer-cpp.iss, MDBossCpp/app/Version.h, MDBossCpp/CMakeLists.txt, and BOTH
-the string and numeric forms in MDBossCpp/app/MDBoss.rc.  This script owns all
-seven; bumping by hand is how they drift.
+The repo holds two apps at one version, so the version lives in seven places:
+app.py, installer.iss, installer-cpp.iss, MDBossCpp/app/Version.h,
+MDBossCpp/CMakeLists.txt, and BOTH the string and numeric forms in
+MDBossCpp/app/MDBoss.rc.  installer.iss is no longer built here, but it stays
+in the lockstep -- a file that drifts is a file that ships wrong the day it
+is resurrected.  This script owns all seven; bumping by hand is how they
+drift.
 
 Usage:
   .\release.ps1 0.1.0
@@ -29,8 +38,8 @@ test_version.cpp is what proves the bump reached every file -- before the
 bump it would only prove they agreed at the old number.
 
 Without -Notes/-NotesFile the GitHub notes are auto-generated from commits.
-Requires: python (with PyInstaller, pytest, ruff, mypy), CMake with a Visual
-Studio toolchain and vcpkg for the C++ port, Inno Setup 6, gh (authenticated),
+Requires: python (with pytest, ruff, mypy), CMake with a Visual Studio
+toolchain and vcpkg for the C++ port, Inno Setup 6, gh (authenticated),
 git. Windows PowerShell 5.1 compatible.
 #>
 param(
@@ -149,14 +158,6 @@ foreach ($bump in $bumps) {
 try { Stop-Process -Name MDBoss -Force -Confirm:$false -ErrorAction Stop
       Write-Host "==> Stopped running MD Boss" -ForegroundColor Cyan } catch {}
 
-Write-Host "==> Building exe (PyInstaller)" -ForegroundColor Cyan
-python -m PyInstaller MDBoss.spec --noconfirm
-CheckExit "PyInstaller"
-
-Write-Host "==> Building installer (ISCC)" -ForegroundColor Cyan
-& $iscc installer.iss
-CheckExit "ISCC"
-
 # --- C++ port ----------------------------------------------------------------
 # Built and tested AFTER the bump, deliberately: test_version.cpp compares the
 # version across every file that carries one, so running it here is what
@@ -178,19 +179,28 @@ Write-Host "==> Building C++ installer (ISCC)" -ForegroundColor Cyan
 & $iscc installer-cpp.iss
 CheckExit "ISCC (C++)"
 
-# One-dir build: the zip holds the whole MDBoss folder, and its root entry is
-# "MDBoss\" -- the updater looks for MDBoss.exe at either level.  The asset is
-# deliberately NOT called MDBoss-Portable.zip any more; see the comment on
-# UPDATE_PORTABLE_ASSET_NAME in app.py before renaming it back.
-Write-Host "==> Building portable zip" -ForegroundColor Cyan
-if (-not (Test-Path dist\MDBoss\MDBoss.exe)) { Fail "expected dist\MDBoss\MDBoss.exe (one-dir build)" }
-Compress-Archive -Force -Path dist\MDBoss -DestinationPath installer\MDBoss-Portable-App.zip
+# The portable zip mirrors installer-cpp.iss's [Files] exactly: the exe, the
+# render assets beside it, HELP.md and README.md, all under a "MDBoss\" root
+# folder -- portable_batch in Updater.cpp accepts the exe at the root or one
+# folder down, same as app.py did.  Staged fresh every time so a stale file
+# from an earlier layout cannot ride along.
+Write-Host "==> Building C++ portable zip" -ForegroundColor Cyan
+$stage = "installer\portable-stage"
+if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+$null = New-Item -ItemType Directory -Force "$stage\MDBoss"
+Copy-Item MDBossCpp\build\app\Release\MDBoss.exe "$stage\MDBoss\"
+Copy-Item -Recurse assets "$stage\MDBoss\assets"
+Copy-Item HELP.md, README.md "$stage\MDBoss\"
+Compress-Archive -Force -Path "$stage\MDBoss" `
+    -DestinationPath installer\MDBoss-Cpp-Portable.zip
+Remove-Item -Recurse -Force $stage
 
-# Every asset name is load-bearing: each app's in-app updater matches its own
-# exactly.  MDBoss-Cpp-Setup.exe is what Updater.h's kSetupAssetName looks for.
-$assets = @("installer\MDBoss-Setup.exe",
-            "installer\MDBoss-Portable-App.zip",
-            "installer\MDBoss-Cpp-Setup.exe")
+# Every asset name is load-bearing: the in-app updater matches its own assets
+# exactly (kSetupAssetName / kPortableAssetName in Updater.cpp), and the old
+# Python asset names must NOT reappear -- a Python install seeing its asset
+# name here would silently "update" itself with whatever it downloads.
+$assets = @("installer\MDBoss-Cpp-Setup.exe",
+            "installer\MDBoss-Cpp-Portable.zip")
 foreach ($asset in $assets) {
     if (-not (Test-Path $asset)) { Fail "expected artifact missing: $asset" }
 }
@@ -277,11 +287,19 @@ else             { $ghArgs += "--generate-notes" }
 CheckExit "gh release create"
 
 # --- Local reinstall ---------------------------------------------------------
+# The C++ app now.  A silent run keeps the scope of an existing install
+# (Inno's UsePreviousPrivileges); a first-ever install takes the per-machine
+# default, so expect one UAC prompt in that case.  The exe is looked up in
+# both scopes' folders rather than assumed.
 if (-not $SkipInstall) {
     Write-Host "==> Reinstalling locally and relaunching" -ForegroundColor Cyan
-    Start-Process (Join-Path $PSScriptRoot "installer\MDBoss-Setup.exe") `
+    Start-Process (Join-Path $PSScriptRoot "installer\MDBoss-Cpp-Setup.exe") `
         -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -Wait
-    Start-Process "$env:LOCALAPPDATA\Programs\MD Boss\MDBoss.exe"
+    $exe = @("$env:ProgramFiles\MD Boss Cpp\MDBoss.exe",
+             "$env:LOCALAPPDATA\Programs\MD Boss Cpp\MDBoss.exe") |
+        Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($exe) { Start-Process $exe }
+    else { Write-Host "    installed, but MDBoss.exe was not found to relaunch" -ForegroundColor Yellow }
 }
 
 Write-Host "==> Done: https://github.com/Flinterpop/MDBoss/releases/tag/v$Version" -ForegroundColor Green

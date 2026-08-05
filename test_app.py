@@ -274,13 +274,37 @@ def test_registration_plan_round_trips_in_the_registry(
 
 def test_installer_batch_installs_and_relaunches() -> None:
     batch = app._installer_batch(r"C:\t\MDBoss-Setup.exe", r"C:\a\MDBoss.exe")
-    assert "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" in batch
+    assert "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES /CURRENTUSER" in batch
     assert r'"C:\t\MDBoss-Setup.exe"' in batch       # runs the installer
     assert r'start "" "C:\a\MDBoss.exe"' in batch     # relaunches the app
     assert 'del /q "%~f0"' in batch                   # self-cleanup
     # Waits for every MDBoss.exe to exit before installing (not a fixed delay).
     assert '/FI "IMAGENAME eq MDBoss.exe"' in batch
     assert "goto mdwait" in batch
+
+
+def test_installer_batch_pins_the_install_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A silent update must stay in the scope it is installed in.
+
+    The installer defaults to per-machine, and /VERYSILENT takes the default --
+    so a per-user copy updating without /CURRENTUSER would elevate and plant a
+    second install in Program Files rather than update itself.
+    """
+    monkeypatch.setenv("ProgramFiles", r"C:\Program Files")
+    monkeypatch.setenv("ProgramW6432", r"C:\Program Files")
+    monkeypatch.setenv("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    inside = r"C:\Program Files\MD Boss\MDBoss.exe"
+    assert app._install_scope_flag(inside) == "/ALLUSERS"
+    assert app._install_scope_flag(inside.lower()) == "/ALLUSERS"  # case-blind
+    per_user = r"C:\Users\b\AppData\Local\Programs\MD Boss\MDBoss.exe"
+    assert app._install_scope_flag(per_user) == "/CURRENTUSER"
+    # A sibling folder sharing the prefix is not Program Files.
+    assert app._install_scope_flag(
+        r"C:\Program FilesX\MD Boss\MDBoss.exe") == "/CURRENTUSER"
+    batch = app._installer_batch(r"C:\t\MDBoss-Setup.exe", inside)
+    assert "/SUPPRESSMSGBOXES /ALLUSERS" in batch
 
 
 def test_portable_batch_copies_the_tree_over_the_install() -> None:

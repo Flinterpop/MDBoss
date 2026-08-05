@@ -19,8 +19,14 @@ OutputDir=installer
 OutputBaseFilename=MDBoss-Setup
 Compression=lzma2
 SolidCompression=yes
-; Per-user install so no admin rights are needed.
-PrivilegesRequired=lowest
+; Ask per-user or per-machine at install time; per-machine (Program Files) is
+; the recommended default.  {autopf} follows the answer: Program Files when
+; elevated, %LOCALAPPDATA%\Programs when not.  A silent run takes the
+; per-machine default, so the in-app updater passes /CURRENTUSER or /ALLUSERS
+; to keep an update in the scope it is already installed in -- see
+; _install_scope_flag in app.py.
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
 
 ; One-dir build: the exe plus its _internal folder.
@@ -44,16 +50,22 @@ Name: "associate"; Description: \
 
 ; The registry layout lives in app.py (registration_plan) and is applied by the
 ; exe itself, so the installer and the in-app "File types…" command cannot
-; drift apart.  Per-user keys only -- no admin rights, and see app.py on why
-; Windows still requires the user to pick the default themselves.
+; drift apart.  The keys are per-user (HKCU) whatever the install scope, so
+; runasoriginaluser matters: an elevated per-machine install would otherwise
+; run this as the elevating admin and write that account's hive, not the
+; user's.  See app.py on why Windows still requires the user to pick the
+; default themselves.
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "--register-file-types"; \
     StatusMsg: "Registering Markdown file types..."; \
-    Flags: runhidden waituntilterminated; Tasks: associate
+    Flags: runhidden waituntilterminated runasoriginaluser; Tasks: associate
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; \
     Flags: nowait postinstall skipifsilent
 
 ; Runs before the exe is deleted, and is harmless when nothing was registered.
+; UninstallRun has no runasoriginaluser, so an elevated uninstall unregisters
+; the elevating account's hive -- correct for the usual one-admin-user case,
+; and at worst it leaves another user's HKCU entries pointing at a gone exe.
 [UninstallRun]
 Filename: "{app}\{#AppExe}"; Parameters: "--unregister-file-types"; \
     Flags: runhidden waituntilterminated; RunOnceId: "UnregisterFileTypes"

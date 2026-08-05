@@ -1008,13 +1008,23 @@ void MainFrame::on_check_updates(wxCommandEvent&)
             return;
         }
 
-        // A release may carry the Python installer but not this build's, in
+        // A loose copy with no uninstaller beside it updates from the
+        // portable zip; an installed one from the installer.  Decided here,
+        // once, so the download and the hand-off cannot disagree.
+        const std::filesystem::path exe = path_from_utf8(std::string(
+            wxStandardPaths::Get().GetExecutablePath().ToUTF8()));
+        const bool portable = portable_install(
+            path_to_utf8(exe.parent_path()));
+
+        // A release may carry the Python assets but not this build's, in
         // which case there is nothing to download -- say so and offer the
         // page rather than failing silently.
-        if (info.setup_url.empty()) {
+        const std::string& url = portable ? info.portable_url
+                                          : info.setup_url;
+        if (url.empty()) {
             const int answer = wxMessageBox(
                 wxString("v") + wxString::FromUTF8(info.version_str) +
-                    " is available, but it has no installer for this build.\n\n"
+                    " is available, but it has no download for this copy.\n\n"
                     "Open the releases page?",
                 "MD Boss", wxYES_NO | wxICON_INFORMATION, this);
             if (answer == wxYES) {
@@ -1029,14 +1039,15 @@ void MainFrame::on_check_updates(wxCommandEvent&)
                 "MD Boss will close, install, and reopen.",
             "MD Boss", wxYES_NO | wxICON_QUESTION, this);
         if (answer == wxYES) {
-            install_update(info);
+            install_update(info, portable);
         }
     });
 }
 
-void MainFrame::install_update(const ReleaseInfo& info)
+void MainFrame::install_update(const ReleaseInfo& info, bool portable)
 {
-    assert(!info.setup_url.empty() && "nothing to download");
+    const std::string& url = portable ? info.portable_url : info.setup_url;
+    assert(!url.empty() && "nothing to download");
     // Asked before the download, not after: a user who cancels here has not
     // waited for several megabytes first.
     if (!confirm_discard()) {
@@ -1047,12 +1058,12 @@ void MainFrame::install_update(const ReleaseInfo& info)
         path_from_utf8(std::string(wxStandardPaths::Get()
                                        .GetTempDir()
                                        .ToUTF8())) /
-        path_from_utf8(kSetupAssetName);
+        path_from_utf8(portable ? kPortableAssetName : kSetupAssetName);
 
     SetStatusText(L"Downloading the update…");
     download_update(
-        info.setup_url, path_to_utf8(dest),
-        [this, dest](const std::string& error) {
+        url, path_to_utf8(dest),
+        [this, dest, portable](const std::string& error) {
             SetStatusText(wxString());
             if (!error.empty()) {
                 wxMessageBox("Could not download the update.\n\n" +
@@ -1060,16 +1071,39 @@ void MainFrame::install_update(const ReleaseInfo& info)
                              "MD Boss", wxOK | wxICON_WARNING, this);
                 return;
             }
-            hand_off_to_installer(path_to_utf8(dest));
+            if (portable) {
+                hand_off_to_portable(path_to_utf8(dest));
+            } else {
+                hand_off_to_installer(path_to_utf8(dest));
+            }
         });
 }
 
 void MainFrame::hand_off_to_installer(const std::string& setup_path)
 {
-    const std::string batch_path = setup_path + ".cmd";
     const std::string app_exe =
         std::string(wxStandardPaths::Get().GetExecutablePath().ToUTF8());
+    const std::string text = installer_batch(
+        setup_path, app_exe,
+        static_cast<unsigned long>(::GetCurrentProcessId()));
+    spawn_handoff_and_close(setup_path + ".cmd", text);
+}
 
+void MainFrame::hand_off_to_portable(const std::string& zip_path)
+{
+    const std::string app_exe =
+        std::string(wxStandardPaths::Get().GetExecutablePath().ToUTF8());
+    // Staging lands beside the zip, like app.py's `zip + ".new"`; the batch
+    // creates it, copies from it, and removes it.
+    const std::string text = portable_batch(
+        zip_path, zip_path + ".new", app_exe,
+        static_cast<unsigned long>(::GetCurrentProcessId()));
+    spawn_handoff_and_close(zip_path + ".cmd", text);
+}
+
+void MainFrame::spawn_handoff_and_close(const std::string& batch_path,
+                                        const std::string& text)
+{
     // Written as ASCII with CRLF: cmd.exe is the reader, and it is fussier
     // than anything else in this program about both.
     {
@@ -1080,9 +1114,6 @@ void MainFrame::hand_off_to_installer(const std::string& setup_path)
                          wxOK | wxICON_WARNING, this);
             return;
         }
-        const std::string text = installer_batch(
-            setup_path, app_exe,
-            static_cast<unsigned long>(::GetCurrentProcessId()));
         stream.write(text.data(), static_cast<std::streamsize>(text.size()));
         if (!stream.good()) {
             wxMessageBox("Could not prepare the update.", "MD Boss",
@@ -1113,7 +1144,7 @@ void MainFrame::hand_off_to_installer(const std::string& setup_path)
         CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
         nullptr, nullptr, &startup, &process);
     if (!started) {
-        wxMessageBox("Could not start the installer.", "MD Boss",
+        wxMessageBox("Could not start the update.", "MD Boss",
                      wxOK | wxICON_WARNING, this);
         return;
     }

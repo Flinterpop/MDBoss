@@ -55,23 +55,27 @@ and shares its conventions and release pipeline.
 - LaTeX math (`$…$`, `$$…$$`) via KaTeX; Pygments-highlighted code.
 
 **Distribution**
-- Windows per-user installer + portable zip, and a self-contained Linux
-  **AppImage**. **In-app auto-update** downloads and installs new releases in
-  place on both platforms (the AppImage replaces itself and relaunches).
+- Windows installer + portable zip (the C++ build), and a self-contained
+  Linux **AppImage**. **In-app auto-update** downloads and installs new
+  releases in place on both platforms (the AppImage replaces itself and
+  relaunches).
 - Remembers your roots, window layout, recent documents, favorites, and
   preferences.
 
 ## Install
 
-**Windows** — download **MDBoss-Setup.exe** (per-user installer) or
-**MDBoss-Portable-App.zip** from the
+**Windows** — download **MDBoss-Cpp-Setup.exe** or
+**MDBoss-Cpp-Portable.zip** from the
 [Releases](https://github.com/Flinterpop/MDBoss/releases/latest) page. The
-portable zip holds an `MDBoss` folder — extract it somewhere and run
-`MDBoss.exe` from inside it; the exe needs the `_internal` folder beside it.
+installer asks whether to install for all users (Program Files, the default)
+or just for you. The portable zip holds an `MDBoss` folder — extract it
+somewhere and run `MDBoss.exe` from inside it.
 
-> Upgrading a **portable** copy of v0.1.11 or earlier: download the new zip by
-> hand. Those versions expect a single-exe zip and cannot install a one-dir
-> build over themselves; the in-app updater will send you here instead.
+> **Running the old Python build?** Releases no longer carry
+> `MDBoss-Setup.exe` or `MDBoss-Portable-App.zip`, so it will not update
+> itself past v1.1.3 — install `MDBoss-Cpp-Setup.exe` from here instead, then
+> uninstall *MD Boss* (the Python one) if you no longer want it. Both read
+> the same settings file, so your roots, favorites and recents carry over.
 
 **Linux** — download **MDBoss-x86_64.AppImage** from the same page, then:
 
@@ -109,21 +113,16 @@ builds the AppImage.
 ```
 
 This bumps the version **everywhere it appears** — seven files across both
-apps, listed in the script — builds the app folder (PyInstaller, one-dir), the
-installer (Inno Setup 6), the portable zip, the C++ installer and the Linux
-AppImage, runs both test suites, commits and pushes, then publishes a GitHub
-release with all five assets. Requires `python` (with PyInstaller), CMake with
-a Visual Studio toolchain and vcpkg, Inno Setup 6, `gh` (authenticated), `git`,
-and WSL for the AppImage. Installed copies then pick up the new release via the
-in-app updater.
+apps, listed in the script — builds the C++ installer and portable zip (Inno
+Setup 6) and the Linux AppImage, runs both test suites, commits and pushes,
+then publishes a GitHub release with all four assets. Requires `python` (with
+pytest, ruff, mypy — the Python suite still gates the release), CMake with a
+Visual Studio toolchain and vcpkg, Inno Setup 6, `gh` (authenticated), `git`,
+and WSL for the AppImage. Installed copies then pick up the new release via
+the in-app updater.
 
 Bump the version by hand and you will miss a file; that is what the script and
 the lockstep test exist to prevent.
-
-The build is **one-dir**, not one-file: MD Boss can be the Windows handler for
-`.md`, and a one-file build unpacks ~230 MB into `%TEMP%` on every launch —
-about 3.8 s to a window, against 0.75 s for one-dir, measured on the dev
-machine. The cost is a larger install on disk (~600 MB unpacked).
 
 `./build-appimage.sh` produces `dist/MDBoss-x86_64.AppImage` and its companion
 `dist/MDBoss-x86_64.AppImage.zsync`. `release.ps1` runs it through WSL from the
@@ -136,21 +135,24 @@ shipping neither.
 ## The C++ port
 
 `MDBossCpp/` holds a C++ / wxWidgets port of the same application, Windows
-only. **The Python app above is the one that ships**, and it is the reference
-implementation: where the two disagree, Python is right and the port is wrong.
+only. **It is what ships on Windows.** The Python app above remains the
+reference implementation and still ships on Linux as the AppImage: where the
+two disagree, Python is right and the port is wrong.
 
-The port exists for toolchain consistency with the other C++ projects it sits
-beside, and for size — the installer is about 5 MB against roughly 157 MB of
-packaged Python, and it needs no VC++ redistributable. Start-up is not the
-reason: both embed Chromium to render, so both are dominated by that.
+The port took over the Windows release for toolchain consistency with the
+other C++ projects it sits beside, and for size — the installer is about 5 MB
+against roughly 157 MB of packaged Python, and it needs no VC++
+redistributable. Start-up is not the reason: both embed Chromium to render,
+so both are dominated by that.
 
 It reads and writes the **same** `%APPDATA%\MDBoss\config.json`, keeping its
 own window layout under separate `wx_*` keys, so you can run either against
 one profile without them fighting.
 
-It installs separately (as *MD Boss (C++)*) and updates itself the same way the
-Python build does — `Help → Check for updates` downloads its own installer,
-waits for the app to close, installs and reopens.
+It updates itself from `Help → Check for updates`: an installed copy
+downloads `MDBoss-Cpp-Setup.exe`, a portable copy (no uninstaller beside the
+exe) downloads `MDBoss-Cpp-Portable.zip` and swaps itself in place; either
+way it waits for the app to close, updates, and reopens.
 
 Three differences are deliberate rather than unfinished:
 
