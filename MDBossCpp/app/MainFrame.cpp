@@ -1279,7 +1279,8 @@ void MainFrame::update_title()
         name = wxString::FromUTF8(
             path_to_utf8(path_from_utf8(current_path_).filename()));
     }
-    SetTitle(wxString(dirty_ ? "*" : "") + name + " - MD Boss");
+    SetTitle(wxString(dirty_ ? "*" : "") + name + " - MD Boss - v" +
+             kAppVersion);
 }
 
 bool MainFrame::confirm_discard()
