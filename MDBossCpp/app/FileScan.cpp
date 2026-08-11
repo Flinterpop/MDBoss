@@ -4,7 +4,10 @@
 
 #include <algorithm>
 #include <cassert>
+#include <climits>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -199,6 +202,253 @@ std::string strip_utf8_bom(std::string text)
         text.erase(0, 3);
     }
     return text;
+}
+
+std::size_t first_invalid_utf8(std::string_view text)
+{
+    const std::size_t n = text.size();
+    std::size_t i = 0;
+    while (i < n) {   // bounded: i strictly advances every iteration
+        const unsigned char lead = static_cast<unsigned char>(text[i]);
+        if (lead == 0x00) {
+            return i;   // legal UTF-8, never legal document text
+        }
+        if (lead < 0x80) {
+            ++i;
+            continue;
+        }
+        // How many continuation bytes, and the allowed range of the first
+        // one -- the narrowed ranges reject overlong forms, UTF-16
+        // surrogates (via 0xED) and code points past U+10FFFF (via 0xF4).
+        std::size_t extra = 0;
+        unsigned char first_lo = 0x80;
+        unsigned char first_hi = 0xBF;
+        if (lead >= 0xC2 && lead <= 0xDF) {
+            extra = 1;
+        } else if (lead == 0xE0) {
+            extra = 2;
+            first_lo = 0xA0;
+        } else if (lead == 0xED) {
+            extra = 2;
+            first_hi = 0x9F;
+        } else if (lead >= 0xE1 && lead <= 0xEF) {
+            extra = 2;
+        } else if (lead == 0xF0) {
+            extra = 3;
+            first_lo = 0x90;
+        } else if (lead >= 0xF1 && lead <= 0xF3) {
+            extra = 3;
+        } else if (lead == 0xF4) {
+            extra = 3;
+            first_hi = 0x8F;
+        } else {
+            return i;   // 0x80..0xC1, 0xF5..0xFF are never lead bytes
+        }
+        if (n - i <= extra) {
+            return i;   // sequence truncated by end of text
+        }
+        for (std::size_t k = 1; k <= extra; ++k) {
+            const unsigned char c = static_cast<unsigned char>(text[i + k]);
+            const unsigned char lo = (k == 1) ? first_lo : 0x80;
+            const unsigned char hi = (k == 1) ? first_hi : 0xBF;
+            if (c < lo || c > hi) {
+                return i;
+            }
+        }
+        i += extra + 1;
+    }
+    return std::string_view::npos;
+}
+
+TextEncoding detect_text_encoding(const std::string& bytes)
+{
+    if (bytes.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(bytes[0]);
+        const unsigned char b1 = static_cast<unsigned char>(bytes[1]);
+        if (b0 == 0xFF && b1 == 0xFE) {
+            return TextEncoding::kUtf16LE;
+        }
+        if (b0 == 0xFE && b1 == 0xFF) {
+            return TextEncoding::kUtf16BE;
+        }
+    }
+    if (first_invalid_utf8(bytes) == std::string::npos) {
+        return TextEncoding::kUtf8;
+    }
+    // UTF-16 text that lost its BOM shows one NUL per ASCII character, all
+    // on the same side; scattered NULs mean corruption, not an encoding.
+    std::size_t odd_nul = 0;
+    std::size_t even_nul = 0;
+    for (std::size_t i = 0; i < bytes.size(); ++i) {
+        if (bytes[i] == '\0') {
+            (i % 2 != 0 ? odd_nul : even_nul) += 1;
+        }
+    }
+    const std::size_t half = bytes.size() / 2;
+    if (bytes.size() >= 4 && bytes.size() % 2 == 0) {
+        if (even_nul == 0 && odd_nul * 4 >= half * 3) {
+            return TextEncoding::kUtf16LE;
+        }
+        if (odd_nul == 0 && even_nul * 4 >= half * 3) {
+            return TextEncoding::kUtf16BE;
+        }
+    }
+    if (odd_nul + even_nul == 0) {
+        return TextEncoding::kCp1252;
+    }
+    return TextEncoding::kBinary;
+}
+
+std::string text_encoding_name(TextEncoding encoding)
+{
+    switch (encoding) {
+        case TextEncoding::kUtf8:    return "UTF-8";
+        case TextEncoding::kUtf16LE: return "UTF-16 (little-endian)";
+        case TextEncoding::kUtf16BE: return "UTF-16 (big-endian)";
+        case TextEncoding::kCp1252:  return "Windows-1252 (ANSI)";
+        case TextEncoding::kBinary:  return "binary";
+    }
+    assert(false && "unhandled encoding");
+    return "unknown";
+}
+
+namespace {
+
+// UTF-16 code units in native order, BOM dropped.  Same `ok` contract as
+// convert_to_utf8.
+std::wstring utf16_units(const std::string& bytes, bool big_endian, bool& ok)
+{
+    ok = false;
+    if (bytes.size() % 2 != 0) {
+        return {};
+    }
+    std::size_t start = 0;
+    if (bytes.size() >= 2) {
+        const unsigned char b0 = static_cast<unsigned char>(bytes[0]);
+        const unsigned char b1 = static_cast<unsigned char>(bytes[1]);
+        if ((!big_endian && b0 == 0xFF && b1 == 0xFE) ||
+            (big_endian && b0 == 0xFE && b1 == 0xFF)) {
+            start = 2;
+        }
+    }
+    std::wstring wide;
+    wide.reserve((bytes.size() - start) / 2);
+    for (std::size_t i = start; i + 1 < bytes.size(); i += 2) {
+        const unsigned a = static_cast<unsigned char>(bytes[i]);
+        const unsigned b = static_cast<unsigned char>(bytes[i + 1]);
+        wide.push_back(static_cast<wchar_t>(big_endian ? (a << 8) | b
+                                                       : (b << 8) | a));
+    }
+    ok = true;
+    return wide;
+}
+
+}  // namespace
+
+std::string convert_to_utf8(const std::string& bytes, TextEncoding encoding,
+                            bool& ok)
+{
+    ok = false;
+    if (bytes.size() > static_cast<std::size_t>(INT_MAX)) {
+        return {};   // Win32 conversion APIs take int lengths
+    }
+    if (encoding == TextEncoding::kUtf8) {
+        ok = true;
+        return strip_utf8_bom(bytes);
+    }
+    if (encoding == TextEncoding::kBinary) {
+        return {};
+    }
+
+    std::wstring wide;
+    if (encoding == TextEncoding::kCp1252) {
+        // The five bytes CP1252 leaves undefined fail the conversion
+        // instead of being guessed at.  Checked by hand because Windows
+        // maps them to C1 controls without raising MB_ERR_INVALID_CHARS.
+        for (const char c : bytes) {
+            const unsigned char b = static_cast<unsigned char>(c);
+            if (b == 0x81 || b == 0x8D || b == 0x8F || b == 0x90 ||
+                b == 0x9D) {
+                return {};
+            }
+        }
+        const int needed = ::MultiByteToWideChar(
+            1252, MB_ERR_INVALID_CHARS, bytes.data(),
+            static_cast<int>(bytes.size()), nullptr, 0);
+        if (needed <= 0) {
+            return {};
+        }
+        wide.resize(static_cast<std::size_t>(needed));
+        const int got = ::MultiByteToWideChar(
+            1252, MB_ERR_INVALID_CHARS, bytes.data(),
+            static_cast<int>(bytes.size()), wide.data(), needed);
+        if (got != needed) {
+            return {};
+        }
+    } else {
+        bool units_ok = false;
+        wide = utf16_units(bytes, encoding == TextEncoding::kUtf16BE,
+                           units_ok);
+        if (!units_ok) {
+            return {};
+        }
+    }
+
+    if (wide.empty()) {
+        ok = true;   // a BOM-only or empty file converts to an empty string
+        return {};
+    }
+    // WC_ERR_INVALID_CHARS: unpaired surrogates fail rather than becoming
+    // U+FFFD -- a wrong guess must be loud, not silently lossy.
+    const int len = ::WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
+        static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (len <= 0) {
+        return {};
+    }
+    std::string out(static_cast<std::size_t>(len), '\0');
+    const int written = ::WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
+        static_cast<int>(wide.size()), out.data(), len, nullptr, nullptr);
+    if (written != len) {
+        return {};
+    }
+    ok = true;
+    return out;
+}
+
+std::string write_text_file_checked(const std::string& path,
+                                    const std::string& text)
+{
+    assert(!path.empty() && "write_text_file_checked needs a path");
+    const std::size_t bad = first_invalid_utf8(text);
+    if (bad != std::string::npos) {
+        return "The text buffer is corrupt (not valid UTF-8 at byte " +
+               std::to_string(bad) + "); the file was not touched.";
+    }
+    {
+        std::ofstream stream(path_from_utf8(path),
+                             std::ios::binary | std::ios::trunc);
+        if (!stream) {
+            return "Could not open the file for writing.";
+        }
+        stream.write(text.data(), static_cast<std::streamsize>(text.size()));
+        stream.close();
+        if (!stream.good()) {
+            return "The write failed part-way; the file may be incomplete.";
+        }
+    }
+    std::ifstream back(path_from_utf8(path), std::ios::binary);
+    if (!back) {
+        return "The file could not be re-read to verify the save.";
+    }
+    std::ostringstream buffer;
+    buffer << back.rdbuf();
+    if (buffer.str() != text) {
+        return "Verification failed: the bytes on disk do not match the "
+               "saved text.";
+    }
+    return {};
 }
 
 std::string ensure_markdown_extension(const std::string& name)

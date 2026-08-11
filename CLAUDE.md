@@ -23,7 +23,7 @@ port keeps its own layout under separate `wx_*` keys.
 The repo is **public**. Everything here is world-readable the moment it is
 pushed.
 
-## The four deliberate divergences
+## The five deliberate divergences
 
 Anything else that differs is a bug. These are not:
 
@@ -40,6 +40,13 @@ Anything else that differs is a bug. These are not:
    gates the copy on finding `MDBoss.exe` in the result — same no-brick
    guarantee, different place. See `portable_batch` in
    `MDBossCpp/app/Updater.cpp`.
+5. **Non-UTF-8 files on open.** Python fails with a decode error; the port
+   detects UTF-16/CP1252 and offers to convert (binary garbage is refused
+   outright). Both exist because of the same shipped bug: v1.2.0's save
+   could write a buffer whose first 16 bytes the heap had reclaimed, and
+   the port's strict `FromUTF8` then loaded the damaged file as an *empty*
+   editor — one Ctrl+S from wiping it. Saves are now validated and
+   read back (`write_text_file_checked` in `FileScan.cpp`).
 
 ## Before you change anything
 

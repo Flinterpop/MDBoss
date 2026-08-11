@@ -466,17 +466,57 @@ bool MainFrame::open_path(const std::string& path)
         return false;
     }
     bool ok = false;
-    const std::string text = read_text_file(path, ok);
+    std::string text = read_text_file(path, ok);
     if (!ok) {
         wxMessageBox("Could not read:\n" + wxString::FromUTF8(path),
                      "MD Boss", wxOK | wxICON_ERROR, this);
         return false;
     }
 
+    // Divergence from the Python app, which fails a non-UTF-8 file with a
+    // decode error: the port offers to convert a recognisable legacy
+    // encoding.  What it must never do is what shipped in v1.2.0 -- strict
+    // FromUTF8 turning an undecodable file into an EMPTY editor, from which
+    // one Ctrl+S wiped the document.
+    bool needs_conversion = false;
+    if (first_invalid_utf8(text) != std::string::npos) {
+        const TextEncoding kind = detect_text_encoding(text);
+        bool converted = false;
+        std::string utf8;
+        if (kind != TextEncoding::kBinary) {
+            utf8 = convert_to_utf8(text, kind, converted);
+        }
+        if (!converted) {
+            wxMessageBox(
+                wxString::FromUTF8(
+                    "Not opened: the file is not valid UTF-8 (first bad "
+                    "byte at offset " +
+                    std::to_string(first_invalid_utf8(text)) +
+                    ") and no safe conversion exists.\n\n" + path),
+                "MD Boss", wxOK | wxICON_ERROR, this);
+            return false;
+        }
+        const int answer = wxMessageBox(
+            wxString::FromUTF8("This file is encoded as " +
+                               text_encoding_name(kind) +
+                               ", not UTF-8:\n\n" + path +
+                               "\n\nConvert it and open?  The file on disk "
+                               "stays untouched until you save; saving "
+                               "writes UTF-8."),
+            "MD Boss", wxYES_NO | wxICON_QUESTION, this);
+        if (answer != wxYES) {
+            return false;
+        }
+        text = utf8;
+        needs_conversion = true;
+    }
+
     editor_->SetText(wxString::FromUTF8(text));
     editor_->EmptyUndoBuffer();
     current_path_ = path;
-    dirty_ = false;
+    // A converted document differs from the bytes on disk until it is
+    // saved, and the dirty flag is what makes that visible.
+    dirty_ = needs_conversion;
     watcher_.watch(current_path_);
     // Any warning on show belonged to the document being replaced.
     SetStatusText(wxString());
@@ -525,18 +565,17 @@ void MainFrame::on_save(wxCommandEvent&)
 bool MainFrame::save_to(const std::string& path)
 {
     assert(!path.empty() && "save_to needs a path");
-    std::ofstream stream(path_from_utf8(path),
-                         std::ios::binary | std::ios::trunc);
-    if (!stream) {
-        wxMessageBox("Could not write:\n" + wxString::FromUTF8(path),
+    // utf8_string(): one owned deep copy, no scoped-buffer aliasing.  The
+    // checked write exists because v1.2.0 saved documents whose first 16
+    // bytes the heap had already reclaimed -- six files lost their heads to
+    // freed-block pointers.  Validating the buffer and reading the file back
+    // turns that silent corruption into a refused save.
+    const std::string text = editor_->GetText().utf8_string();
+    const std::string error = write_text_file_checked(path, text);
+    if (!error.empty()) {
+        wxMessageBox(wxString::FromUTF8(error) + "\n\n" +
+                         wxString::FromUTF8(path),
                      "MD Boss", wxOK | wxICON_ERROR, this);
-        return false;
-    }
-    const wxScopedCharBuffer text = editor_->GetText().ToUTF8();
-    stream.write(text.data(), static_cast<std::streamsize>(text.length()));
-    if (!stream.good()) {
-        wxMessageBox("Write failed:\n" + wxString::FromUTF8(path), "MD Boss",
-                     wxOK | wxICON_ERROR, this);
         return false;
     }
     return true;
@@ -738,6 +777,13 @@ void MainFrame::reload_from_disk()
         SetStatusText(L"Changed on disk, but could not be read just now.");
         return;
     }
+    if (first_invalid_utf8(text) != std::string::npos) {
+        // Whatever wrote the file damaged it; strict FromUTF8 would turn it
+        // into an empty buffer.  Keep the good text we already have.
+        SetStatusText(L"Changed on disk, but is no longer valid UTF-8 — "
+                      L"not reloaded.");
+        return;
+    }
 
     // Keep the reader where they were.  Both are clamped because the file may
     // have shrunk since, and Scintilla is happy to be told about a line that
@@ -790,7 +836,7 @@ void MainFrame::on_render_timer(wxTimerEvent&)
 void MainFrame::render_preview()
 {
     assert(preview_ != nullptr && "preview must exist before rendering");
-    const std::string markdown(editor_->GetText().ToUTF8());
+    const std::string markdown = editor_->GetText().utf8_string();
     const std::string base = current_path_.empty()
                                  ? std::string("file:///")
                                  : base_href_for(current_path_);

@@ -519,16 +519,16 @@ void FileTreePanel::new_document(const std::string& dir,
                      wxOK | wxICON_WARNING, this);
         return;
     }
-    std::ofstream stream(target, std::ios::binary);
-    if (!stream) {
-        wxMessageBox("Could not create the document.", "MD Boss",
-                     wxOK | wxICON_ERROR, this);
-        return;
-    }
     const std::string title =
         path_to_utf8(path_from_utf8(std::string(filename.ToUTF8())).stem());
-    stream << body_for_new_document(template_path, title, this);
-    stream.close();
+    const std::string error = write_text_file_checked(
+        path_to_utf8(target), body_for_new_document(template_path, title, this));
+    if (!error.empty()) {
+        wxMessageBox("Could not create the document:\n" +
+                         wxString::FromUTF8(error),
+                     "MD Boss", wxOK | wxICON_ERROR, this);
+        return;
+    }
 
     refresh();
     if (on_open_) {

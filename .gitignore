@@ -11,6 +11,8 @@ __pycache__/
 # PyInstaller / build outputs
 build/
 dist/
+# C++ ASan-instrumented build tree used to hunt the save-path use-after-free
+build-asan/
 # AppImage build artifacts (belong in dist/; ignore stray ones too)
 *.AppImage
 *.AppImage.zsync

@@ -5,6 +5,7 @@
 add_executable(mdrender_tests
     test_mdrender.cpp
     test_filescan.cpp
+    test_fileio.cpp
     test_fileassoc.cpp
     test_templates.cpp
     test_sources.cpp
