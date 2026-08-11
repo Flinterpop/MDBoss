@@ -4,73 +4,95 @@ Guidance for Claude Code working in this repository.
 
 ## What this repo is
 
-**Two applications, one version, one release.** A Markdown manager/editor with
-an offline GitHub-style preview:
+A Markdown manager/editor with an offline GitHub-style preview. Two
+implementations live here, but they are no longer peers:
 
-- **`app.py` + `mdrender.py`** — Python/PySide6. The **reference
-  implementation and parity oracle**: where the two disagree, Python is right
-  and the port is wrong. It ships **only on Linux** (as the AppImage); its
-  Windows installer and portable zip are no longer released.
-- **`MDBossCpp/`** — a C++20/wxWidgets port, Windows only, and **the app that
-  ships on Windows** (installer + portable zip).
+- **`MDBossCpp/`** — a C++20/wxWidgets app, Windows only. **This is the
+  reference implementation and the only thing that ships** (installer +
+  portable zip). When something is ambiguous, the C++ app defines the
+  behaviour.
+- **`app.py` + `mdrender.py`** — Python/PySide6. **Deprecated as of v1.2.2.**
+  Kept in-tree as a historical reference and parity record, but it is no
+  longer the oracle, is no longer built, gated, or shipped, and **Linux is no
+  longer a supported target** (the AppImage is gone). Do not treat a
+  difference from the Python app as a bug in the C++ app any more — if a
+  change is wanted, it is made in `MDBossCpp/` and the Python side is left
+  as-is. Touch `app.py`/`mdrender.py` only for an explicit request about the
+  legacy app.
 
-Both read and write the **same** `%APPDATA%\MDBoss\config.json`. That imposes
-a hard rule: *never drop a key you do not understand.* Python stores window
-layout as base64 Qt blobs that are meaningless to the port and unreconstructable
-if lost, so saving merges into what is on disk rather than rewriting it, and the
-port keeps its own layout under separate `wx_*` keys.
+Both still read and write the **same** `%APPDATA%\MDBoss\config.json`, so a
+user who ran the old Python app keeps their profile: *never drop a key you do
+not understand.* Python stored window layout as base64 Qt blobs that are
+meaningless to the port and unreconstructable if lost, so saving merges into
+what is on disk rather than rewriting it, and the port keeps its own layout
+under separate `wx_*` keys.
 
 The repo is **public**. Everything here is world-readable the moment it is
 pushed.
 
-## The five deliberate divergences
+## Where the C++ app deliberately differs from the legacy Python app
 
-Anything else that differs is a bug. These are not:
+These were the deliberate divergences from the Python app back when it was the
+oracle. They are recorded here because the golden corpus and a few tests still
+encode the old Python behaviour, so knowing which differences are intentional
+still matters when reading a failing test. They are **not** things to "fix" by
+making the C++ app match Python — the C++ app is the reference now.
 
-1. **Highlighting.** Python highlights server-side with Pygments; the port does
-   it in the browser with highlight.js. Fenced-block markup therefore differs,
-   and the golden corpus compares that one case as an opaque unit.
-2. **The document watcher.** The port reloads the open document when it changes
-   on disk (never discarding unsaved edits); Python rescans on F5 only, which
-   its `_refresh_watcher()` comment says was a deliberate choice.
-3. **Update checks.** Python checks on launch; the port only when asked.
-4. **Portable-update extraction.** Python unpacks the update zip in-process
-   (`zipfile`) and validates it before closing; the port has no zip library,
-   so its handoff batch extracts with `%SystemRoot%\System32\tar.exe` and
-   gates the copy on finding `MDBoss.exe` in the result — same no-brick
-   guarantee, different place. See `portable_batch` in
-   `MDBossCpp/app/Updater.cpp`.
-5. **Non-UTF-8 files on open.** Python fails with a decode error; the port
+1. **Highlighting.** Python highlighted server-side with Pygments; the C++ app
+   does it in the browser with highlight.js. Fenced-block markup therefore
+   differs, and the golden corpus compares that one case as an opaque unit.
+2. **The document watcher.** The C++ app reloads the open document when it
+   changes on disk (never discarding unsaved edits); Python rescanned on F5
+   only.
+3. **Update checks.** Python checked on launch; the C++ app only when asked.
+4. **Portable-update extraction.** Python unpacked the update zip in-process
+   (`zipfile`); the C++ app has no zip library, so its handoff batch extracts
+   with `%SystemRoot%\System32\tar.exe` and gates the copy on finding
+   `MDBoss.exe` in the result — same no-brick guarantee, different place. See
+   `portable_batch` in `MDBossCpp/app/Updater.cpp`.
+5. **Non-UTF-8 files on open.** Python failed with a decode error; the C++ app
    detects UTF-16/CP1252 and offers to convert (binary garbage is refused
-   outright). Both exist because of the same shipped bug: v1.2.0's save
-   could write a buffer whose first 16 bytes the heap had reclaimed, and
-   the port's strict `FromUTF8` then loaded the damaged file as an *empty*
-   editor — one Ctrl+S from wiping it. Saves are now validated and
-   read back (`write_text_file_checked` in `FileScan.cpp`).
+   outright). This shipped in v1.2.1 after a save bug: v1.2.0's save could
+   write a buffer whose first 16 bytes the heap had reclaimed, and the strict
+   `FromUTF8` load path then loaded the damaged file as an *empty* editor —
+   one Ctrl+S from wiping it. Saves are now validated and read back
+   (`write_text_file_checked` in `FileScan.cpp`).
 
 ## Before you change anything
 
-**Run both suites.** `python -m pytest -q` and `ctest --test-dir MDBossCpp/build
--C Release`. Several tests exist because a specific bug shipped, and they are
-worth reading before working near what they guard:
+**Run the C++ suite:** `ctest --test-dir MDBossCpp/build -C Release`. This is
+the gate now — the Python suite (`python -m pytest -q`) still works and can be
+run by hand against the legacy app, but it no longer gates a release. Several
+C++ tests exist because a specific bug shipped, and they are worth reading
+before working near what they guard:
 
 | Test | Exists because |
 |---|---|
 | `test_version.cpp` | a version bump reached 2 of 7 files and nothing noticed |
 | `test_sources.cpp` | a PowerShell rewrite double-encoded every dash in a file; also bans non-ASCII in **narrow** string literals, which wx renders as mojibake |
-| `test_updater.cpp` | the update handoff has failed silently three times across both apps |
-| `test_fileassoc.cpp` | the registry plan must match Python's exactly |
-| `test_app.py::test_send2trash_is_importable` | Send2Trash was declared but not installed, so Delete permanently destroyed files instead of using the Recycle Bin |
+| `test_updater.cpp` | the update handoff has failed silently three times |
+| `test_fileassoc.cpp` | the registry plan matched the Python app's exactly; that layout is now the C++ app's own spec |
+| `test_fileio.cpp` | a save wrote a partly-freed buffer and corrupted the first 16 bytes of six files; the validator + read-back guard against it |
+
+The golden corpus under `MDBossCpp/tests/golden/` was generated from the
+Python renderer (`make_golden.py`) back when it was the oracle. It is now a
+**frozen expectation** for the C++ renderer, not a live parity check — a
+deliberate rendering change means regenerating the affected golden file, not
+matching Python.
 
 ## Releasing
 
 `.\release.ps1 <version>` — and **only** that. It owns the version in seven
-places, builds the C++ installer and portable zip *and* the Linux AppImage
-(through WSL), runs both suites, commits, pushes and publishes. Bumping by
-hand misses a file. The Windows Python assets (`MDBoss-Setup.exe`,
-`MDBoss-Portable-App.zip`) are **gone deliberately** and must not reappear:
-an old Python install seeing its asset name would silently "update" itself
-with whatever that asset holds.
+places (still seven: the deprecated `app.py` and `installer.iss` stay in the
+lockstep so they never ship a wrong number if resurrected), builds the C++
+installer and portable zip, runs the C++ `ctest` suite, commits, pushes and
+publishes. Bumping by hand misses a file. Three asset names are **gone
+deliberately** and must not reappear — the Windows Python assets
+(`MDBoss-Setup.exe`, `MDBoss-Portable-App.zip`) and the Linux
+`MDBoss-x86_64.AppImage`: an old install seeing its own asset name would
+silently "update" itself with whatever that asset holds. There is no AppImage
+and no Linux build any more (deprecated with the Python app in v1.2.2); the
+Python suite no longer gates the release.
 
 Two traps, both learned the hard way:
 

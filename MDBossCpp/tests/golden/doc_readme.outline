@@ -1,6 +1,7 @@
 1	MD Boss	md-boss
 2	Features	features
 2	Install	install
-2	Run from source	run-from-source
+2	Build from source	build-from-source
 2	Build a release	build-a-release
+2	The Python app (deprecated)	the-python-app-deprecated
 2	License	license

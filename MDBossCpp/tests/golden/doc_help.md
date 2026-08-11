@@ -41,8 +41,6 @@ without them.
   missing files show in red. Right-click a file in the tree to add or remove
   it; right-click a favorite to open, remove, reveal, or copy its path; and use
   the **⋯** menu in the Favorites header to export, import, or clear the list.
-  Importing a favorites file exported on Windows remaps its drive-letter paths
-  (e.g. `J:\Dropbox\…`) onto your home folder when you're on Linux.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.
@@ -154,9 +152,8 @@ New files can start from a template:
 - Right-click a folder → **New file ▸** and pick **Blank** or a template; the
   file is created in that folder.
 
-Templates are plain `.md` files in `%APPDATA%\MDBoss\templates` on Windows
-(`~/.config/MDBoss/templates` on Linux); use **New file ▸ Manage templates…**
-to open the folder. A couple of starters are
+Templates are plain `.md` files in `%APPDATA%\MDBoss\templates`; use
+**New file ▸ Manage templates…** to open the folder. A couple of starters are
 created on first run. Templates may use these placeholders, filled in when the
 file is created:
 
@@ -178,19 +175,28 @@ file is created:
 
 ## Updates
 
-MD Boss checks its own GitHub releases page on launch (on Windows, and on
-Linux when run as the AppImage). When a newer version is available it offers to
-**download and install it now**: on Windows it fetches the installer, quits,
-installs silently, and restarts on the new version; the Linux AppImage
-downloads the new AppImage, replaces itself in place, and relaunches. You can
-also check any time from **Help → Check for updates**. Choose *No* to skip a
-version or *Cancel* to be reminded next launch. A source or virtualenv run
-can't self-update, so there the manual check just points you at the releases
-page.
+MD Boss checks for updates when you ask it to, from **Help → Check for
+updates**. When a newer version is available it offers to **download and
+install it now**: an installed copy fetches the installer, quits, installs
+silently, and restarts on the new version. Choose *No* to skip a version or
+*Cancel* to close without updating.
 
 A portable copy updates the same way, by copying the new build over its own
 folder. If that copy fails for any reason the old version is left intact and
 still runs, so a failed update never leaves you without a working app.
+
+It also **reloads a document you have open when it changes on disk**, as long
+as you have no unsaved edits. If you do have unsaved edits it keeps them and
+says so in the status bar; it never overwrites your work.
+
+## The old Python build
+
+Earlier versions of MD Boss were a Python app that also ran on Linux. That
+build is **no longer maintained or updated** — this Windows build (C++ /
+wxWidgets; **About** shows the version) is the one that ships. If you used the
+Python build, both read the same settings file, so your folders, favorites and
+recents carry over automatically. You can uninstall the old *MD Boss* once
+you have this one.
 
 ## Privacy
 

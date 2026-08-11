@@ -1,46 +1,40 @@
 <#
 Release MD Boss: bump the version everywhere it appears, build the C++ app's
-installer and portable zip plus the Linux AppImage, commit and push the bump,
-publish a GitHub release with every asset, then reinstall locally.
+installer and portable zip, commit and push the bump, publish a GitHub
+release with both assets, then reinstall locally.
 
-The Windows release is the C++ port ONLY -- no MDBoss-Setup.exe and no
-MDBoss-Portable-App.zip any more.  The Python app remains the reference
-implementation and parity oracle (its tests still gate every release), and it
-still ships on Linux: the AppImage is built from it.  Windows users of the
-old Python build get no further updates; their updater finds no matching
-asset and falls back to opening the releases page.
+The release is the C++ port on Windows ONLY.  The Python app (app.py +
+mdrender.py) is DEPRECATED as of v1.2.2: it is kept in-tree as a historical
+reference and is no longer the parity oracle, is no longer built, gated, or
+shipped, and Linux is no longer a supported target -- the AppImage is gone.
+Anyone still running the old Python build (Windows or the last AppImage) gets
+no further updates; their updater finds no matching asset and falls back to
+opening the releases page.  MDBoss-Setup.exe, MDBoss-Portable-App.zip and
+the AppImage must NEVER reappear as asset names: an old install seeing its
+asset name would silently "update" itself with whatever the asset holds.
 
-The AppImage is built through WSL from this same working tree.  It is part of
-the release rather than a manual step afterwards because the manual step got
-missed once, and a release without it silently breaks self-update for anyone
-already running one.  -SkipAppImage opts out; there is no way to omit it by
-accident.
-
-The repo holds two apps at one version, so the version lives in seven places:
+The version still lives in seven places and is bumped in lockstep:
 app.py, installer.iss, installer-cpp.iss, MDBossCpp/app/Version.h,
 MDBossCpp/CMakeLists.txt, and BOTH the string and numeric forms in
-MDBossCpp/app/MDBoss.rc.  installer.iss is no longer built here, but it stays
-in the lockstep -- a file that drifts is a file that ships wrong the day it
-is resurrected.  This script owns all seven; bumping by hand is how they
-drift.
+MDBossCpp/app/MDBoss.rc.  app.py and installer.iss are deprecated and no
+longer built here, but they stay in the lockstep -- a file that drifts is a
+file that ships wrong the day it is resurrected.  This script owns all seven;
+bumping by hand is how they drift.
 
 Usage:
   .\release.ps1 0.1.0
   .\release.ps1 0.1.0 -NotesFile notes.md      # release notes from a file
   .\release.ps1 0.1.0 -Notes "- fixed X"       # inline release notes
   .\release.ps1 0.1.0 -SkipInstall             # don't reinstall/relaunch here
-  .\release.ps1 0.1.0 -SkipAppImage            # Windows assets only (see below)
 
-Refuses to build unless pytest, ruff and mypy --strict all pass (see the
-quality gate below); that check runs before the version bump, so a failure
-leaves the tree untouched.  ctest runs AFTER the bump instead, because
-test_version.cpp is what proves the bump reached every file -- before the
-bump it would only prove they agreed at the old number.
+ctest runs AFTER the version bump, because test_version.cpp is what proves
+the bump reached every file -- before the bump it would only prove they
+agreed at the old number.  The Python suite (pytest/ruff/mypy) no longer
+gates the release: the C++ ctest suite is the gate now.
 
 Without -Notes/-NotesFile the GitHub notes are auto-generated from commits.
-Requires: python (with pytest, ruff, mypy), CMake with a Visual Studio
-toolchain and vcpkg for the C++ port, Inno Setup 6, gh (authenticated),
-git. Windows PowerShell 5.1 compatible.
+Requires: CMake with a Visual Studio toolchain and vcpkg for the C++ port,
+Inno Setup 6, gh (authenticated), git. Windows PowerShell 5.1 compatible.
 #>
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -49,10 +43,7 @@ param(
 
     [string]$Notes = "",
     [string]$NotesFile = "",
-    [switch]$SkipInstall,
-    # Publish Windows assets only.  Deliberately opt-OUT: forgetting the
-    # AppImage is silent, and refusing it has to be a decision someone made.
-    [switch]$SkipAppImage
+    [switch]$SkipInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,7 +60,7 @@ if (-not (Test-Path $iscc)) {
     $cmd = Get-Command iscc -ErrorAction SilentlyContinue
     if ($cmd) { $iscc = $cmd.Source } else { Fail "ISCC.exe not found (Inno Setup 6)" }
 }
-foreach ($tool in "python", "git", "gh") {
+foreach ($tool in "git", "gh") {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { Fail "$tool not on PATH" }
 }
 if ($NotesFile -and -not (Test-Path $NotesFile)) { Fail "notes file not found: $NotesFile" }
@@ -77,24 +68,11 @@ if ($NotesFile -and -not (Test-Path $NotesFile)) { Fail "notes file not found: $
 $dirty = git status --porcelain
 if ($dirty) { Fail "working tree not clean -- commit or stash first:`n$dirty" }
 
-# --- Quality gate ------------------------------------------------------------
-# Runs before the version bump, so a failure leaves the tree exactly as it was.
-# Configured in pyproject.toml; both tools are expected to pass clean, so any
-# output here is a real regression rather than pre-existing noise.
-# Do not pipe these through 2>&1: PowerShell 5.1 wraps a native command's
-# stderr in ErrorRecords, and $ErrorActionPreference = "Stop" then turns an
-# ordinary progress line into a terminating error.
-Write-Host "==> Tests" -ForegroundColor Cyan
-python -m pytest -q
-CheckExit "pytest"
-
-Write-Host "==> Lint (ruff)" -ForegroundColor Cyan
-python -m ruff check .
-CheckExit "ruff"
-
-Write-Host "==> Types (mypy --strict)" -ForegroundColor Cyan
-python -m mypy
-CheckExit "mypy"
+# The Python quality gate (pytest/ruff/mypy) used to run here.  It was removed
+# when the Python app was deprecated (v1.2.2): it is no longer the reference
+# implementation, no longer built, and no longer shipped, so its suite no
+# longer gates the C++ release.  ctest, run after the bump below, is the gate.
+# The Python code stays in-tree and can still be run and tested by hand.
 
 # --- Bump versions -----------------------------------------------------------
 # Seven places, not two.  The C++ port carries the same version number, and
@@ -197,66 +175,14 @@ Remove-Item -Recurse -Force $stage
 
 # Every asset name is load-bearing: the in-app updater matches its own assets
 # exactly (kSetupAssetName / kPortableAssetName in Updater.cpp), and the old
-# Python asset names must NOT reappear -- a Python install seeing its asset
-# name here would silently "update" itself with whatever it downloads.
+# Python / AppImage asset names must NOT reappear -- an old install seeing its
+# asset name here would silently "update" itself with whatever it downloads.
+# There is no Linux AppImage any more: Linux was dropped when the Python app
+# was deprecated (v1.2.2).  The last AppImage users get no further updates.
 $assets = @("installer\MDBoss-Cpp-Setup.exe",
             "installer\MDBoss-Cpp-Portable.zip")
 foreach ($asset in $assets) {
     if (-not (Test-Path $asset)) { Fail "expected artifact missing: $asset" }
-}
-
-# --- Linux AppImage ----------------------------------------------------------
-# Built here rather than by hand afterwards, because by hand is how v1.1.0
-# shipped without it: an existing AppImage then saw a newer version, accepted
-# the update, and was sent to a releases page carrying nothing it could use.
-# Nothing about that failure was loud.
-#
-# It is a Linux build driven from Windows through WSL, from this same working
-# tree, so it picks up the version bump above without a second checkout.
-$appImage = "dist\MDBoss-x86_64.AppImage"
-$appImageZsync = "$appImage.zsync"
-$wslOk = $false
-if (-not $SkipAppImage) {
-    $null = wsl.exe --list --quiet 2>$null
-    $wslOk = ($LASTEXITCODE -eq 0)
-    if (-not $wslOk) {
-        Fail ("WSL is not available, so the Linux AppImage cannot be built. " +
-              "Re-run with -SkipAppImage to publish Windows assets only -- " +
-              "but a release without the AppImage breaks self-update for " +
-              "everyone already running one.")
-    }
-}
-if ($wslOk) {
-    # build-appimage.sh resolves this with gh, which is not installed inside
-    # WSL; the Windows gh is, so it is resolved here and passed in.
-    Write-Host "==> Resolving python-build-standalone" -ForegroundColor Cyan
-    $pbsRelease = gh api repos/astral-sh/python-build-standalone/releases/latest | ConvertFrom-Json
-    $pbsUrl = $pbsRelease.assets |
-        Where-Object { $_.name -match 'cpython-3\.12\.\d+.*x86_64-unknown-linux-gnu-install_only\.tar\.gz$' -and
-                       $_.name -notmatch 'debug' } |
-        Select-Object -First 1 -ExpandProperty browser_download_url
-    if (-not $pbsUrl) { Fail "could not resolve a python-build-standalone build" }
-
-    # The DEFAULT distro, whatever it is called -- verified against Ubuntu.
-    # Not pinned by name because the name differs between machines, and a
-    # wrong pin fails the release outright rather than degrading.
-    Write-Host "==> Building Linux AppImage (WSL)" -ForegroundColor Cyan
-    wsl.exe -- bash -lc "cd /mnt/c/source/MDBoss && PBS_URL='$pbsUrl' ./build-appimage.sh"
-    CheckExit "build-appimage.sh"
-
-    foreach ($a in @($appImage, $appImageZsync)) {
-        if (-not (Test-Path $a)) { Fail "AppImage build produced no $a" }
-    }
-    # Both, always: the .zsync is what an installed AppImage reads to find the
-    # update.  Shipping the AppImage without it leaves self-update broken just
-    # as thoroughly as shipping neither.
-    $assets += $appImage
-    $assets += $appImageZsync
-} else {
-    Write-Host "==> SKIPPING the Linux AppImage (-SkipAppImage)" -ForegroundColor Yellow
-    Write-Host "    Anyone running an AppImage will be offered this release" `
-               -ForegroundColor Yellow
-    Write-Host "    and find nothing in it they can install." -ForegroundColor Yellow
 }
 
 # --- Commit + push -----------------------------------------------------------

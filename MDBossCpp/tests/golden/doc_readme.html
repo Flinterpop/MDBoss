@@ -3,30 +3,29 @@
 <a href="https://github.com/Flinterpop/MDBoss/releases/latest"><img src="https://img.shields.io/github/release-date/Flinterpop/MDBoss" alt="Release date" /></a>
 <a href="https://github.com/Flinterpop/MDBoss/releases"><img src="https://img.shields.io/github/downloads/Flinterpop/MDBoss/total" alt="Downloads" /></a>
 <a href="LICENSE"><img src="https://img.shields.io/github/license/Flinterpop/MDBoss" alt="License: MIT" /></a></p>
-<p>A local Markdown manager, editor, and GitHub-style viewer for Windows and Linux.</p>
+<p>A local Markdown manager, editor, and GitHub-style viewer for Windows.</p>
 <p>MD Boss browses Markdown files across up to <strong>five root folders</strong>, edits them
 in a source pane, and renders a <strong>live preview</strong> using the <strong>GitHub-light</strong>
 theme. Rendering is <strong>100% offline</strong> — mermaid, KaTeX, the GitHub stylesheet,
 and syntax highlighting are all bundled — and the preview web view is
 <strong>network-locked</strong> so document content can never reach the network.</p>
-<p>It is a PySide6 sibling of <a href="https://github.com/Flinterpop/PDF_Sherpa">PDF Sherpa</a>
-and shares its conventions and release pipeline.</p>
+<p>It ships as a native <strong>C++ / wxWidgets</strong> build. (A Python/PySide6 version of
+the same app lives in the repo but is <strong>deprecated</strong> — see
+<a href="#the-python-app-deprecated">The Python app (deprecated)</a> below.)</p>
 <h2 id="features">Features</h2>
 <p><strong>Browse &amp; manage</strong></p>
 <ul>
 <li>Up to five root folders in one combined file tree; each folder shows its
 recursive Markdown-file count, and folders holding no Markdown are hidden.
 Filter box, and full right-click file management (new from template, new
-folder, rename, delete (to the Recycle Bin / Trash), reveal in your file
-manager, copy path).</li>
+folder, rename, delete (to the Recycle Bin), reveal in File Explorer,
+copy path).</li>
 <li>Recent documents at the top of the left pane: the last six you opened,
 newest-first, maintained automatically.</li>
 <li>Favorites below Recent (both resizable): newest-first, up to ten, with a
-right-click menu and export / import / clear. Importing a favorites file
-exported on Windows remaps its drive-letter paths (e.g. <code>J:\Dropbox\…</code>) onto
-your home folder on Linux.</li>
-<li>New-file templates (<code>%APPDATA%\MDBoss\templates</code> on Windows,
-<code>~/.config/MDBoss/templates</code> on Linux; <code>{{title}}</code>/<code>{{date}}</code> placeholders).</li>
+right-click menu and export / import / clear.</li>
+<li>New-file templates (<code>%APPDATA%\MDBoss\templates</code>; <code>{{title}}</code>/<code>{{date}}</code>
+placeholders).</li>
 <li>Works as a plain Markdown viewer too: <strong>Ctrl+O</strong>, drag-and-drop, or a path on
 the command line opens any file on disk, root folder or not. A second launch
 hands its document to the running window instead of starting another copy.</li>
@@ -49,61 +48,71 @@ title bar.</li>
 <li>Mermaid diagrams, embedded images, raw HTML embeds (sanitized).</li>
 <li>GitHub alerts (<code>&gt; [!NOTE]</code> …) and MkDocs/Material admonitions
 (<code>!!!</code> / <code>???</code> / <code>???+</code>).</li>
-<li>LaTeX math (<code>$…$</code>, <code>$$…$$</code>) via KaTeX; Pygments-highlighted code.</li>
+<li>LaTeX math (<code>$…$</code>, <code>$$…$$</code>) via KaTeX; syntax-highlighted code
+(highlight.js).</li>
 </ul>
 <p><strong>Distribution</strong></p>
 <ul>
-<li>Windows per-user installer + portable zip, and a self-contained Linux
-<strong>AppImage</strong>. <strong>In-app auto-update</strong> downloads and installs new releases in
-place on both platforms (the AppImage replaces itself and relaunches).</li>
+<li>Windows installer + portable zip. <strong>In-app auto-update</strong> downloads and
+installs new releases in place.</li>
 <li>Remembers your roots, window layout, recent documents, favorites, and
 preferences.</li>
 </ul>
 <h2 id="install">Install</h2>
-<p><strong>Windows</strong> — download <strong>MDBoss-Setup.exe</strong> (per-user installer) or
-<strong>MDBoss-Portable-App.zip</strong> from the
+<p>Download <strong>MDBoss-Cpp-Setup.exe</strong> or <strong>MDBoss-Cpp-Portable.zip</strong> from the
 <a href="https://github.com/Flinterpop/MDBoss/releases/latest">Releases</a> page. The
-portable zip holds an <code>MDBoss</code> folder — extract it somewhere and run
-<code>MDBoss.exe</code> from inside it; the exe needs the <code>_internal</code> folder beside it.</p>
+installer asks whether to install for all users (Program Files, the default)
+or just for you. The portable zip holds an <code>MDBoss</code> folder — extract it
+somewhere and run <code>MDBoss.exe</code> from inside it.</p>
+<p>It updates itself from <code>Help → Check for updates</code>: an installed copy
+downloads <code>MDBoss-Cpp-Setup.exe</code>, a portable copy (no uninstaller beside the
+exe) downloads <code>MDBoss-Cpp-Portable.zip</code> and swaps itself in place; either
+way it waits for the app to close, updates, and reopens.</p>
 <blockquote>
-<p>Upgrading a <strong>portable</strong> copy of v0.1.11 or earlier: download the new zip by
-hand. Those versions expect a single-exe zip and cannot install a one-dir
-build over themselves; the in-app updater will send you here instead.</p>
+<p><strong>Running an old Python build (Windows or the Linux AppImage)?</strong> It is no
+longer maintained, and releases no longer carry <code>MDBoss-Setup.exe</code>,
+<code>MDBoss-Portable-App.zip</code> or <code>MDBoss-x86_64.AppImage</code>, so it will not
+update itself past v1.2.1 — install <code>MDBoss-Cpp-Setup.exe</code> from here
+instead, then uninstall <em>MD Boss</em> (the Python one) if you no longer want
+it. Both read the same settings file, so your roots, favorites and recents
+carry over. Linux is no longer supported.</p>
 </blockquote>
-<p><strong>Linux</strong> — download <strong>MDBoss-x86_64.AppImage</strong> from the same page, then:</p>
-<pre><code>chmod +x MDBoss-x86_64.AppImage
-./MDBoss-x86_64.AppImage
+<h2 id="build-from-source">Build from source</h2>
+<pre><code>cmake -S MDBossCpp -B MDBossCpp/build
+cmake --build MDBossCpp/build --config Release
+ctest --test-dir MDBossCpp/build -C Release
 </code></pre>
-<p>The AppImage is self-contained (bundled Python + Qt), so nothing else is
-needed. It runs the renderer with <code>QTWEBENGINE_DISABLE_SANDBOX=1</code> because an
-AppImage cannot ship the setuid chrome-sandbox helper.</p>
-<p>It <strong>updates itself</strong>: on launch it checks the GitHub releases and, when a
-newer version is available, offers to download it and replace the running
-AppImage in place, then relaunch. Update information is embedded and a
-companion <code>.zsync</code> is published, so external tools (AppImageUpdate,
-appimaged) can update it too.</p>
-<h2 id="run-from-source">Run from source</h2>
+<p>Needs vcpkg at <code>C:\vcpkg</code> (triplet <code>x64-windows-static</code>), installed <strong>without</strong>
+the <code>webview</code> feature — the preview is a WebView2 this app creates and owns,
+because <code>wxWebView</code>'s Edge backend never delivers <code>WebResourceRequested</code> and so
+cannot enforce the network lock. The installer is about 5 MB and needs no VC++
+redistributable.</p>
+<p>It reads and writes <code>%APPDATA%\MDBoss\config.json</code>, keeping its window layout
+under <code>wx_*</code> keys, so it shares one profile with the old Python app without
+the two fighting over settings.</p>
+<h2 id="build-a-release">Build a release</h2>
+<pre><code>.\release.ps1 &lt;version&gt;       # e.g. .\release.ps1 1.2.2
+</code></pre>
+<p>This bumps the version <strong>everywhere it appears</strong> (seven files, listed in the
+script), builds the installer and portable zip (Inno Setup 6), runs the
+<code>ctest</code> suite, commits and pushes, then publishes a GitHub release with both
+assets. Requires CMake with a Visual Studio toolchain and vcpkg, Inno Setup 6,
+<code>gh</code> (authenticated) and <code>git</code>. Installed copies then pick up the new release
+via the in-app updater.</p>
+<p>Bump the version by hand and you will miss a file; that is what the script and
+the lockstep test exist to prevent.</p>
+<h2 id="the-python-app-deprecated">The Python app (deprecated)</h2>
+<p><code>app.py</code> + <code>mdrender.py</code> are a Python/PySide6 build of the same application.
+It was the original implementation and the reference the C++ app was ported
+against; <strong>as of v1.2.2 it is deprecated.</strong> It is kept in the repo for
+reference only — it is no longer built, released, or supported, and the Linux
+AppImage that was built from it is discontinued. The C++ app in <code>MDBossCpp/</code>
+is now the reference implementation.</p>
+<p>You can still run it from source:</p>
 <pre><code>pip install -r requirements.txt
 python app.py
 </code></pre>
-<p>On Linux/macOS you can instead use <strong><code>./run.sh</code></strong>, which creates a local
-<code>.venv</code>, installs the requirements on first run, and launches the app;
-<strong><code>./install-linux.sh</code></strong> adds a menu entry, and <strong><code>./build-appimage.sh</code></strong>
-builds the AppImage.</p>
-<h2 id="build-a-release">Build a release</h2>
-<pre><code>.\release.ps1 &lt;version&gt;       # e.g. .\release.ps1 0.1.11
-</code></pre>
-<p>This bumps the version, builds the app folder (PyInstaller, one-dir), the
-installer (Inno Setup 6), and the portable zip, commits and pushes, then
-publishes a GitHub release with both assets. Requires <code>python</code> (with
-PyInstaller), Inno Setup 6, <code>gh</code> (authenticated), and <code>git</code>. Installed copies
-then pick up the new release via the in-app updater.</p>
-<p>The build is <strong>one-dir</strong>, not one-file: MD Boss can be the Windows handler for
-<code>.md</code>, and a one-file build unpacks ~230 MB into <code>%TEMP%</code> on every launch —
-about 3.8 s to a window, against 0.75 s for one-dir, measured on the dev
-machine. The cost is a larger install on disk (~600 MB unpacked).</p>
-<p>On Linux, <code>./build-appimage.sh</code> produces <code>dist/MDBoss-x86_64.AppImage</code> and its
-companion <code>dist/MDBoss-x86_64.AppImage.zsync</code>; upload both to the release
-alongside the Windows assets. Existing AppImages then self-update to it.</p>
+<p><code>CLAUDE.md</code> records the conventions and the traps that produced them, and
+which behaviours of the C++ app deliberately differ from this legacy one.</p>
 <h2 id="license">License</h2>
 <p>MIT — see <a href="LICENSE">LICENSE</a>.</p>
