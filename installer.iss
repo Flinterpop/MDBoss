@@ -5,7 +5,7 @@
 ; release.ps1 does the whole cycle -- see the README's build section.
 
 #define AppName "MD Boss"
-#define AppVersion "1.2.3"
+#define AppVersion "1.2.4"
 #define AppExe "MDBoss.exe"
 
 [Setup]
