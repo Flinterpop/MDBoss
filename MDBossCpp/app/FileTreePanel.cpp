@@ -59,6 +59,7 @@ constexpr int kIdFavorite = wxID_HIGHEST + 67;
 constexpr int kIdImportInbox = wxID_HIGHEST + 68;
 constexpr int kIdManageTemplates = wxID_HIGHEST + 69;
 constexpr int kIdManageFolders = wxID_HIGHEST + 70;
+constexpr int kIdFlatList = wxID_HIGHEST + 71;
 // Templates take ids from here up.  Bounded (Rule of 10) so a folder full of
 // templates cannot run the range into the next constant.
 constexpr int kIdTemplateBase = wxID_HIGHEST + 80;
@@ -117,6 +118,7 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
     filter_->Bind(wxEVT_TEXT, &FileTreePanel::on_filter, this);
     tree_->Bind(wxEVT_TREE_ITEM_EXPANDING, &FileTreePanel::on_expanding, this);
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, &FileTreePanel::on_activated, this);
+    tree_->Bind(wxEVT_LEFT_DOWN, &FileTreePanel::on_left_click, this);
     tree_->Bind(wxEVT_TREE_ITEM_MENU, &FileTreePanel::on_context_menu, this);
 }
 
@@ -200,7 +202,12 @@ void FileTreePanel::rebuild()
         tree_->SetItemData(item, new ItemData(root.path, false));
         tree_->SetItemBold(item, true);
 
-        if (needle.empty()) {
+        // A flat root, or any root while a filter is active, shows its
+        // Markdown files directly under it rather than as a folder tree --
+        // populate_filtered with an empty needle matches every file.  Useful
+        // for a deep folder structure that holds only a handful of documents.
+        const bool flat = is_flat_root_ && is_flat_root_(root.path);
+        if (needle.empty() && !flat) {
             // Lazily populated: a placeholder makes the expander appear.
             tree_->AppendItem(item, kLazyPlaceholder);
         } else {
@@ -282,6 +289,25 @@ void FileTreePanel::on_activated(wxTreeEvent& event)
     }
 }
 
+void FileTreePanel::on_left_click(wxMouseEvent& event)
+{
+    // A single click opens a file; Enter and double-click still route through
+    // on_activated.  Hit-test the click point rather than trusting the current
+    // selection -- the click may land on a row that is not selected yet, and
+    // that row is the one to open.  Keyboard navigation does NOT come through
+    // here, so arrowing down the tree only selects (and never fires the
+    // unsaved-edits prompt that opening would).
+    int flags = 0;
+    const wxTreeItemId item = tree_->HitTest(event.GetPosition(), flags);
+    if (item.IsOk()) {
+        auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+        if (data != nullptr && data->is_file() && on_open_) {
+            on_open_(data->path());
+        }
+    }
+    event.Skip();   // let the tree select and focus the row as usual
+}
+
 void FileTreePanel::on_filter(wxCommandEvent& event)
 {
     rebuild();
@@ -354,6 +380,13 @@ void FileTreePanel::restore_expanded(const wxTreeItemId& item,
     if (data == nullptr || data->is_file()) {
         return;
     }
+    // A flat root was already fully populated and expanded by rebuild(); its
+    // children are files, not lazily-loaded folders.  Re-populating it here
+    // with the normal populate() would replace the flat list with a folder
+    // tree -- which is exactly the bug this guard prevents.
+    if (is_flat_root_ && is_flat_root_(data->path())) {
+        return;
+    }
     const std::string key = norm_path(data->path());
     bool wanted = false;
     for (const std::string& path : paths) {
@@ -393,6 +426,20 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     const std::string dir =
         is_file ? path_to_utf8(path_from_utf8(path).parent_path()) : path;
 
+    // The flat-list toggle is offered only on a top-level root -- it is a
+    // property of the whole root, not of a subfolder within it.  Roots store
+    // the exact path string the toggle is keyed by, so an exact compare is
+    // enough (both come from the same config entry).
+    bool is_root = false;
+    if (!is_file) {
+        for (const Root& root : roots_) {
+            if (root.path == path) {
+                is_root = true;
+                break;
+            }
+        }
+    }
+
     wxMenu menu;
     if (is_file) {
         menu.Append(kIdOpen, "&Open");
@@ -428,6 +475,12 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         const bool favorite = is_favorite_ && is_favorite_(path);
         menu.Append(kIdFavorite,
                     favorite ? "Remove from fa&vorites" : "Add to fa&vorites");
+    }
+    if (is_root && on_toggle_flat_) {
+        menu.AppendSeparator();
+        wxMenuItem* flat = menu.AppendCheckItem(kIdFlatList,
+                                                "Show as flat &list");
+        flat->Check(is_flat_root_ && is_flat_root_(path));
     }
     if (on_import_to_inbox_ || on_manage_folders_) {
         menu.AppendSeparator();
@@ -491,6 +544,12 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             on_toggle_favorite_(path);
         }
     }, kIdFavorite);
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_toggle_flat_) {
+            on_toggle_flat_(path);   // flips and persists
+        }
+        rebuild();                   // redraw this root in its new shape
+    }, kIdFlatList);
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         if (on_import_to_inbox_) {
             on_import_to_inbox_();

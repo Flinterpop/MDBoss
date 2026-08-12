@@ -318,6 +318,12 @@ void MainFrame::build_panes()
             refresh_lists();
         },
         [this](const std::string& path) { return config_.is_favorite(path); });
+    files_->set_flat_hooks(
+        [this](const std::string& path) { return config_.is_flat_root(path); },
+        [this](const std::string& path) {
+            config_.set_flat_root(path, !config_.is_flat_root(path));
+            config_.save();
+        });
 
     outline_split_ = new wxSplitterWindow(files_split_, wxID_ANY,
                                           wxDefaultPosition, wxDefaultSize,

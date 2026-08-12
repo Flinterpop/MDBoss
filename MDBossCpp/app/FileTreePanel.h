@@ -1,8 +1,8 @@
 // The files pane: a filter box over a tree of the configured root folders.
 //
-// Behaviour mirrors the Python app: folders show a recursive Markdown count,
-// folders with none anywhere beneath them are omitted, children are loaded
-// lazily on expand, and activating a file opens it.
+// Folders show a recursive Markdown count, folders with none anywhere beneath
+// them are omitted, children are loaded lazily on expand, and a single click
+// on a file opens it (Enter and double-click open it too).
 
 #ifndef MDBOSS_APP_FILE_TREE_PANEL_H
 #define MDBOSS_APP_FILE_TREE_PANEL_H
@@ -45,6 +45,16 @@ public:
         is_favorite_ = std::move(query);
     }
 
+    // Whether a top-level root is shown as a flat list, and toggling it.  The
+    // tree only shows the menu item and reflects the state; the app owns where
+    // it is stored.  `toggle` should flip and persist; the tree rebuilds after.
+    void set_flat_hooks(std::function<bool(const std::string&)> query,
+                        std::function<void(const std::string&)> toggle)
+    {
+        is_flat_root_ = std::move(query);
+        on_toggle_flat_ = std::move(toggle);
+    }
+
     // "Import files into MD_Inbox…", which the tree offers wherever the menu
     // is raised -- including empty space, as the Python app does, because the
     // command is about the roots as a whole and not the row under the cursor.
@@ -71,6 +81,7 @@ private:
     void populate(const wxTreeItemId& item, const std::string& path);
     void on_expanding(wxTreeEvent& event);
     void on_activated(wxTreeEvent& event);
+    void on_left_click(wxMouseEvent& event);
     void on_filter(wxCommandEvent& event);
     void rebuild();
     // Filtered view: a flat list of matching files per root, because a
@@ -108,6 +119,8 @@ private:
     std::function<void(const std::string&)> on_open_;
     std::function<void(const std::string&)> on_toggle_favorite_;
     std::function<bool(const std::string&)> is_favorite_;
+    std::function<bool(const std::string&)> is_flat_root_;
+    std::function<void(const std::string&)> on_toggle_flat_;
     std::function<void()> on_import_to_inbox_;
     std::function<void()> on_manage_templates_;
     std::function<void()> on_manage_folders_;

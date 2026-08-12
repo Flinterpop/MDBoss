@@ -118,6 +118,9 @@ void Config::load()
 
     favorites_ = string_array(document, "favorites", kMaxFavorites);
     recents_ = string_array(document, "recents", kMaxRecents);
+    // One entry per root at most; the cap is a generous upper bound on how
+    // many roots the folders dialog will let a user add.
+    flat_roots_ = string_array(document, "wx_flat_roots", 256);
 
     if (document.contains("hide_front_matter") &&
         document["hide_front_matter"].is_boolean()) {
@@ -188,6 +191,7 @@ bool Config::save() const
     document["wx_show_editor"] = show_editor_;
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
+    document["wx_flat_roots"] = flat_roots_;
 
     const std::filesystem::path file(path());
     std::error_code ec;
@@ -243,6 +247,32 @@ void Config::remove_favorite(const std::string& path)
             favorites_.erase(it);
             return;
         }
+    }
+}
+
+bool Config::is_flat_root(const std::string& path) const
+{
+    for (const std::string& flat : flat_roots_) {
+        if (flat == path) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Config::set_flat_root(const std::string& path, bool flat)
+{
+    assert(!path.empty() && "a flat root needs a path");
+    for (auto it = flat_roots_.begin(); it != flat_roots_.end(); ++it) {
+        if (*it == path) {
+            if (!flat) {
+                flat_roots_.erase(it);
+            }
+            return;   // already present: nothing to add, only maybe remove
+        }
+    }
+    if (flat) {
+        flat_roots_.push_back(path);
     }
 }
 

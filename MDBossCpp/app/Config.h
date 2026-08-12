@@ -55,6 +55,12 @@ public:
     const std::vector<std::string>& recents() const { return recents_; }
     bool hide_front_matter() const { return hide_front_matter_; }
 
+    // Whether a top-level root is shown as a flat list of its Markdown files
+    // rather than a folder tree.  Kept under a port-only `wx_flat_roots` key,
+    // keyed by the root's own path string (the same one stored in `roots`).
+    bool is_flat_root(const std::string& path) const;
+    void set_flat_root(const std::string& path, bool flat);
+
     void set_roots(std::vector<Root> roots) { roots_ = std::move(roots); }
     void set_favorites(std::vector<std::string> f) { favorites_ = std::move(f); }
     void set_hide_front_matter(bool hide) { hide_front_matter_ = hide; }
@@ -97,6 +103,7 @@ private:
     std::vector<Root> roots_;
     std::vector<std::string> favorites_;
     std::vector<std::string> recents_;
+    std::vector<std::string> flat_roots_;
     bool hide_front_matter_ = false;
     int window_width_ = 1280;
     int window_height_ = 820;
