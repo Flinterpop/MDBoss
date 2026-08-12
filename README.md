@@ -22,9 +22,13 @@ the same app lives in the repo but is **deprecated** — see
 **Browse & manage**
 - Up to five root folders in one combined file tree; each folder shows its
   recursive Markdown-file count, and folders holding no Markdown are hidden.
-  Filter box, and full right-click file management (new from template, new
-  folder, rename, delete (to the Recycle Bin), reveal in File Explorer,
-  copy path).
+  **A single click opens a file.** Filter box, and full right-click file
+  management (new from template, new folder, rename, delete (to the Recycle
+  Bin), reveal in File Explorer, copy path).
+- **Flat-list view:** right-click a top-level folder and choose **Show as
+  flat list** to see all of its Markdown files in one list instead of a
+  folder tree — handy for a deep structure holding only a few documents. The
+  choice is remembered per folder.
 - Recent documents at the top of the left pane: the last six you opened,
   newest-first, maintained automatically.
 - Favorites below Recent (both resizable): newest-first, up to ten, with a
@@ -44,8 +48,8 @@ the same app lives in the repo but is **deprecated** — see
 - Source editor with line numbers beside a live GitHub-rendered preview,
   synced scrolling in both directions, and a document outline that jumps the
   preview to a heading.
-- Optional hiding of a leading YAML front-matter block; full file path in the
-  title bar.
+- Optional hiding of a leading YAML front-matter block; the document name and
+  app version show in the title bar.
 
 **Rendering** (all offline)
 - Mermaid diagrams, embedded images, raw HTML embeds (sanitized).

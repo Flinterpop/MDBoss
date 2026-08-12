@@ -9,8 +9,8 @@ images — all **100% offline**.
 
 1. Click **Manage folders…** and add one to five root folders. Each root
    appears as a top-level node in the file tree.
-2. Click a `.md` file to open it. The source appears on the left, the rendered
-   preview on the right.
+2. Single-click a `.md` file to open it. The source appears on the left, the
+   rendered preview on the right.
 3. Type in the editor — the preview updates automatically as you pause.
 4. Press **Ctrl+S** to save.
 
@@ -25,10 +25,13 @@ without them.
 - **Left pane** — **Recent** and **Favorites** sit at the top (see below), above
   the **Files** list: your roots as a combined tree, where each folder shows the
   number of Markdown files within it (counted recursively). Folders with no
-  Markdown files anywhere inside them are not listed. Filter with the box above
-  the tree. Right-click a file for New file/folder, Rename, Delete (to the
-  Recycle Bin / Trash), Reveal in Explorer / Show in file manager, Copy path,
-  and Favorite.
+  Markdown files anywhere inside them are not listed. A **single click** on a
+  file opens it. Filter with the box above the tree. Right-click a file for
+  New file/folder, Rename, Delete (to the Recycle Bin), Reveal in Explorer,
+  Copy path, and Favorite. Right-click a **top-level folder** and choose
+  **Show as flat list** to list all of its Markdown files at once instead of a
+  tree — useful for a deep folder structure with only a few documents; the
+  choice is remembered per folder.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
 - **Recent** (top of the left pane) — the last six documents you opened, newest
