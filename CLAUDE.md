@@ -18,7 +18,14 @@ implementations live here, but they are no longer peers:
   difference from the Python app as a bug in the C++ app any more — if a
   change is wanted, it is made in `MDBossCpp/` and the Python side is left
   as-is. Touch `app.py`/`mdrender.py` only for an explicit request about the
-  legacy app.
+  legacy app. Its packaging is **guarded off**, not just unused: `MDBoss.spec`
+  exits unless `MDBOSS_BUILD_DEPRECATED_PYTHON` is set, and `installer.iss` /
+  `build-appimage.sh` refuse without `/DAllowDeprecatedPythonBuild` /
+  `MDBOSS_BUILD_DEPRECATED_PYTHON`. The guards exist because `MDBoss-Setup.exe`,
+  `MDBoss-Portable-App.zip` and the AppImage are the asset names old installs
+  poll for — regenerating one by accident and publishing it would silently
+  "update" those installs back onto the dead app. Use the overrides only for
+  local archaeology; never publish what they produce.
 
 Both still read and write the **same** `%APPDATA%\MDBoss\config.json`, so a
 user who ran the old Python app keeps their profile: *never drop a key you do

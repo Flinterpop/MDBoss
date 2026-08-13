@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 #
+# DEPRECATED -- Linux stopped being a supported target in v1.2.2 along with the
+# Python app; MDBossCpp/ (Windows) is the only thing that ships.  Kept as
+# historical reference.  Not guarded off, because it only writes a per-user
+# menu entry on the machine it runs on -- it cannot produce a publishable
+# artifact -- but it points at a Python app that no longer receives updates.
+#
 # Add MDBoss to your Linux application menu (a per-user .desktop entry that
 # runs ./run.sh).  No root needed.  Re-run any time to refresh it.
 #

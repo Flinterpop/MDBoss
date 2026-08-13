@@ -1,8 +1,22 @@
+; DEPRECATED — this packages the Python app (deprecated v1.2.2). It is kept as
+; historical reference and refuses to compile without /DAllowDeprecatedPythonBuild.
+; release.ps1 still rewrites AppVersion below to hold the lockstep, but never
+; compiles this file; it builds installer-cpp.iss (the C++ app) instead.
+;
+; MDBoss-Setup.exe must NEVER be published again. An old Python install polls
+; the releases page for exactly that asset name, so republishing it would make
+; those installs silently "update" themselves back onto the dead app.
+;
 ; Inno Setup script for MD Boss
-; Build with:  iscc installer.iss   (produces installer\MDBoss-Setup.exe)
+; Build with:  iscc /DAllowDeprecatedPythonBuild installer.iss
+;              (produces installer\MDBoss-Setup.exe — local use only, never publish)
 ; Requires the app to be built first:  python -m PyInstaller MDBoss.spec
 ; Releases also ship installer\MDBoss-Portable-App.zip (the dist\MDBoss folder);
 ; release.ps1 does the whole cycle -- see the README's build section.
+
+#ifndef AllowDeprecatedPythonBuild
+  #error This packages the DEPRECATED Python app and its output must never be published (see the header). Build installer-cpp.iss instead, or pass /DAllowDeprecatedPythonBuild for a local, unpublished build.
+#endif
 
 #define AppName "MD Boss"
 #define AppVersion "1.2.4"

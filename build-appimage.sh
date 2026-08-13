@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 #
+# DEPRECATED -- builds the Python app for Linux.  The Python app was deprecated
+# in v1.2.2 and Linux is no longer a supported target; the C++ Windows app in
+# MDBossCpp/ is the only thing that ships.  Kept as historical reference and
+# guarded off below.  Its output must never be published: the AppImage asset
+# name is what old installs poll for via the .zsync manifest.
+#
+# To run it anyway (historical rebuild only, never publish):
+#     MDBOSS_BUILD_DEPRECATED_PYTHON=1 ./build-appimage.sh
+#
+if [ -z "${MDBOSS_BUILD_DEPRECATED_PYTHON:-}" ]; then
+    echo "build-appimage.sh is DEPRECATED and did not run." >&2
+    echo "The Python app was deprecated in v1.2.2 and Linux is no longer supported;" >&2
+    echo "MDBossCpp (Windows) is what ships. Release with: .\\release.ps1 <version>" >&2
+    echo "To build the dead AppImage locally anyway (never publish it):" >&2
+    echo "  MDBOSS_BUILD_DEPRECATED_PYTHON=1 ./build-appimage.sh" >&2
+    exit 1
+fi
+
 # Build a self-contained Linux AppImage of MD Boss (x86_64).
 #
 # The AppImage bundles a relocatable CPython (python-build-standalone), the
