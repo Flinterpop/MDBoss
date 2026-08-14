@@ -1,4 +1,4 @@
-﻿find_package(Catch2 CONFIG REQUIRED)
+find_package(Catch2 CONFIG REQUIRED)
 
 # FileScan is deliberately wx-free so it can be compiled straight into the
 # test binary; everything else in app/ needs a GUI toolkit.

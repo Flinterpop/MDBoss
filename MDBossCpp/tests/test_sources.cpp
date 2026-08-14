@@ -2,7 +2,7 @@
 //
 // A narrow string literal containing a non-ASCII character is handed to
 // wxString as raw bytes and decoded in the current ANSI code page, so
-// "Filter files…" renders as "Filter filesâ€¦".  The /utf-8 compiler switch
+// "Filter files…" renders as "Filter filesâ€¦".  The /utf-8 compiler switch  (mojibake-ok: this is the example)
 // does not help: it governs how the compiler reads the file, not how wx reads
 // the bytes.  Wide literals (L"…") are unambiguous.
 //
@@ -104,7 +104,7 @@ std::size_t first_invalid_utf8(const std::string& text)
 // PowerShell 5.1 does exactly this: Get-Content reads UTF-8 as the ANSI code
 // page and Set-Content -Encoding utf8 writes the result back, so every
 // typographic character in the file gains a layer.  "…" (E2 80 A6) becomes
-// "â€¦", and "·" (C2 B7) becomes "Â·".
+// "â€¦", and "·" (C2 B7) becomes "Â·".  (mojibake-ok: this is the example)
 //
 // A line may carry the sequence on purpose -- one comment in the app quotes
 // it to show what the bug looks like -- so an explicit marker exempts it.
@@ -112,7 +112,7 @@ std::size_t first_invalid_utf8(const std::string& text)
 // but need not be, and "fewer than N is fine" would let a small one through.
 std::vector<int> double_encoded_lines(const std::string& text)
 {
-    // "â€": the double-encoded form of any E2 80 xx character -- the en and
+    // "â€": the double-encoded form of any E2 80 xx character -- the en and  (mojibake-ok: this is the example)
     // em dashes, curly quotes and the ellipsis this codebase uses.
     const std::string punctuation = "\xC3\xA2\xE2\x82\xAC";
     // "Â" followed by another C2-lead: the double-encoded form of C2 xx,
@@ -144,8 +144,18 @@ struct SourceFile {
 std::vector<SourceFile> text_sources()
 {
     std::vector<SourceFile> out;
+    // Widened after a rot check found a UTF-8 BOM sitting in two
+    // CMakeLists.txt: the guard only ever walked app/ for .cpp/.h and assets/
+    // for web files, so the build files and the whole mdrender/ tree were
+    // never inspected at all.  CMake tolerates a BOM, which is exactly why
+    // nothing complained -- it would have kept spreading silently.
     const std::pair<const char*, std::vector<std::string>> roots[] = {
-        {MDBOSS_APP_DIR, {".cpp", ".h"}},
+        {MDBOSS_APP_DIR, {".cpp", ".h", ".txt"}},
+        {MDBOSS_APP_DIR "/..", {".txt"}},
+        {MDBOSS_APP_DIR "/../tests", {".cpp", ".txt"}},
+        {MDBOSS_APP_DIR "/../mdrender", {".txt"}},
+        {MDBOSS_APP_DIR "/../mdrender/src", {".cpp", ".h"}},
+        {MDBOSS_APP_DIR "/../mdrender/include/mdrender", {".h"}},
         {MDBOSS_ASSET_DIR, {".html", ".css", ".js"}},
     };
     std::error_code ec;

@@ -1,4 +1,4 @@
-﻿find_package(wxWidgets CONFIG REQUIRED)
+find_package(wxWidgets CONFIG REQUIRED)
 
 # WIN32 => no console window for the shipped app.
 add_executable(MDBoss WIN32
