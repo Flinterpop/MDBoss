@@ -74,6 +74,51 @@ std::string write_text_file_checked(const std::string& path,
 // not the name the user typed.
 std::string ensure_markdown_extension(const std::string& name);
 
+// A filename for a document titled `title`, or empty when the title yields
+// nothing usable to offer.
+//
+// Only ever a *suggestion* for the Save dialog, which is why an unusable title
+// returns empty rather than something invented: an empty dialog is honest,
+// a made-up name is not.  The result is a bare filename with the ".md"
+// extension, never a path.
+//
+// Windows decides what is unusable: the reserved characters < > : " / \ | ? *,
+// control characters, a trailing dot or space (which the shell silently
+// strips, so a file would not have the name it appears to), and the reserved
+// device names CON, PRN, AUX, NUL, COM1-9 and LPT1-9.  Markdown emphasis and
+// code markers are dropped too, so "# The `parse()` **rule**" offers
+// "The parse() rule.md" rather than the punctuation soup.
+std::string filename_from_title(const std::string& title);
+
+// A complete Markdown image reference for `image_path`, written for a document
+// that lives at `document_path`.
+//
+// The path is made relative to the document's folder whenever the two share a
+// drive, because that is what survives the pair being moved or committed
+// together; across drives, and for a document not yet saved anywhere
+// (`document_path` empty), only an absolute path can work.  Separators come
+// out as forward slashes either way -- Markdown destinations are URLs, and
+// backslashes are escapes there.
+//
+// A destination containing a space or a bracket is wrapped in <>, the
+// CommonMark form for exactly that, rather than percent-encoded: it stays
+// readable and hand-editable, which a path in a document usually has to be.
+// The alt text is the file's stem.
+std::string markdown_image_link(const std::string& image_path,
+                                const std::string& document_path);
+
+// True if `path` names something at or below any folder in `roots`.
+//
+// Case-insensitive via norm_path, and boundary-aware: "C:\Docs2\a.md" is not
+// under "C:\Docs", which a bare prefix test would get wrong.  A trailing
+// separator on a root does not change the answer.
+//
+// An empty `roots` yields false, which is the right reading rather than a
+// degenerate one: with no roots configured there is no tree, so every open
+// document is outside it.
+bool is_under_any_root(const std::string& path,
+                       const std::vector<std::string>& roots);
+
 // Recursive Markdown count for every folder at or below `root`.
 //
 // A single bottom-up walk lets each folder sum its own files plus its

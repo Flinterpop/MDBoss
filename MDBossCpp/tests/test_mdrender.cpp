@@ -295,3 +295,48 @@ TEST_CASE("front matter is only stripped when asked", "[frontmatter]")
     CHECK(mdrender::render_body("# A\n\ntext\n\n---\n\nmore\n", true)
               .find("<hr />") != std::string::npos);
 }
+
+// ---- document_title ------------------------------------------------------
+//
+// This is what the Save dialog offers as a filename for a document that has
+// never been saved, so a wrong answer puts a wrong name in front of the user
+// at the one moment they are least likely to read it carefully.
+
+TEST_CASE("the first heading is the title", "[mdrender][title]")
+{
+    CHECK(mdrender::document_title("# The Rule\n\nbody\n") == "The Rule");
+    // Any level, not just h1: a document may well start at ##.
+    CHECK(mdrender::document_title("## Deeper\n\nbody\n") == "Deeper");
+    // The FIRST heading, not the largest one later.
+    CHECK(mdrender::document_title("## First\n\n# Second\n") == "First");
+    CHECK(mdrender::document_title("") == "");
+    CHECK(mdrender::document_title("no headings here\n") == "");
+}
+
+TEST_CASE("front matter title wins over the heading", "[mdrender][title]")
+{
+    CHECK(mdrender::document_title("---\ntitle: From Meta\n---\n\n# From "
+                                   "Heading\n") == "From Meta");
+    // Quoted scalars are unwrapped.
+    CHECK(mdrender::document_title("---\ntitle: \"Quoted\"\n---\n") ==
+          "Quoted");
+    CHECK(mdrender::document_title("---\ntitle: 'Single'\n---\n") == "Single");
+    // A block with no title falls through to the heading rather than giving
+    // up -- the TechNote template's front matter has no title: key.
+    CHECK(mdrender::document_title("---\nauthor: B. Graham\n---\n\n# Fell "
+                                   "Through\n") == "Fell Through");
+    // An empty title: is not a title.
+    CHECK(mdrender::document_title("---\ntitle:   \n---\n\n# Heading\n") ==
+          "Heading");
+}
+
+TEST_CASE("a heading inside a code fence is not the title",
+          "[mdrender][title]")
+{
+    // The reason this goes through extract_outline rather than scanning for
+    // '#': a document opening with a shell transcript would otherwise be
+    // titled by its first comment.
+    const std::string doc =
+        "```sh\n# not a heading\n```\n\n# Real Heading\n";
+    CHECK(mdrender::document_title(doc) == "Real Heading");
+}

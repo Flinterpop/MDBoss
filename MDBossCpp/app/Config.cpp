@@ -121,6 +121,10 @@ void Config::load()
     // One entry per root at most; the cap is a generous upper bound on how
     // many roots the folders dialog will let a user add.
     flat_roots_ = string_array(document, "wx_flat_roots", 256);
+    // One entry per starter the app ships; the cap is far above that.
+    seeded_templates_ = string_array(document, "wx_seeded_templates", 256);
+    seeded_templates_known_ = document.contains("wx_seeded_templates") &&
+                              document["wx_seeded_templates"].is_array();
 
     if (document.contains("hide_front_matter") &&
         document["hide_front_matter"].is_boolean()) {
@@ -192,6 +196,7 @@ bool Config::save() const
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
     document["wx_flat_roots"] = flat_roots_;
+    document["wx_seeded_templates"] = seeded_templates_;
 
     const std::filesystem::path file(path());
     std::error_code ec;
@@ -274,6 +279,28 @@ void Config::set_flat_root(const std::string& path, bool flat)
     if (flat) {
         flat_roots_.push_back(path);
     }
+}
+
+bool Config::is_template_seeded(const std::string& name) const
+{
+    for (const std::string& seeded : seeded_templates_) {
+        if (seeded == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Config::mark_template_seeded(const std::string& name)
+{
+    assert(!name.empty() && "a seeded template needs a name");
+    if (is_template_seeded(name)) {
+        return;
+    }
+    seeded_templates_.push_back(name);
+    // Saving now writes the key, so a later load takes the adopt-existing
+    // branch in seed_templates() no further.
+    seeded_templates_known_ = true;
 }
 
 void Config::set_window_size(int width, int height)

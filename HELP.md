@@ -62,9 +62,17 @@ the command line hands it to the window already running and brings it to the
 front, rather than starting a second copy — which also stops two copies from
 overwriting each other's recent list and layout on exit.
 
-Documents opened this way appear in **Recent**, which is the easiest way back to
-a file that lives outside your root folders. Use **Add to favorites** to keep
-one for good.
+Documents opened this way appear in **Recent**, which is the easiest way back to a file that lives outside your root folders. Use **Add to favorites** to keep one for good.
+
+**The title bar tells you when a document is not in your tree.** A file under one of your root folders shows just its name — the tree already says where it lives. A file from anywhere else shows its **full path** after the name, so a document opened by double-clicking in Explorer, dropped on the window, or handed over on the command line never leaves you wondering which copy you are looking at:
+
+```text
+BannerCheck.md - C:\Users\you\Downloads\BannerCheck.md - MD Boss - v1.2.4
+```
+
+**Saving a new document suggests a name.** A file that has never been saved has no filename to offer, but it usually has a title — the one you typed at the New-from-template prompt, or the first heading you wrote. The Save dialog opens with that title as the filename, ready to accept or edit. A `title:` in YAML front matter is used in preference to the heading, characters Windows forbids in a filename are dropped, and if the document has no title yet the box simply opens empty.
+
+**Close document** (**Ctrl+W**, or the **×** on the toolbar) closes what is open without closing MD Boss: the editor and preview go back to empty and no file is open. Unsaved changes are offered for saving first, exactly as they are when you open something else. It is greyed out when there is nothing to close.
 
 ## Making MD Boss your Markdown app
 
@@ -136,8 +144,50 @@ Ordered to match the columns — **Files**, **Outline**, **Edit**:
 - **Files** — show/hide the left pane (Recent + Favorites + file list).
 - **Outline** — show/hide the outline column.
 - **Edit** — show/hide the source editor (preview-only reading mode).
-- **Hide YAML** — when on (the default), a leading YAML front-matter block
-  (`--- … ---` at the very top of the file) is not shown in the preview.
+- **Hide YAML** — when on (the default), a leading YAML front-matter block (`--- … ---` at the very top of the file) is not shown in the preview. Also on the **View** menu, as **Ctrl+Y**.
+
+**Every one of these is remembered.** Each toggle is written to your settings the moment you click it — not when MD Boss exits — so the layout you chose survives a crash, a forced shutdown or a power cut just as well as a normal close. Pane widths are still saved on exit, since they are only worth reading once you have stopped dragging them.
+
+## Snippets
+
+The **Snippets** menu drops a block in at the cursor.
+
+The first five are GitHub *alerts* — callout boxes:
+
+| Snippet | For |
+|---------|-----|
+| **Note** | Information worth taking in even when skimming |
+| **Tip** | Optional advice for being more successful |
+| **Important** | Information necessary to succeed |
+| **Warning** | Critical content needing immediate attention |
+| **Caution** | Negative consequences of an action |
+
+Each inserts a marker line and a starting sentence, which you then replace:
+
+```markdown
+> [!NOTE]
+> Highlights information that users should take into account, even when skimming.
+```
+
+Then three more:
+
+- **Mermaid diagram** — a ` ```mermaid ` fence with a small left-to-right flowchart to edit. The preview draws it as a real diagram. Node labels are quoted (`A["Start"]`) because the parser needs them to be: an unquoted label containing `&`, `/` or parentheses fails to parse, and a diagram that fails to parse renders as nothing at all.
+- **Table** — a three-column GFM table with its separator row and two empty rows.
+- **Insert image file…** — asks for an image, then writes a Markdown reference to it. The dialog opens in the document's own folder, since figures usually live beside the document that shows them.
+
+**Blank lines are added around every snippet** as needed, because each of these only renders as a block when it stands alone. An alert pasted into a paragraph comes out as literal `[!NOTE]` text, and a line typed straight after a table becomes another row — so a blank line goes in after the block too, with the cursor left on it.
+
+### How image paths are written
+
+The reference is made **relative to the document** whenever the two are on the same drive, because that is what keeps working when the pair is moved or committed together:
+
+```markdown
+![shot](img/shot.png)
+```
+
+An absolute path is used only when nothing else can work — the image is on a different drive, or the document has not been saved anywhere yet — and the status bar says so, because an absolute path breaks the moment the document is sent to anyone. Save the document beside the image and insert again to get a relative one.
+
+Paths containing spaces or brackets are wrapped in `<>` (`![my shot](<my shot.png>)`), which is the standard Markdown form for that and stays readable. Separators are written as forward slashes: a Markdown link destination is a URL, where a backslash is an escape character.
 
 ## Scrolling
 
@@ -155,10 +205,7 @@ New files can start from a template:
 - Right-click a folder → **New file ▸** and pick **Blank** or a template; the
   file is created in that folder.
 
-Templates are plain `.md` files in `%APPDATA%\MDBoss\templates`; use
-**New file ▸ Manage templates…** to open the folder. A couple of starters are
-created on first run. Templates may use these placeholders, filled in when the
-file is created:
+Templates are plain `.md` files in `%APPDATA%\MDBoss\templates`; use **New file ▸ Manage templates…** to open the folder. Starters are written there for you, each one only the first time that version of MD Boss runs — a template you delete stays deleted. Templates may use these placeholders, filled in when the file is created:
 
 | Placeholder | Becomes |
 |-------------|---------|
@@ -166,6 +213,19 @@ file is created:
 | `{{date}}`  | today's date, `YYYY-MM-DD` |
 | `{{time}}`  | the current time, `HH:MM` |
 | `{{datetime}}` | date and time |
+| `{{year}}`  | the current year, `YYYY` |
+
+### The TechNote template
+
+**TechNote** starts a tech note with the standard header: front matter, the banner logo, the `TN {{year}}-0X` number, the byline, and a **References** section.
+
+Its banner logo needs no setting up. The template carries the image inline, so the banner renders the moment the document is created — before it has been saved anywhere. When you do save it, MD Boss writes `background-logo.png` into the same folder and points the document at it, leaving you the ordinary relative reference every hand-written tech note uses:
+
+```markdown
+<img src="background-logo.png" alt="image-20240901145033347" style="zoom: 50%;" /> TN 2026-0X
+```
+
+A `background-logo.png` already in that folder is never replaced — the copy your other notes point at is left alone.
 
 ## Keyboard shortcuts
 
@@ -173,6 +233,8 @@ file is created:
 |----------|--------|
 | Ctrl+N   | New file |
 | Ctrl+S   | Save |
+| Ctrl+W   | Close the open document |
+| Ctrl+Y   | Hide/show YAML front matter |
 | F5       | Refresh the tree |
 | F1       | This help |
 

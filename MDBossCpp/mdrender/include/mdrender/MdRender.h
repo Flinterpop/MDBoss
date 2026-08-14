@@ -36,6 +36,16 @@ std::string strip_front_matter(std::string_view md_text);
 std::vector<Heading> extract_outline(std::string_view md_text,
                                      bool strip_yaml = false);
 
+// What the document calls itself, or empty when it says nothing.
+//
+// A YAML front-matter ``title:`` wins, being the one place a document states
+// its title outright; otherwise the first heading, whatever its level.  The
+// heading comes from extract_outline(), so a ``#`` inside a fenced code block
+// is not mistaken for one.
+//
+// This is not a Python-parity function: the deprecated app has no equivalent.
+std::string document_title(std::string_view md_text);
+
 // Just the ``.markdown-body`` inner HTML -- no page chrome.
 std::string render_body(std::string_view md_text, bool strip_yaml = false);
 

@@ -134,6 +134,19 @@ write them back — that reverses the double-encoding exactly.
   `WebResourceRequested` and so cannot enforce it — see `app/PreviewPane.h`.
 - Vendored asset versions are recorded in `assets/VERSIONS.md`; update it in
   the same commit that replaces an asset.
+- **`app/LogoAsset.h` is generated** — the tech-note banner logo as base64,
+  produced from `background-logo.png` by `MDBossCpp/tools/embed_logo.py`. Never
+  hand-edit it; re-run the script if the artwork changes. It is the single
+  source of truth for that image: `Templates.cpp` decodes it both to build the
+  `data:` URI the TechNote starter carries and to write the `.png` beside a
+  saved note.
+- **Starter templates are seeded per name, not per folder** (`Config`'s
+  `wx_seeded_templates`). The old rule was "seed only if the templates folder
+  does not exist", which meant a starter added in a later version could never
+  reach an existing profile. A name is recorded as offered whether or not the
+  file was written, so a deleted template still stays deleted, and a folder
+  that predates the key has its original two starters adopted rather than
+  rewritten. Adding a starter is therefore just a new entry in `starters()`.
 
 ## ITAR
 

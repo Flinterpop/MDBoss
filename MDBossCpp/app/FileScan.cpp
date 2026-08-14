@@ -57,6 +57,40 @@ std::string norm_path(const std::string& path)
     return to_lower(path_to_utf8(absolute.lexically_normal()));
 }
 
+bool is_under_any_root(const std::string& path,
+                       const std::vector<std::string>& roots)
+{
+    if (path.empty()) {
+        return false;
+    }
+    const std::string target = norm_path(path);
+    for (const std::string& root : roots) {   // bounded by the roots list
+        if (root.empty()) {
+            continue;
+        }
+        std::string base = norm_path(root);
+        // A root spelled "C:\Docs\" must compare equal to "C:\Docs".  Bounded
+        // by the string, and it can empty the base -- "\" normalises to one
+        // separator -- which the length test below then rejects.
+        while (!base.empty() && (base.back() == '\\' || base.back() == '/')) {
+            base.pop_back();
+        }
+        if (base.empty() || target.size() <= base.size()) {
+            continue;
+        }
+        if (target.compare(0, base.size(), base) != 0) {
+            continue;
+        }
+        // The separator is what makes this containment rather than a prefix
+        // match: without it "c:\docs2\a.md" reads as living under "c:\docs".
+        const char next = target[base.size()];
+        if (next == '\\' || next == '/') {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::map<std::string, int> md_counts_for_root(const std::string& root)
 {
     std::map<std::string, int> counts;
@@ -461,6 +495,125 @@ std::string ensure_markdown_extension(const std::string& name)
         return name + ".md";
     }
     return name;
+}
+
+std::string filename_from_title(const std::string& title)
+{
+    // Long enough for any real title, short enough that the result plus its
+    // folder stays clear of MAX_PATH on a deep tree.
+    constexpr std::size_t kMaxStem = 100;
+
+    std::string stem;
+    stem.reserve(title.size());
+    bool pending_space = false;
+    for (std::size_t i = 0; i < title.size(); ++i) {   // bounded by the title
+        const unsigned char ch = static_cast<unsigned char>(title[i]);
+        // Inline Markdown markers carry no meaning in a filename.  Link text
+        // is kept and the brackets dropped, so "[the rule](x.md)" would give
+        // "the rule" -- but the URL is not stripped here, because a title
+        // that is entirely a link is rare and half-removing one reads worse
+        // than leaving it to the user to edit.
+        if (ch == '*' || ch == '_' || ch == '`' || ch == '#' || ch == '[' ||
+            ch == ']') {
+            continue;
+        }
+        // Reserved on Windows, plus control characters.  A space stands in so
+        // "Parse: the rule" does not become "Parsethe rule".
+        if (ch < 0x20 || ch == '<' || ch == '>' || ch == ':' || ch == '"' ||
+            ch == '/' || ch == '\\' || ch == '|' || ch == '?' || ch == '*') {
+            pending_space = true;
+            continue;
+        }
+        if (ch == ' ' || ch == '\t') {
+            pending_space = true;
+            continue;
+        }
+        if (pending_space && !stem.empty()) {
+            stem += ' ';
+        }
+        pending_space = false;
+        if (stem.size() >= kMaxStem) {
+            break;
+        }
+        stem += static_cast<char>(ch);
+    }
+
+    // A trailing dot or space is legal to create through the API but the shell
+    // strips it, leaving a file whose name is not the one on screen.
+    while (!stem.empty() && (stem.back() == '.' || stem.back() == ' ')) {
+        stem.pop_back();
+    }
+    if (stem.empty()) {
+        return {};
+    }
+
+    // The DOS device names are still reserved, with or without an extension:
+    // "CON.md" cannot be created.  Compared against the whole stem, since
+    // "CONTENTS" is perfectly fine.
+    static const char* const kReserved[] = {
+        "con",  "prn",  "aux",  "nul",  "com1", "com2", "com3", "com4", "com5",
+        "com6", "com7", "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5",
+        "lpt6", "lpt7", "lpt8", "lpt9"};
+    const std::string folded = to_lower(stem);
+    for (const char* const name : kReserved) {   // bounded: a fixed list
+        if (folded == name) {
+            return {};
+        }
+    }
+
+    return stem + ".md";
+}
+
+std::string markdown_image_link(const std::string& image_path,
+                                const std::string& document_path)
+{
+    assert(!image_path.empty() && "an image link needs an image");
+    if (image_path.empty()) {
+        return {};
+    }
+
+    const fs::path image = path_from_utf8(image_path);
+    std::string destination = path_to_utf8(image);
+
+    // Relative to the document's own folder when that is expressible.  An
+    // unsaved document has no folder to be relative to, and fs::relative
+    // returns empty across drives -- both fall through to the absolute path.
+    if (!document_path.empty()) {
+        const fs::path folder = path_from_utf8(document_path).parent_path();
+        if (!folder.empty()) {
+            std::error_code ec;
+            const fs::path relative = fs::relative(image, folder, ec);
+            if (!ec && !relative.empty()) {
+                destination = path_to_utf8(relative);
+            }
+        }
+    }
+
+    // A Markdown destination is a URL: backslashes are escape characters
+    // there, and a Windows path full of them arrives at the renderer with the
+    // separators eaten.
+    for (char& ch : destination) {
+        if (ch == '\\') {
+            ch = '/';
+        }
+    }
+
+    const bool needs_brackets =
+        destination.find_first_of(" ()<>") != std::string::npos;
+    const std::string alt = path_to_utf8(image.stem());
+
+    std::string out = "![";
+    out += alt;
+    out += "](";
+    if (needs_brackets) {
+        out += '<';
+        out += destination;
+        out += '>';
+    } else {
+        out += destination;
+    }
+    out += ')';
+    return out;
 }
 
 std::string find_inbox(const std::vector<std::string>& root_paths)

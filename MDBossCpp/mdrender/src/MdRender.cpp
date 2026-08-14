@@ -180,6 +180,77 @@ std::string render_body(std::string_view md_text, bool strip_yaml)
     return body;
 }
 
+namespace {
+
+// Trim ASCII whitespace, plus the quotes a YAML scalar may be wrapped in.
+std::string tidy_title(std::string text)
+{
+    const char* const space = " \t\r\n";
+    const std::size_t first = text.find_first_not_of(space);
+    if (first == std::string::npos) {
+        return {};
+    }
+    text = text.substr(first, text.find_last_not_of(space) - first + 1);
+    if (text.size() >= 2 && (text.front() == '"' || text.front() == '\'') &&
+        text.back() == text.front()) {
+        text = text.substr(1, text.size() - 2);
+        const std::size_t inner = text.find_first_not_of(space);
+        if (inner == std::string::npos) {
+            return {};
+        }
+        text = text.substr(inner, text.find_last_not_of(space) - inner + 1);
+    }
+    return text;
+}
+
+// The value of a top-level `title:` key in a leading YAML block, if there is
+// one.  Deliberately shallow: only a `---` block at the very start, only a key
+// at column zero, so an indented `title:` nested under something else is not
+// mistaken for the document's own.
+std::string front_matter_title(std::string_view md_text)
+{
+    if (md_text.compare(0, 4, "---\n") != 0 &&
+        md_text.compare(0, 5, "---\r\n") != 0) {
+        return {};
+    }
+    std::size_t pos = md_text.find('\n') + 1;
+    // Bounded by the text, and by a line count no front matter should reach.
+    for (int line = 0; line < 200 && pos < md_text.size(); ++line) {
+        std::size_t end = md_text.find('\n', pos);
+        if (end == std::string_view::npos) {
+            end = md_text.size();
+        }
+        std::string_view row = md_text.substr(pos, end - pos);
+        if (!row.empty() && row.back() == '\r') {
+            row.remove_suffix(1);
+        }
+        if (row == "---" || row == "...") {
+            return {};   // block closed without a title
+        }
+        if (row.compare(0, 6, "title:") == 0) {
+            return tidy_title(std::string(row.substr(6)));
+        }
+        pos = end + 1;
+    }
+    return {};
+}
+
+}  // namespace
+
+std::string document_title(std::string_view md_text)
+{
+    const std::string front = front_matter_title(md_text);
+    if (!front.empty()) {
+        return front;
+    }
+    // strip_yaml, so a front-matter line is never read as a heading.
+    const std::vector<Heading> outline = extract_outline(md_text, true);
+    if (outline.empty()) {
+        return {};
+    }
+    return tidy_title(outline.front().text);
+}
+
 std::string render_document(std::string_view md_text,
                             std::string_view base_href, std::string_view title,
                             bool strip_yaml)

@@ -33,11 +33,22 @@ the same app lives in the repo but is **deprecated** — see
   newest-first, maintained automatically.
 - Favorites below Recent (both resizable): newest-first, up to ten, with a
   right-click menu and export / import / clear.
-- New-file templates (`%APPDATA%\MDBoss\templates`; `{{title}}`/`{{date}}`
-  placeholders).
+- New-file templates (`%APPDATA%\MDBoss\templates`; `{{title}}`/`{{date}}`/`{{year}}` placeholders), including a **TechNote** starter that carries its banner logo inline so it renders before the document is saved, then drops `background-logo.png` beside the file and switches to the ordinary relative reference on the first save.
 - Works as a plain Markdown viewer too: **Ctrl+O**, drag-and-drop, or a path on
   the command line opens any file on disk, root folder or not. A second launch
   hands its document to the running window instead of starting another copy.
+  A document from outside your root folders shows its **full path** in the title
+  bar, so you always know which copy is open, and **Ctrl+W** (or the toolbar
+  **×**) closes it again without closing the window.
+- **Snippets menu:** the five GitHub alert callouts (Note, Tip, Important,
+  Warning, Caution), a Mermaid diagram fence, a GFM table, and **Insert image
+  file…** which browses for an image and writes a reference relative to the
+  document. Every snippet is spaced so it renders as a block rather than as
+  literal text, and the preview renders them the way GitHub does.
+- Saving a never-saved document suggests a filename from its title (YAML
+  `title:`, else the first heading), sanitised for Windows.
+- Pane visibility and the Hide-YAML choice are written the moment you change
+  them, so the layout survives however the app ends.
 - Registers as a Windows Markdown handler (per-user, no admin) from the
   **File types…** dialog or an installer checkbox — Windows still requires you
   to pick the default yourself, which the dialog walks you through.

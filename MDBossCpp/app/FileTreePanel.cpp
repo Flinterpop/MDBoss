@@ -580,8 +580,14 @@ void FileTreePanel::new_document(const std::string& dir,
     }
     const std::string title =
         path_to_utf8(path_from_utf8(std::string(filename.ToUTF8())).stem());
-    const std::string error = write_text_file_checked(
-        path_to_utf8(target), body_for_new_document(template_path, title, this));
+    // This path knows the folder up front, unlike File > New from template, so
+    // a TechNote's logo is localized before the file is ever written -- it
+    // never touches disk carrying the inline copy.
+    const std::string body = localize_embedded_logo(
+        body_for_new_document(template_path, title, this),
+        path_to_utf8(target));
+    const std::string error =
+        write_text_file_checked(path_to_utf8(target), body);
     if (!error.empty()) {
         wxMessageBox("Could not create the document:\n" +
                          wxString::FromUTF8(error),

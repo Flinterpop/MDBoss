@@ -325,3 +325,175 @@ TEST_CASE("a directory does not stamp as a file", "[filescan][stamp]")
     const std::string dir = mdboss::path_to_utf8(fs::temp_directory_path());
     CHECK_FALSE(mdboss::stamp_of(dir).exists);
 }
+
+// ---- Suggested filename from a document title ----------------------------
+
+TEST_CASE("an ordinary title becomes an ordinary filename", "[filescan][name]")
+{
+    CHECK(mdboss::filename_from_title("The Rule") == "The Rule.md");
+    CHECK(mdboss::filename_from_title("  padded  ") == "padded.md");
+    // Inner runs of whitespace collapse to one space.
+    CHECK(mdboss::filename_from_title("a\t \tb") == "a b.md");
+}
+
+TEST_CASE("characters Windows forbids are removed", "[filescan][name]")
+{
+    // Each becomes a space rather than vanishing, so words do not run together.
+    CHECK(mdboss::filename_from_title("Parse: the rule") == "Parse the rule.md");
+    CHECK(mdboss::filename_from_title("a/b\\c") == "a b c.md");
+    CHECK(mdboss::filename_from_title("what? yes! <ok>") == "what yes! ok.md");
+    CHECK(mdboss::filename_from_title(std::string("nul\x01here")) ==
+          "nul here.md");
+}
+
+TEST_CASE("markdown markers are dropped from the name", "[filescan][name]")
+{
+    CHECK(mdboss::filename_from_title("The `parse()` **rule**") ==
+          "The parse() rule.md");
+    CHECK(mdboss::filename_from_title("_Emphasis_") == "Emphasis.md");
+}
+
+TEST_CASE("a title with nothing usable offers nothing", "[filescan][name]")
+{
+    // Empty beats invented: the Save dialog simply opens with an empty name.
+    CHECK(mdboss::filename_from_title("") == "");
+    CHECK(mdboss::filename_from_title("   ") == "");
+    CHECK(mdboss::filename_from_title("***") == "");
+    CHECK(mdboss::filename_from_title("///") == "");
+}
+
+TEST_CASE("trailing dots and spaces are stripped", "[filescan][name]")
+{
+    // Windows strips these itself, leaving a file whose real name differs
+    // from the one the user was shown.
+    CHECK(mdboss::filename_from_title("Version 1.") == "Version 1.md");
+    CHECK(mdboss::filename_from_title("Trailing   ") == "Trailing.md");
+    CHECK(mdboss::filename_from_title("...") == "");
+}
+
+TEST_CASE("reserved device names are refused", "[filescan][name]")
+{
+    // "CON.md" cannot be created on Windows, whatever the extension.
+    CHECK(mdboss::filename_from_title("CON") == "");
+    CHECK(mdboss::filename_from_title("con") == "");
+    CHECK(mdboss::filename_from_title("LPT9") == "");
+    // ...but a name that merely starts with one is fine.
+    CHECK(mdboss::filename_from_title("CONTENTS") == "CONTENTS.md");
+    CHECK(mdboss::filename_from_title("Console") == "Console.md");
+}
+
+TEST_CASE("an overlong title is capped", "[filescan][name]")
+{
+    const std::string long_title(400, 'x');
+    const std::string name = mdboss::filename_from_title(long_title);
+    // Capped, still valid, and still ends in .md.
+    CHECK(name.size() <= 103);
+    CHECK(name.size() > 10);
+    CHECK(name.substr(name.size() - 3) == ".md");
+}
+
+// ---- Markdown image references -------------------------------------------
+
+TEST_CASE("an image beside the document is referenced relatively",
+          "[filescan][image]")
+{
+    // The portable case, and the common one: the pair moves or commits
+    // together and the reference keeps working.
+    CHECK(mdboss::markdown_image_link("C:\\docs\\shot.png",
+                                      "C:\\docs\\note.md") ==
+          "![shot](shot.png)");
+    CHECK(mdboss::markdown_image_link("C:\\docs\\img\\shot.png",
+                                      "C:\\docs\\note.md") ==
+          "![shot](img/shot.png)");
+}
+
+TEST_CASE("separators come out as forward slashes", "[filescan][image]")
+{
+    // A Markdown destination is a URL, where a backslash is an escape: a
+    // Windows path pasted in raw arrives at the renderer with no separators.
+    const std::string link = mdboss::markdown_image_link(
+        "C:\\docs\\a\\b\\shot.png", "C:\\docs\\note.md");
+    CHECK(link == "![shot](a/b/shot.png)");
+    CHECK(link.find('\\') == std::string::npos);
+}
+
+TEST_CASE("a path needing escape is wrapped in angle brackets",
+          "[filescan][image]")
+{
+    // CommonMark's own form for a destination containing spaces, and readable
+    // in a way percent-encoding is not.
+    CHECK(mdboss::markdown_image_link("C:\\docs\\my shot.png",
+                                      "C:\\docs\\note.md") ==
+          "![my shot](<my shot.png>)");
+    CHECK(mdboss::markdown_image_link("C:\\docs\\shot (2).png",
+                                      "C:\\docs\\note.md") ==
+          "![shot (2)](<shot (2).png>)");
+}
+
+TEST_CASE("an unsaved document gets an absolute path", "[filescan][image]")
+{
+    // There is no folder to be relative to yet, so the only thing that can
+    // resolve is the full path.
+    const std::string link =
+        mdboss::markdown_image_link("C:\\pics\\shot.png", "");
+    CHECK(link == "![shot](C:/pics/shot.png)");
+}
+
+TEST_CASE("a different drive gets an absolute path", "[filescan][image]")
+{
+    // No relative path exists between drives; inventing one would produce a
+    // reference that silently resolves nowhere.
+    const std::string link =
+        mdboss::markdown_image_link("D:\\pics\\shot.png", "C:\\docs\\note.md");
+    CHECK(link == "![shot](D:/pics/shot.png)");
+}
+
+TEST_CASE("a parent-folder image still goes relative", "[filescan][image]")
+{
+    // docs/note.md referring to images/ beside docs/ is a normal layout, and
+    // "../" keeps working when the whole tree moves.
+    CHECK(mdboss::markdown_image_link("C:\\proj\\images\\shot.png",
+                                      "C:\\proj\\docs\\note.md") ==
+          "![shot](../images/shot.png)");
+}
+
+// ---- Is a document inside the configured tree? ---------------------------
+//
+// The title bar shows an out-of-tree document's full path, so a wrong answer
+// here either hides where a stray file came from or clutters the title of
+// every ordinary one.
+
+TEST_CASE("a document under a root is inside the tree", "[filescan][roots]")
+{
+    const std::vector<std::string> roots{"C:\\Docs", "D:\\Notes"};
+    CHECK(mdboss::is_under_any_root("C:\\Docs\\a.md", roots));
+    CHECK(mdboss::is_under_any_root("C:\\Docs\\deep\\nested\\a.md", roots));
+    CHECK(mdboss::is_under_any_root("D:\\Notes\\a.md", roots));
+    // Case and separator spelling must not decide it: Windows paths reach the
+    // app from a drop, a command line and the registry, each with its own.
+    CHECK(mdboss::is_under_any_root("c:\\docs\\A.MD", roots));
+    CHECK(mdboss::is_under_any_root("C:/Docs/a.md", roots));
+    // A root spelled with a trailing separator is the same root.
+    CHECK(mdboss::is_under_any_root("C:\\Docs\\a.md", {"C:\\Docs\\"}));
+}
+
+TEST_CASE("a sibling folder is not inside the tree", "[filescan][roots]")
+{
+    const std::vector<std::string> roots{"C:\\Docs"};
+    // The bug a bare prefix test would have: "C:\Docs2" starts with "C:\Docs".
+    CHECK_FALSE(mdboss::is_under_any_root("C:\\Docs2\\a.md", roots));
+    CHECK_FALSE(mdboss::is_under_any_root("C:\\DocsOther\\a.md", roots));
+    CHECK_FALSE(mdboss::is_under_any_root("C:\\Elsewhere\\a.md", roots));
+    CHECK_FALSE(mdboss::is_under_any_root("D:\\Docs\\a.md", roots));
+}
+
+TEST_CASE("the degenerate cases do not report inside", "[filescan][roots]")
+{
+    // No roots configured means no tree, so nothing can be in it.
+    CHECK_FALSE(mdboss::is_under_any_root("C:\\Docs\\a.md", {}));
+    CHECK_FALSE(mdboss::is_under_any_root("", {"C:\\Docs"}));
+    // An empty root would otherwise swallow every path.
+    CHECK_FALSE(mdboss::is_under_any_root("C:\\Docs\\a.md", {""}));
+    // The root itself is a folder, not a document in the tree.
+    CHECK_FALSE(mdboss::is_under_any_root("C:\\Docs", {"C:\\Docs"}));
+}

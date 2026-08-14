@@ -53,6 +53,16 @@ private:
     void on_manage_folders(wxCommandEvent& event);
     void on_new(wxCommandEvent& event);
     void on_new_from_template(wxCommandEvent& event);
+    // Close the document without closing the window: the editor and preview
+    // go back to empty and no file is open.
+    void on_close_document(wxCommandEvent& event);
+    // Insert one of the fixed snippet blocks at the caret; see kSnippets.
+    void on_snippet(wxCommandEvent& event);
+    // Pick an image file and insert a Markdown reference to it.
+    void on_insert_image(wxCommandEvent& event);
+    // Drop `body` in at the caret as its own block, adding the blank lines
+    // around it that make Markdown treat it as one.
+    void insert_block(const std::string& body);
     void on_open_templates_folder(wxCommandEvent& event);
     void on_refresh(wxCommandEvent& event);
     void on_toggle_files(wxCommandEvent& event);
@@ -90,6 +100,19 @@ private:
 
     void render_preview();
     void update_title();
+    // Back to no document open.  Asks nothing -- the caller decides whether
+    // unsaved work needs confirming first.
+    void clear_document();
+    // Grey the Close command out when there is nothing to close.  Called from
+    // update_title(), which every document-state change already ends in.
+    void update_close_enabled();
+    // Keep the View menu item and the toolbar button showing the same state:
+    // they are two check controls sharing one id and wx syncs neither.
+    void sync_front_matter_checks(bool hide);
+    // Record which panes are showing, the moment it changes.
+    void save_pane_visibility();
+    // The configured root folders, as plain paths.
+    std::vector<std::string> root_paths() const;
     // The open document changed underneath us.  Never clobbers unsaved work:
     // a modified buffer is kept and the user told, because the edits in the
     // editor are the only copy of themselves and the file on disk is not.

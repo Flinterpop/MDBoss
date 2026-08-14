@@ -61,6 +61,18 @@ public:
     bool is_flat_root(const std::string& path) const;
     void set_flat_root(const std::string& path, bool flat);
 
+    // Which starter templates this profile has already been offered, under a
+    // port-only `wx_seeded_templates` key.  Recorded by name so a starter
+    // added in a later version reaches a profile whose templates folder was
+    // created by an earlier one -- and so deleting a template still means it.
+    //
+    // knows_seeded_templates() distinguishes "offered nothing yet" from "the
+    // key predates this mechanism", which is what lets seed_templates() adopt
+    // an existing folder's starters instead of writing them a second time.
+    bool knows_seeded_templates() const { return seeded_templates_known_; }
+    bool is_template_seeded(const std::string& name) const;
+    void mark_template_seeded(const std::string& name);
+
     void set_roots(std::vector<Root> roots) { roots_ = std::move(roots); }
     void set_favorites(std::vector<std::string> f) { favorites_ = std::move(f); }
     void set_hide_front_matter(bool hide) { hide_front_matter_ = hide; }
@@ -104,6 +116,8 @@ private:
     std::vector<std::string> favorites_;
     std::vector<std::string> recents_;
     std::vector<std::string> flat_roots_;
+    std::vector<std::string> seeded_templates_;
+    bool seeded_templates_known_ = false;
     bool hide_front_matter_ = false;
     int window_width_ = 1280;
     int window_height_ = 820;

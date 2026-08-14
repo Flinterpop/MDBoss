@@ -63,6 +63,75 @@ constexpr int kIdToggleEditor = wxID_HIGHEST + 9;
 constexpr int kIdFileTypes = wxID_HIGHEST + 10;
 constexpr int kIdHelp = wxID_HIGHEST + 11;
 constexpr int kIdCheckUpdates = wxID_HIGHEST + 12;
+// Not wxID_CLOSE: that is the frame's own close command, and wx routes it to
+// the window rather than to a handler of ours -- the app would exit.
+constexpr int kIdCloseDocument = wxID_HIGHEST + 13;
+constexpr int kIdInsertImage = wxID_HIGHEST + 14;
+// Snippets take ids from here up, one per kSnippets entry.  Bounded (Rule of
+// 10): the array is fixed at compile time, so the range cannot run past the
+// next constant.
+constexpr int kIdSnippetBase = wxID_HIGHEST + 40;
+
+// Matching the formats a browser will actually display, since the preview is
+// one.  TIFF and PSD are deliberately absent: they would insert a reference
+// that renders as a broken image.
+const char* const kImageWildcard =
+    "Image files (*.png;*.jpg;*.jpeg;*.gif;*.svg;*.webp;*.bmp)|"
+    "*.png;*.jpg;*.jpeg;*.gif;*.svg;*.webp;*.bmp|All files (*.*)|*.*";
+
+// The five GitHub alert kinds, in GitHub's own order of severity.  The
+// renderer already turns these into styled callouts -- see
+// mdrender/src/Preprocess.cpp -- so what a snippet inserts previews the same
+// way it will on GitHub.
+//
+// The marker line carries no trailing spaces.  GitHub's documentation shows
+// two on some of these, which Markdown reads as a hard line break; the alert
+// syntax does not need one and the house style bans them.
+struct Snippet {
+    const wchar_t* label;
+    const char* body;
+};
+
+const Snippet kSnippets[] = {
+    {L"&Note",
+     "> [!NOTE]\n"
+     "> Highlights information that users should take into account, even when "
+     "skimming.\n"},
+    {L"&Tip",
+     "> [!TIP]\n"
+     "> Optional information to help a user be more successful.\n"},
+    {L"&Important",
+     "> [!IMPORTANT]\n"
+     "> Crucial information necessary for users to succeed.\n"},
+    {L"&Warning",
+     "> [!WARNING]\n"
+     "> Critical content demanding immediate user attention due to potential "
+     "risks.\n"},
+    {L"&Caution",
+     "> [!CAUTION]\n"
+     "> Negative potential consequences of an action.\n"},
+    // Rendered by the bundled mermaid.js -- see HtmlRenderer.cpp, which turns a
+    // ```mermaid fence into <pre class="mermaid"> rather than a code block.
+    //
+    // Flowchart node labels are quoted because the parser needs them to be:
+    // an unquoted label containing &, / or parentheses is a silent parse
+    // failure, and a diagram that fails to parse renders as nothing at all.
+    {L"&Mermaid diagram",
+     "```mermaid\n"
+     "flowchart LR\n"
+     "    A[\"Start\"] --> B[\"Next step\"]\n"
+     "    B --> C[\"Done\"]\n"
+     "```\n"},
+    // Three columns of two rows: enough to show the shape, small enough to
+    // delete what is not wanted.  The separator row is what makes it a table
+    // rather than three lines of text, so it is spelled out rather than left
+    // to the user to remember.
+    {L"Ta&ble",
+     "| Column | Column | Column |\n"
+     "|--------|--------|--------|\n"
+     "|        |        |        |\n"
+     "|        |        |        |\n"},
+};
 
 // Kept in step with app.py's MARKDOWN_EXTS.
 const char* const kOpenWildcard =
@@ -115,6 +184,13 @@ MainFrame::MainFrame()
       })
 {
     config_.load();
+    // At startup, as the Python app does: a starter added in this version has
+    // to reach a profile whose templates folder already exists, and waiting
+    // for someone to open that folder means it never appears in the menus
+    // where templates are actually picked.
+    if (seed_templates(config_)) {
+        config_.save();
+    }
     SetSize(config_.window_width(), config_.window_height());
     SetMinSize(wxSize(640, 400));
 
@@ -144,6 +220,7 @@ void MainFrame::build_menu()
     file->Append(kIdNewFromTemplate, L"New from &template…\tCtrl+Shift+N");
     file->Append(wxID_OPEN, L"&Open…\tCtrl+O");
     file->Append(wxID_SAVE, "&Save\tCtrl+S");
+    file->Append(kIdCloseDocument, "&Close document\tCtrl+W");
     file->AppendSeparator();
     file->Append(kIdOpenTemplates, "Open &templates folder");
     file->Append(kIdManageFolders, L"&Manage folders…");
@@ -156,6 +233,17 @@ void MainFrame::build_menu()
                           "Hide &YAML front matter\tCtrl+Y");
     view->Check(kIdToggleFrontMatter, config_.hide_front_matter());
 
+    auto* snippets = new wxMenu();
+    for (std::size_t i = 0; i < std::size(kSnippets); ++i) {   // bounded
+        snippets->Append(kIdSnippetBase + static_cast<int>(i),
+                         kSnippets[i].label);
+    }
+    // Below a separator: the others insert fixed text, this one asks first.
+    snippets->AppendSeparator();
+    // "&f", not "&i": Important already claims I, and two items sharing a
+    // mnemonic makes the key cycle between them instead of choosing one.
+    snippets->Append(kIdInsertImage, L"Insert image &file…");
+
     auto* help = new wxMenu();
     // F1 rides the menu item, so it needs no accelerator table entry.
     help->Append(kIdHelp, "&Help\tF1");
@@ -166,6 +254,7 @@ void MainFrame::build_menu()
     auto* bar = new wxMenuBar();
     bar->Append(file, "&File");
     bar->Append(view, "&View");
+    bar->Append(snippets, "&Snippets");
     bar->Append(help, "&Help");
     SetMenuBar(bar);
 }
@@ -198,7 +287,10 @@ void MainFrame::build_toolbar()
         {kIdNewFromTemplate, L"New from template…", wxART_NORMAL_FILE,
          L"Create a new file from a template", false, false},
         {wxID_SAVE, L"Save", wxART_FILE_SAVE,
-         L"Save the current document (Ctrl+S)", false, true},
+         L"Save the current document (Ctrl+S)", false, false},
+        {kIdCloseDocument, L"Close", wxART_CLOSE,
+         L"Close the open document and empty the editor (Ctrl+W)", false,
+         true},
 
         // Toggles ordered to match the columns: Files | Outline | Edit.
         {kIdToggleFiles, L"Files", wxART_LIST_VIEW,
@@ -231,7 +323,17 @@ void MainFrame::build_toolbar()
         if (tool.check) {
             bar->AddCheckTool(tool.id, tool.label, icon, wxBitmapBundle(), tip);
         } else {
-            bar->AddTool(tool.id, tool.label, icon, tip);
+            // The greyed bitmap is supplied rather than left to wxMSW to
+            // generate: the one it made for wxART_CLOSE was indistinguishable
+            // from the enabled icon, so a disabled Close looked perfectly
+            // clickable.  The tool really was disabled -- it just did not say
+            // so, which is worse than either state on its own.
+            const wxBitmap normal = icon.GetBitmap(wxDefaultSize);
+            const wxBitmapBundle greyed =
+                normal.IsOk()
+                    ? wxBitmapBundle::FromBitmap(normal.ConvertToDisabled())
+                    : wxBitmapBundle();
+            bar->AddTool(tool.id, tool.label, icon, greyed, wxITEM_NORMAL, tip);
         }
         if (tool.separator_after) {
             bar->AddSeparator();
@@ -446,6 +548,10 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_new, this, wxID_NEW);
     Bind(wxEVT_MENU, &MainFrame::on_new_from_template, this,
          kIdNewFromTemplate);
+    Bind(wxEVT_MENU, &MainFrame::on_close_document, this, kIdCloseDocument);
+    Bind(wxEVT_MENU, &MainFrame::on_snippet, this, kIdSnippetBase,
+         kIdSnippetBase + static_cast<int>(std::size(kSnippets)) - 1);
+    Bind(wxEVT_MENU, &MainFrame::on_insert_image, this, kIdInsertImage);
     Bind(wxEVT_MENU, &MainFrame::on_open_templates_folder, this,
          kIdOpenTemplates);
     Bind(wxEVT_MENU, &MainFrame::on_refresh, this, kIdRefresh);
@@ -547,7 +653,14 @@ void MainFrame::on_open(wxCommandEvent&)
 void MainFrame::on_save(wxCommandEvent&)
 {
     if (current_path_.empty()) {
-        wxFileDialog dialog(this, L"Save Markdown file", "", "", kOpenWildcard,
+        // A document that has never been saved has no name to offer, but it
+        // usually has a title -- typed into the New-from-template prompt, or
+        // written as the first heading.  Offering it beats an empty box and
+        // costs nothing when it is wrong: the dialog is still a dialog.
+        const wxString suggested = wxString::FromUTF8(filename_from_title(
+            mdrender::document_title(editor_->GetText().utf8_string())));
+        wxFileDialog dialog(this, L"Save Markdown file", "", suggested,
+                            kOpenWildcard,
                             wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
         if (dialog.ShowModal() != wxID_OK) {
             return;
@@ -576,7 +689,27 @@ bool MainFrame::save_to(const std::string& path)
     // bytes the heap had already reclaimed -- six files lost their heads to
     // freed-block pointers.  Validating the buffer and reading the file back
     // turns that silent corruption into a refused save.
-    const std::string text = editor_->GetText().utf8_string();
+    std::string text = editor_->GetText().utf8_string();
+    // A document started from the TechNote template carries the logo inline so
+    // it renders while it is still unsaved and has no folder.  It has one now,
+    // so put the .png beside it and swap in the relative reference every
+    // hand-written tech note uses.  Silently a no-op for any other document.
+    if (has_embedded_logo(text)) {
+        const std::string localized = localize_embedded_logo(text, path);
+        if (localized != text) {
+            text = localized;
+            // Keep the editor and the file in step: leaving the buffer holding
+            // a data: URI the file no longer has would make the next save
+            // re-do this, and the document watcher report our own write as an
+            // outside edit.  The caret is clamped rather than tracked -- this
+            // happens once, on the first save of a brand-new note.
+            const int caret = editor_->GetCurrentPos();
+            const int top = editor_->GetFirstVisibleLine();
+            editor_->SetText(wxString::FromUTF8(text));
+            editor_->GotoPos(std::min(caret, editor_->GetLength()));
+            editor_->SetFirstVisibleLine(top);
+        }
+    }
     const std::string error = write_text_file_checked(path, text);
     if (!error.empty()) {
         wxMessageBox(wxString::FromUTF8(error) + "\n\n" +
@@ -677,13 +810,7 @@ void MainFrame::on_import_favorites()
 
 void MainFrame::on_import_to_inbox()
 {
-    std::vector<std::string> root_paths;
-    root_paths.reserve(config_.roots().size());
-    for (const Root& root : config_.roots()) {
-        root_paths.push_back(root.path);
-    }
-
-    const std::string inbox = find_inbox(root_paths);
+    const std::string inbox = find_inbox(root_paths());
     if (inbox.empty()) {
         wxMessageBox(wxString(L"No ") + kInboxName + L" folder was found.\n\n"
                          L"Create a folder named " + kInboxName +
@@ -819,8 +946,31 @@ void MainFrame::on_exit(wxCommandEvent&)
 
 void MainFrame::on_toggle_front_matter(wxCommandEvent& event)
 {
-    config_.set_hide_front_matter(event.IsChecked());
+    // Deliberately NOT event.IsChecked().  The View menu item and the toolbar
+    // button are two separate check controls sharing one id, and toggling one
+    // never updated the other -- so after a click on the toolbar the menu
+    // still showed the old state, and the next click from the menu reported a
+    // value that flipped the setting the wrong way.  Reading and inverting the
+    // stored setting makes the two agree by construction.
+    const bool hide = !config_.hide_front_matter();
+    config_.set_hide_front_matter(hide);
+    sync_front_matter_checks(hide);
+    // Written now rather than at exit.  A setting that only reaches disk on a
+    // clean shutdown is lost to any crash, kill or power cut, which reads
+    // exactly like "it does not remember what I chose".
+    config_.save();
     render_preview();
+    event.Skip(false);
+}
+
+void MainFrame::sync_front_matter_checks(bool hide)
+{
+    if (wxMenuBar* menus = GetMenuBar()) {
+        menus->Check(kIdToggleFrontMatter, hide);
+    }
+    if (wxToolBar* bar = GetToolBar()) {
+        bar->ToggleTool(kIdToggleFrontMatter, hide);
+    }
 }
 
 void MainFrame::on_text_changed(wxStyledTextEvent& event)
@@ -879,13 +1029,7 @@ void MainFrame::on_new(wxCommandEvent&)
     if (!confirm_discard()) {
         return;
     }
-    editor_->SetText("");
-    editor_->EmptyUndoBuffer();
-    current_path_.clear();
-    watcher_.watch(current_path_);
-    dirty_ = false;
-    update_title();
-    render_preview();
+    clear_document();
 }
 
 void MainFrame::on_new_from_template(wxCommandEvent&)
@@ -945,7 +1089,9 @@ void MainFrame::on_new_from_template(wxCommandEvent&)
 
 void MainFrame::on_open_templates_folder(wxCommandEvent&)
 {
-    seed_templates();   // first use creates the folder and its starters
+    if (seed_templates(config_)) {
+        config_.save();   // a starter this build added was written just now
+    }
     const wxString dir = wxString::FromUTF8(templates_dir());
     wxExecute("explorer.exe \"" + dir + "\"", wxEXEC_ASYNC);
 }
@@ -964,6 +1110,7 @@ void MainFrame::on_toggle_files(wxCommandEvent&)
         files_split_->SplitVertically(recent_split_, outline_split_,
                                       hidden_files_sash_);
     }
+    save_pane_visibility();
 }
 
 void MainFrame::on_toggle_outline(wxCommandEvent&)
@@ -975,6 +1122,7 @@ void MainFrame::on_toggle_outline(wxCommandEvent&)
         outline_split_->SplitVertically(outline_, split_,
                                         hidden_outline_sash_);
     }
+    save_pane_visibility();
 }
 
 void MainFrame::on_toggle_editor(wxCommandEvent&)
@@ -985,6 +1133,25 @@ void MainFrame::on_toggle_editor(wxCommandEvent&)
     } else {
         split_->SplitVertically(editor_, preview_, hidden_editor_sash_);
     }
+    save_pane_visibility();
+}
+
+void MainFrame::save_pane_visibility()
+{
+    // Which panes are showing is recorded the moment it changes, not only in
+    // on_close().  Exit still saves the sash positions, which are only worth
+    // reading once the window has stopped being resized; visibility is a
+    // deliberate choice and should survive however the app happens to end.
+    if (files_split_ != nullptr) {
+        config_.set_show_files(files_split_->IsSplit());
+    }
+    if (outline_split_ != nullptr) {
+        config_.set_show_outline(outline_split_->IsSplit());
+    }
+    if (split_ != nullptr) {
+        config_.set_show_editor(split_->IsSplit());
+    }
+    config_.save();
 }
 
 void MainFrame::on_file_types(wxCommandEvent&)
@@ -1278,16 +1445,168 @@ void MainFrame::on_preview_scrolled(double ratio)
     suppress_editor_scroll_ = false;
 }
 
+std::vector<std::string> MainFrame::root_paths() const
+{
+    std::vector<std::string> paths;
+    paths.reserve(config_.roots().size());
+    for (const Root& root : config_.roots()) {
+        paths.push_back(root.path);
+    }
+    return paths;
+}
+
 void MainFrame::update_title()
 {
     wxString name = "Untitled";
+    wxString location;
     if (!current_path_.empty()) {
         name = wxString::FromUTF8(
             path_to_utf8(path_from_utf8(current_path_).filename()));
+        // A document opened from outside every root has nothing in the tree
+        // pointing at it -- Ctrl+O, a drop, a command line or the Windows file
+        // association can all put one here -- so the title carries its full
+        // path.  A document that IS in the tree does not need it: the tree
+        // already shows where it lives, and the path would only crowd out the
+        // name at the front, which is what the taskbar truncates to.
+        if (!is_under_any_root(current_path_, root_paths())) {
+            location = " - " + wxString::FromUTF8(current_path_);
+        }
     }
-    SetTitle(wxString(dirty_ ? "*" : "") + name + " - MD Boss - v" +
+    SetTitle(wxString(dirty_ ? "*" : "") + name + location + " - MD Boss - v" +
              kAppVersion);
+    update_close_enabled();
 }
+
+void MainFrame::update_close_enabled()
+{
+    // Explicitly, rather than through wxEVT_UPDATE_UI: the toolbar never
+    // delivered that event to this frame, so the button stayed enabled with
+    // nothing open.  Every path that changes what is open already ends in
+    // update_title(), which makes this the one place it has to be done.
+    //
+    // An unsaved buffer with no path still counts as open, or Close would be
+    // dead exactly when discarding is what the user wants.
+    const bool open = !current_path_.empty() ||
+                      (editor_ != nullptr && editor_->GetLength() > 0);
+    if (wxToolBar* bar = GetToolBar()) {
+        bar->EnableTool(kIdCloseDocument, open);
+    }
+    if (wxMenuBar* menus = GetMenuBar()) {
+        menus->Enable(kIdCloseDocument, open);
+    }
+}
+
+void MainFrame::clear_document()
+{
+    editor_->SetText("");
+    editor_->EmptyUndoBuffer();
+    current_path_.clear();
+    watcher_.watch(current_path_);
+    dirty_ = false;
+    // Any warning on show belonged to the document being cleared.
+    SetStatusText(wxString());
+    update_title();
+    render_preview();
+}
+
+void MainFrame::on_close_document(wxCommandEvent&)
+{
+    if (!confirm_discard()) {
+        return;
+    }
+    clear_document();
+}
+
+void MainFrame::insert_block(const std::string& body)
+{
+    assert(editor_ != nullptr && "a snippet needs somewhere to go");
+    assert(!body.empty() && "an empty block is not worth inserting");
+
+    // Every one of these is a block construct -- an alert, a fence, a table,
+    // a figure -- and a block only renders as one when it starts its own line
+    // and is followed by a blank one.  Dropped mid-sentence it would be swept
+    // into the surrounding paragraph and come out as literal text, so the gaps
+    // are made here rather than left to the user to notice afterwards.
+    const int position = editor_->GetCurrentPos();
+    const int length = editor_->GetLength();
+
+    const bool at_line_start =
+        position == 0 || editor_->GetCharAt(position - 1) == '\n';
+    std::string lead;
+    if (!at_line_start) {
+        lead = "\n\n";
+    } else if (position > 1 && editor_->GetCharAt(position - 2) != '\n') {
+        lead = "\n";   // on a fresh line, but the one above has content
+    }
+
+    std::string block = body;
+    if (block.empty() || block.back() != '\n') {
+        block += '\n';
+    }
+
+    // A blank line after matters as much as one before, and for a table it is
+    // the difference between a paragraph and another row: text typed straight
+    // after "|  |  |" is parsed as one.  Skipped when the next line is
+    // already blank, or when there is nothing after this at all.
+    std::string tail;
+    if (position < length && editor_->GetCharAt(position) != '\n') {
+        tail = "\n";
+    }
+
+    editor_->InsertText(position, wxString::FromUTF8(lead + block + tail));
+    // On the line immediately after the block -- the blank one, when there is
+    // one -- rather than stranded at the start of what the user is about to
+    // replace.
+    editor_->GotoPos(position + static_cast<int>(lead.size() + block.size()));
+    editor_->SetFocus();
+}
+
+void MainFrame::on_snippet(wxCommandEvent& event)
+{
+    const int index = event.GetId() - kIdSnippetBase;
+    if (index < 0 || static_cast<std::size_t>(index) >= std::size(kSnippets)) {
+        return;   // an id outside the range this handler was bound for
+    }
+    insert_block(kSnippets[static_cast<std::size_t>(index)].body);
+}
+
+void MainFrame::on_insert_image(wxCommandEvent&)
+{
+    // Opening in the document's own folder is the difference between picking
+    // the image next to the note and hunting for it: figures nearly always
+    // live beside the document that shows them.
+    const wxString start =
+        current_path_.empty()
+            ? wxString()
+            : wxString::FromUTF8(path_to_utf8(
+                  path_from_utf8(current_path_).parent_path()));
+
+    wxFileDialog dialog(this, L"Insert image file", start, "", kImageWildcard,
+                        wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+
+    const std::string chosen = std::string(dialog.GetPath().ToUTF8());
+    const std::string link = markdown_image_link(chosen, current_path_);
+    if (link.empty()) {
+        return;
+    }
+    insert_block(link);
+
+    // Worth saying out loud: an absolute path breaks the moment the document
+    // is sent anywhere.  Decided from the paths rather than by sniffing the
+    // link text -- the same two conditions markdown_image_link() uses.
+    if (current_path_.empty()) {
+        SetStatusText(L"Absolute path used — the document has not been saved "
+                      L"anywhere yet.");
+    } else if (path_from_utf8(chosen).root_name() !=
+               path_from_utf8(current_path_).root_name()) {
+        SetStatusText(L"Absolute path used — the image is on a different "
+                      L"drive from the document.");
+    }
+}
+
 
 bool MainFrame::confirm_discard()
 {
