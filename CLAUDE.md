@@ -81,6 +81,36 @@ before working near what they guard:
 | `test_fileassoc.cpp` | the registry plan matched the Python app's exactly; that layout is now the C++ app's own spec |
 | `test_fileio.cpp` | a save wrote a partly-freed buffer and corrupted the first 16 bytes of six files; the validator + read-back guard against it |
 
+## Anything that reads files goes on a worker thread
+
+Counting Markdown files once ran on the UI thread in `set_roots()`, and three
+real roots were enough to stall the message loop past the point where
+WebView2's asynchronous controller creation gives up:
+`CreateCoreWebView2Controller` returned `E_ABORT` and **the preview silently
+never appeared**. There is no error to see — the pane is just blank.
+
+So `start_scan()` (counts) and `start_content_search()` (the Contents search)
+both follow the same shape, and anything new that touches the filesystem in
+bulk must too:
+
+- a detached worker thread, never the UI thread;
+- a **generation counter** bumped on each start, so a superseded result is
+  discarded rather than applied out of order;
+- `alive_`, a `shared_ptr<atomic<bool>>` the destructor clears, so a completion
+  lambda can tell the panel is gone;
+- the exception guard **inside** the per-root loop, not around it — wrapping
+  the loop once meant a briefly-unavailable network folder discarded every
+  other root's results and every tree read `(0)`;
+- hard bounds on the work: `search_file_contents()` caps bytes per file, files
+  walked, and matches returned, and uses an explicit worklist rather than
+  recursion so a junction loop cannot hang the thread.
+
+Note the difference between the two generation counters: `scan_generation_` is
+read only on the UI thread inside `CallAfter`, so a plain `unsigned` is fine;
+`search_generation_` is polled **by the worker** mid-walk so it can abandon a
+search the user has typed past, which makes it `std::atomic<unsigned>`. Copying
+the scan's declaration would have been a data race.
+
 The golden corpus under `MDBossCpp/tests/golden/` was generated from the
 Python renderer (`make_golden.py`) back when it was the oracle. It is now a
 **frozen expectation** for the C++ renderer, not a live parity check — a
@@ -154,3 +184,23 @@ Everything under `C:\source` is export-controlled technical data, and the rules
 in the global `~/.claude/CLAUDE.md` apply — but note this repo is **public**, so
 repo permissions are not a backstop. Decide what may be committed *before* the
 commit, not before the push.
+
+**The documentation is the leak path here, not the code.** Two near-misses,
+both caught only by grepping the diff before staging:
+
+- **Examples written from what you just tested.** Documenting the Contents
+  search meant pasting a result — and the result was real filenames from the
+  author's controlled work plus the matching lines from inside those documents.
+  Screenshots, sample trees, example output and test fixtures all have this
+  shape: the natural illustration is the live data. Invent neutral names
+  (`install-guide.md`, a root called `Notes`) instead.
+- **Starter content carrying organisational identity.** The TechNote template
+  originally reproduced the author's real banner line, unit and programme
+  identifiers included. What ships is the generic form; the author's own
+  `%APPDATA%` copy keeps the real one, which per-name seeding never overwrites.
+
+Before any commit, grep the staged files for project names, unit identifiers,
+real root paths and document titles — not just for the obvious markers. And
+`tn.md` at the repo root is git-ignored on purpose: it is a working note
+holding a real tech-note title, and `release.ps1` refusing a dirty tree makes
+`git add -A` the tempting way out.
