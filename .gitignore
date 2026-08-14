@@ -25,6 +25,13 @@ installer/
 # Local reference screenshots (not part of the app)
 MD_Note.jpg
 
+# Personal working note, kept in the repo folder for convenience only.  This
+# repo is PUBLIC: tn.md holds a real tech-note title and organisational
+# identifiers, so it must never be committed.  Ignored by name rather than
+# left untracked because release.ps1 refuses to run on a dirty tree, and the
+# obvious way out of that is a `git add -A` that would publish it.
+tn.md
+
 # Intermediate icon renders (source is mdboss.svg; runtime uses mdboss.ico)
 mdboss_*.png
 
