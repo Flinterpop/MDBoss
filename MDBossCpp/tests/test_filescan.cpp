@@ -392,6 +392,126 @@ TEST_CASE("an overlong title is capped", "[filescan][name]")
     CHECK(name.substr(name.size() - 3) == ".md");
 }
 
+// ---- Searching file contents ---------------------------------------------
+
+namespace {
+
+// A small tree to search: two levels, five documents, one of them not
+// Markdown so the walk's own filtering is exercised too.
+fs::path make_search_tree()
+{
+    const fs::path base = fs::temp_directory_path() / "mdboss_search";
+    std::error_code ec;
+    fs::remove_all(base, ec);
+    fs::create_directories(base / "deep" / "deeper", ec);
+
+    auto put = [](const fs::path& p, const std::string& text) {
+        std::ofstream out(p, std::ios::binary);
+        out << text;
+    };
+    put(base / "alpha.md", "# Alpha\n\nthe quick brown fox\nsecond line\n");
+    put(base / "beta.md", "# Beta\n\nnothing of interest here\n");
+    put(base / "deep" / "gamma.md", "# Gamma\n\nline one\nline two\nQUICK "
+                                    "shout\n");
+    put(base / "deep" / "deeper" / "delta.md", "# Delta\n\n   padded quick  \n");
+    put(base / "notes.txt", "quick but not markdown\n");
+    return base;
+}
+
+std::vector<std::string> names_of(const std::vector<mdboss::ContentMatch>& m)
+{
+    std::vector<std::string> out;
+    for (const auto& hit : m) {
+        out.push_back(mdboss::path_to_utf8(
+            mdboss::path_from_utf8(hit.path).filename()));
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("content search finds files at any depth", "[filescan][search]")
+{
+    const fs::path base = make_search_tree();
+    const auto hits =
+        mdboss::search_file_contents(mdboss::path_to_utf8(base), "quick");
+    // alpha (top), gamma (one down), delta (two down) -- and NOT beta, which
+    // does not contain it, nor notes.txt, which is not Markdown.
+    CHECK(names_of(hits) ==
+          std::vector<std::string>{"alpha.md", "delta.md", "gamma.md"});
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
+TEST_CASE("content search is case-insensitive", "[filescan][search]")
+{
+    const fs::path base = make_search_tree();
+    // gamma.md holds "QUICK" in caps; searching lowercase must still find it,
+    // and searching caps must find the lowercase ones.
+    CHECK(names_of(mdboss::search_file_contents(mdboss::path_to_utf8(base),
+                                                "QUICK"))
+              .size() == 3);
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
+TEST_CASE("a match reports its line number and text", "[filescan][search]")
+{
+    const fs::path base = make_search_tree();
+    const auto hits =
+        mdboss::search_file_contents(mdboss::path_to_utf8(base), "brown");
+    REQUIRE(hits.size() == 1);
+    // "# Alpha" is line 1, blank is 2, the text is line 3.
+    CHECK(hits.front().line == 3);
+    CHECK(hits.front().text == "the quick brown fox");
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
+TEST_CASE("the reported line is trimmed", "[filescan][search]")
+{
+    // delta.md's line is "   padded quick  " -- shown without the padding, or
+    // the tree fills with ragged whitespace.
+    const fs::path base = make_search_tree();
+    const auto hits =
+        mdboss::search_file_contents(mdboss::path_to_utf8(base), "padded");
+    REQUIRE(hits.size() == 1);
+    CHECK(hits.front().text == "padded quick");
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
+TEST_CASE("a too-short needle searches nothing", "[filescan][search]")
+{
+    // Guard against reading every file to match one letter, which returns
+    // essentially everything and costs the most to find out.
+    const fs::path base = make_search_tree();
+    CHECK(mdboss::search_file_contents(mdboss::path_to_utf8(base), "q").empty());
+    CHECK(mdboss::search_file_contents(mdboss::path_to_utf8(base), "").empty());
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
+TEST_CASE("a stop request abandons the search", "[filescan][search]")
+{
+    // The panel cancels a search the moment the query moves on; a search that
+    // ignored that would keep a worker reading files nobody is waiting for.
+    const fs::path base = make_search_tree();
+    const auto hits = mdboss::search_file_contents(
+        mdboss::path_to_utf8(base), "quick", [] { return true; });
+    CHECK(hits.empty());
+    std::error_code ec;
+    fs::remove_all(base, ec);
+}
+
+TEST_CASE("searching a missing root yields nothing, not a throw",
+          "[filescan][search]")
+{
+    CHECK(mdboss::search_file_contents("Z:\\no\\such\\place", "quick").empty());
+    CHECK(mdboss::search_file_contents("", "quick").empty());
+}
+
 // ---- Markdown image references -------------------------------------------
 
 TEST_CASE("an image beside the document is referenced relatively",

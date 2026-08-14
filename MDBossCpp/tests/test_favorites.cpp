@@ -227,3 +227,48 @@ TEST_CASE("the inbox is found as a root or inside one", "[inbox]")
 
     fs::remove_all(base, ec);
 }
+
+// ---- Flat-list folders ----------------------------------------------------
+//
+// In-memory only: Config::save() writes the real %APPDATA% profile, and a
+// test has no business touching that.
+
+TEST_CASE("any folder can be flattened, not just a root", "[config][flat]")
+{
+    mdboss::Config config;
+    // The point of the change: a subfolder is as flattenable as its root, and
+    // the two are independent of each other.
+    config.set_flat_folder("C:\\docs", true);
+    config.set_flat_folder("C:\\docs\\deep\\notes", true);
+    CHECK(config.is_flat_folder("C:\\docs"));
+    CHECK(config.is_flat_folder("C:\\docs\\deep\\notes"));
+    // A folder never flattened is not flat, and neither is one in between.
+    CHECK_FALSE(config.is_flat_folder("C:\\docs\\deep"));
+    CHECK_FALSE(config.is_flat_folder("C:\\other"));
+}
+
+TEST_CASE("flattening is a toggle, and toggling off forgets", "[config][flat]")
+{
+    mdboss::Config config;
+    config.set_flat_folder("C:\\docs", true);
+    CHECK(config.is_flat_folder("C:\\docs"));
+    config.set_flat_folder("C:\\docs", false);
+    CHECK_FALSE(config.is_flat_folder("C:\\docs"));
+    // Off on something already off is not an error and adds nothing.
+    config.set_flat_folder("C:\\never", false);
+    CHECK_FALSE(config.is_flat_folder("C:\\never"));
+}
+
+TEST_CASE("flattening twice does not double up the entry", "[config][flat]")
+{
+    // The stored list is what gets written to config.json; a duplicate would
+    // grow it without bound across sessions.
+    mdboss::Config config;
+    config.set_flat_folder("C:\\docs", true);
+    config.set_flat_folder("C:\\docs", true);
+    config.set_flat_folder("C:\\docs", true);
+    // One "off" must be enough to clear it -- which it is only if one "on"
+    // was ever stored.
+    config.set_flat_folder("C:\\docs", false);
+    CHECK_FALSE(config.is_flat_folder("C:\\docs"));
+}

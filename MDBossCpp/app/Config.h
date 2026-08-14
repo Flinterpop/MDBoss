@@ -55,11 +55,15 @@ public:
     const std::vector<std::string>& recents() const { return recents_; }
     bool hide_front_matter() const { return hide_front_matter_; }
 
-    // Whether a top-level root is shown as a flat list of its Markdown files
-    // rather than a folder tree.  Kept under a port-only `wx_flat_roots` key,
-    // keyed by the root's own path string (the same one stored in `roots`).
-    bool is_flat_root(const std::string& path) const;
-    void set_flat_root(const std::string& path, bool flat);
+    // Whether a folder is shown as a flat list of every Markdown file beneath
+    // it, rather than as a folder tree.  Any folder can be flattened, not only
+    // a top-level root.
+    //
+    // The JSON key stays `wx_flat_roots` even though it now holds subfolder
+    // paths too: it shipped under that name, and renaming it would silently
+    // discard the choices of anyone upgrading.
+    bool is_flat_folder(const std::string& path) const;
+    void set_flat_folder(const std::string& path, bool flat);
 
     // Which starter templates this profile has already been offered, under a
     // port-only `wx_seeded_templates` key.  Recorded by name so a starter
@@ -115,7 +119,7 @@ private:
     std::vector<Root> roots_;
     std::vector<std::string> favorites_;
     std::vector<std::string> recents_;
-    std::vector<std::string> flat_roots_;
+    std::vector<std::string> flat_folders_;
     std::vector<std::string> seeded_templates_;
     bool seeded_templates_known_ = false;
     bool hide_front_matter_ = false;

@@ -421,9 +421,11 @@ void MainFrame::build_panes()
         },
         [this](const std::string& path) { return config_.is_favorite(path); });
     files_->set_flat_hooks(
-        [this](const std::string& path) { return config_.is_flat_root(path); },
         [this](const std::string& path) {
-            config_.set_flat_root(path, !config_.is_flat_root(path));
+            return config_.is_flat_folder(path);
+        },
+        [this](const std::string& path) {
+            config_.set_flat_folder(path, !config_.is_flat_folder(path));
             config_.save();
         });
 

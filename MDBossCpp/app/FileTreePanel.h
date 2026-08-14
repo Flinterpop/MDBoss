@@ -7,8 +7,10 @@
 #ifndef MDBOSS_APP_FILE_TREE_PANEL_H
 #define MDBOSS_APP_FILE_TREE_PANEL_H
 
+#include <wx/checkbox.h>
 #include <wx/panel.h>
 #include <wx/textctrl.h>
+#include <wx/timer.h>
 #include <wx/treectrl.h>
 
 #include <atomic>
@@ -19,6 +21,7 @@
 #include <vector>
 
 #include "Config.h"
+#include "FileScan.h"
 
 namespace mdboss {
 
@@ -45,13 +48,14 @@ public:
         is_favorite_ = std::move(query);
     }
 
-    // Whether a top-level root is shown as a flat list, and toggling it.  The
-    // tree only shows the menu item and reflects the state; the app owns where
-    // it is stored.  `toggle` should flip and persist; the tree rebuilds after.
+    // Whether a folder -- any folder, root or subfolder -- is shown as a flat
+    // list, and toggling it.  The tree only shows the menu item and reflects
+    // the state; the app owns where it is stored.  `toggle` should flip and
+    // persist; the tree rebuilds after.
     void set_flat_hooks(std::function<bool(const std::string&)> query,
                         std::function<void(const std::string&)> toggle)
     {
-        is_flat_root_ = std::move(query);
+        is_flat_folder_ = std::move(query);
         on_toggle_flat_ = std::move(toggle);
     }
 
@@ -78,6 +82,11 @@ public:
     void refresh();
 
 private:
+    // True if `path` is one of the configured top-level roots.
+    bool is_root_path(const std::string& path) const;
+    // Add the files under `root` that matched on their text, each with the
+    // matching line beneath it.  Skips files the name filter already listed.
+    void append_content_hits(const wxTreeItemId& item, const std::string& root);
     void populate(const wxTreeItemId& item, const std::string& path);
     void on_expanding(wxTreeEvent& event);
     void on_activated(wxTreeEvent& event);
@@ -110,16 +119,36 @@ private:
     // tell that this panel is gone.
     void start_scan();
 
+    // Content search.  Reading every file cannot happen on the UI thread and
+    // cannot happen per keystroke, so the box starts a timer, the timer starts
+    // a worker, and the worker's results are dropped if the query moved on --
+    // the same generation-stamped shape as start_scan().
+    void on_search_timer(wxTimerEvent& event);
+    void start_content_search();
+    // The current query, or empty when content search is off, the box is
+    // empty, or the text is too short to be worth searching for.
+    std::string content_query() const;
+
     wxTextCtrl* filter_ = nullptr;
+    wxCheckBox* contents_ = nullptr;
     wxTreeCtrl* tree_ = nullptr;
     std::vector<Root> roots_;
     std::map<std::string, int> counts_;
+    // Results of the last completed search, keyed by root path.
+    std::map<std::string, std::vector<ContentMatch>> content_hits_;
+    // The query those results answer, so a stale tree can say so.
+    std::string searched_for_;
+    bool searching_ = false;
+    wxTimer search_timer_;
     std::shared_ptr<std::atomic<bool>> alive_;
     unsigned scan_generation_ = 0;
+    // Atomic, unlike scan_generation_: the search worker polls this to notice
+    // it has been superseded mid-walk, so it is read off the UI thread.
+    std::atomic<unsigned> search_generation_{0};
     std::function<void(const std::string&)> on_open_;
     std::function<void(const std::string&)> on_toggle_favorite_;
     std::function<bool(const std::string&)> is_favorite_;
-    std::function<bool(const std::string&)> is_flat_root_;
+    std::function<bool(const std::string&)> is_flat_folder_;
     std::function<void(const std::string&)> on_toggle_flat_;
     std::function<void()> on_import_to_inbox_;
     std::function<void()> on_manage_templates_;

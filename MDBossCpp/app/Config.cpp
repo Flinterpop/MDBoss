@@ -118,9 +118,10 @@ void Config::load()
 
     favorites_ = string_array(document, "favorites", kMaxFavorites);
     recents_ = string_array(document, "recents", kMaxRecents);
-    // One entry per root at most; the cap is a generous upper bound on how
-    // many roots the folders dialog will let a user add.
-    flat_roots_ = string_array(document, "wx_flat_roots", 256);
+    // Any folder can be flattened, not just a root, so the cap is well above
+    // the old one-per-root bound.  Entries past it are dropped, which loses a
+    // display preference and nothing else.
+    flat_folders_ = string_array(document, "wx_flat_roots", 4096);
     // One entry per starter the app ships; the cap is far above that.
     seeded_templates_ = string_array(document, "wx_seeded_templates", 256);
     seeded_templates_known_ = document.contains("wx_seeded_templates") &&
@@ -195,7 +196,7 @@ bool Config::save() const
     document["wx_show_editor"] = show_editor_;
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
-    document["wx_flat_roots"] = flat_roots_;
+    document["wx_flat_roots"] = flat_folders_;
     document["wx_seeded_templates"] = seeded_templates_;
 
     const std::filesystem::path file(path());
@@ -255,9 +256,9 @@ void Config::remove_favorite(const std::string& path)
     }
 }
 
-bool Config::is_flat_root(const std::string& path) const
+bool Config::is_flat_folder(const std::string& path) const
 {
-    for (const std::string& flat : flat_roots_) {
+    for (const std::string& flat : flat_folders_) {
         if (flat == path) {
             return true;
         }
@@ -265,19 +266,19 @@ bool Config::is_flat_root(const std::string& path) const
     return false;
 }
 
-void Config::set_flat_root(const std::string& path, bool flat)
+void Config::set_flat_folder(const std::string& path, bool flat)
 {
-    assert(!path.empty() && "a flat root needs a path");
-    for (auto it = flat_roots_.begin(); it != flat_roots_.end(); ++it) {
+    assert(!path.empty() && "a flat folder needs a path");
+    for (auto it = flat_folders_.begin(); it != flat_folders_.end(); ++it) {
         if (*it == path) {
             if (!flat) {
-                flat_roots_.erase(it);
+                flat_folders_.erase(it);
             }
             return;   // already present: nothing to add, only maybe remove
         }
     }
     if (flat) {
-        flat_roots_.push_back(path);
+        flat_folders_.push_back(path);
     }
 }
 

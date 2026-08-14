@@ -91,6 +91,114 @@ bool is_under_any_root(const std::string& path,
     return false;
 }
 
+namespace {
+
+// The matched line, trimmed and capped, ready to show in the tree.
+std::string excerpt_at(const std::string& text, std::size_t hit)
+{
+    constexpr std::size_t kMaxExcerpt = 160;
+    std::size_t begin = text.rfind('\n', hit);
+    begin = (begin == std::string::npos) ? 0 : begin + 1;
+    std::size_t end = text.find('\n', hit);
+    if (end == std::string::npos) {
+        end = text.size();
+    }
+    while (begin < end && (text[begin] == ' ' || text[begin] == '\t' ||
+                           text[begin] == '\r')) {
+        ++begin;
+    }
+    while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t' ||
+                           text[end - 1] == '\r')) {
+        --end;
+    }
+    std::string line = text.substr(begin, end - begin);
+    if (line.size() > kMaxExcerpt) {
+        line.resize(kMaxExcerpt);
+        line += "...";
+    }
+    return line;
+}
+
+// 1-based line number of the byte at `hit`.
+int line_number_at(const std::string& text, std::size_t hit)
+{
+    int line = 1;
+    // Not std::min: <windows.h> is included here and defines a min() macro,
+    // which turns std::min into a syntax error.
+    const std::size_t stop = (hit < text.size()) ? hit : text.size();
+    for (std::size_t i = 0; i < stop; ++i) {   // bounded by the file, capped
+        if (text[i] == '\n') {
+            ++line;
+        }
+    }
+    return line;
+}
+
+}  // namespace
+
+std::vector<ContentMatch> search_file_contents(
+    const std::string& root, const std::string& needle,
+    const std::function<bool()>& stop)
+{
+    std::vector<ContentMatch> matches;
+    if (root.empty() || needle.size() < kMinSearchNeedle) {
+        return matches;
+    }
+    const std::string wanted = to_lower(needle);
+
+    // An explicit worklist rather than recursion, and every loop below is
+    // bounded: a junction loop or a pathological tree must not be able to
+    // hang the search thread.
+    std::vector<std::string> pending{root};
+    std::size_t examined = 0;
+    while (!pending.empty() && examined < kMaxSearchFiles &&
+           matches.size() < kMaxSearchResults) {
+        if (stop && stop()) {
+            break;
+        }
+        const std::string dir = pending.back();
+        pending.pop_back();
+
+        for (const Entry& entry : list_directory(dir)) {
+            if (examined >= kMaxSearchFiles ||
+                matches.size() >= kMaxSearchResults) {
+                break;
+            }
+            if (entry.is_dir) {
+                pending.push_back(entry.path);
+                continue;
+            }
+            ++examined;
+
+            std::error_code ec;
+            const auto size = fs::file_size(path_from_utf8(entry.path), ec);
+            if (ec || size == 0 || size > kMaxSearchFileBytes) {
+                continue;   // unreadable, empty, or too big to be worth it
+            }
+            std::ifstream stream(path_from_utf8(entry.path), std::ios::binary);
+            if (!stream) {
+                continue;
+            }
+            std::ostringstream buffer;
+            buffer << stream.rdbuf();
+            const std::string text = strip_utf8_bom(buffer.str());
+
+            // Matched over bytes, lowercased ASCII-only, so a file that is
+            // not valid UTF-8 still searches rather than being skipped.
+            const std::size_t hit = to_lower(text).find(wanted);
+            if (hit == std::string::npos) {
+                continue;
+            }
+            ContentMatch match;
+            match.path = entry.path;
+            match.line = line_number_at(text, hit);
+            match.text = excerpt_at(text, hit);
+            matches.push_back(std::move(match));
+        }
+    }
+    return matches;
+}
+
 std::map<std::string, int> md_counts_for_root(const std::string& root)
 {
     std::map<std::string, int> counts;

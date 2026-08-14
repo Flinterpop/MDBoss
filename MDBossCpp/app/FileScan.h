@@ -9,6 +9,7 @@
 #define MDBOSS_APP_FILE_SCAN_H
 
 #include <cstddef>
+#include <functional>
 #include <map>
 #include <string>
 #include <string_view>
@@ -118,6 +119,36 @@ std::string markdown_image_link(const std::string& image_path,
 // document is outside it.
 bool is_under_any_root(const std::string& path,
                        const std::vector<std::string>& roots);
+
+// One file whose text matched a content search.
+struct ContentMatch {
+    std::string path;
+    // 1-based line number of the FIRST match, and that line's text, trimmed
+    // and length-capped.  Only the first: finding every hit in every file
+    // costs more than it tells you when the answer is "open this one".
+    int line = 0;
+    std::string text;
+};
+
+// Ceilings for a content search (Rule of 10 -- every one of these is a bound
+// on work done while the user waits).  Public so the caller can say what it
+// skipped rather than appear to have searched everything.
+inline constexpr std::size_t kMaxSearchFileBytes = 1u << 20;   // 1 MiB
+inline constexpr std::size_t kMaxSearchFiles = 20000;
+inline constexpr std::size_t kMaxSearchResults = 500;
+// Below this a content search matches so much that the result is noise.
+inline constexpr std::size_t kMinSearchNeedle = 2;
+
+// Markdown files at or below `root` whose text contains `needle`, matched
+// case-insensitively over bytes.
+//
+// Never throws and never reports a per-file failure: an unreadable file is
+// simply not a match, because the caller's response either way is the same.
+// `stop` is polled between files so a search the user has already typed past
+// can be abandoned; pass an empty function to run to completion.
+std::vector<ContentMatch> search_file_contents(
+    const std::string& root, const std::string& needle,
+    const std::function<bool()>& stop = {});
 
 // Recursive Markdown count for every folder at or below `root`.
 //

@@ -27,6 +27,11 @@ namespace {
 // Bound on how deep a filtered search will walk (Rule of 10).
 constexpr int kMaxFilterDepth = 24;
 
+// How long the content search waits for typing to stop.  Long enough that a
+// word typed at speed starts one search rather than one per letter, short
+// enough not to feel like a pause.
+constexpr int kSearchDebounceMs = 350;
+
 // Non-ASCII UI text must be a WIDE literal.  A narrow "…" in a UTF-8 source
 // is handed to wxString as bytes and decoded in the current ANSI codepage,
 // which renders as "â€¦".  Wide literals are unambiguous.  mojibake-ok: that
@@ -106,16 +111,30 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
     filter_ = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition,
                              wxDefaultSize, wxTE_PROCESS_ENTER);
     filter_->SetHint(L"Filter files…");
+    contents_ = new wxCheckBox(this, wxID_ANY, L"Contents");
+    contents_->SetToolTip(
+        L"Also match text inside files, not just their names.  Searching "
+        L"reads every Markdown file under each root, so it runs in the "
+        L"background and needs at least two characters.");
     tree_ = new wxTreeCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                            wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT |
                                wxTR_LINES_AT_ROOT);
 
+    // The box and its modifier on one row: the checkbox changes what the text
+    // beside it means, so putting it anywhere else would hide that.
+    auto* top = new wxBoxSizer(wxHORIZONTAL);
+    top->Add(filter_, 1, wxEXPAND | wxALL, 2);
+    top->Add(contents_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 4);
+
     auto* sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(filter_, 0, wxEXPAND | wxALL, 2);
+    sizer->Add(top, 0, wxEXPAND);
     sizer->Add(tree_, 1, wxEXPAND);
     SetSizer(sizer);
 
     filter_->Bind(wxEVT_TEXT, &FileTreePanel::on_filter, this);
+    contents_->Bind(wxEVT_CHECKBOX, &FileTreePanel::on_filter, this);
+    search_timer_.SetOwner(this);
+    Bind(wxEVT_TIMER, &FileTreePanel::on_search_timer, this);
     tree_->Bind(wxEVT_TREE_ITEM_EXPANDING, &FileTreePanel::on_expanding, this);
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, &FileTreePanel::on_activated, this);
     tree_->Bind(wxEVT_LEFT_DOWN, &FileTreePanel::on_left_click, this);
@@ -206,19 +225,97 @@ void FileTreePanel::rebuild()
         // Markdown files directly under it rather than as a folder tree --
         // populate_filtered with an empty needle matches every file.  Useful
         // for a deep folder structure that holds only a handful of documents.
-        const bool flat = is_flat_root_ && is_flat_root_(root.path);
-        if (needle.empty() && !flat) {
+        const bool flat = is_flat_folder_ && is_flat_folder_(root.path);
+        const bool searching = !content_query().empty();
+        if (needle.empty() && !flat && !searching) {
             // Lazily populated: a placeholder makes the expander appear.
             tree_->AppendItem(item, kLazyPlaceholder);
         } else {
             populate_filtered(item, root.path, needle, 0);
+            if (searching) {
+                append_content_hits(item, root.path);
+            }
             tree_->Expand(item);
         }
     }
 }
 
+void FileTreePanel::append_content_hits(const wxTreeItemId& item,
+                                        const std::string& root)
+{
+    // The name filter has already listed whatever matched by name; these are
+    // the files that matched only on their text.  Anything already shown is
+    // skipped so a file matching both ways appears once.
+    std::vector<std::string> shown;
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
+        auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(child));
+        if (data != nullptr) {
+            shown.push_back(norm_path(data->path()));
+        }
+    }
+
+    if (searching_) {
+        tree_->AppendItem(item, L"searching…");
+        return;
+    }
+    const auto found = content_hits_.find(root);
+    if (found == content_hits_.end()) {
+        return;
+    }
+
+    for (const ContentMatch& match : found->second) {   // bounded by the cap
+        const std::string key = norm_path(match.path);
+        bool already = false;
+        for (const std::string& seen : shown) {
+            if (seen == key) {
+                already = true;
+                break;
+            }
+        }
+        if (already) {
+            continue;
+        }
+        const std::string name =
+            path_to_utf8(path_from_utf8(match.path).filename());
+        const wxTreeItemId file =
+            tree_->AppendItem(item, wxString::FromUTF8(name));
+        tree_->SetItemData(file, new ItemData(match.path, true));
+
+        // The matching line as a child, so you can see why the file matched
+        // without opening it.  It carries the file's path too: clicking the
+        // reason should open the thing it is a reason for.
+        const wxTreeItemId hit = tree_->AppendItem(
+            file, wxString::Format("%d: ", match.line) +
+                      wxString::FromUTF8(match.text));
+        tree_->SetItemData(hit, new ItemData(match.path, true));
+        tree_->Expand(file);
+    }
+}
+
+bool FileTreePanel::is_root_path(const std::string& path) const
+{
+    // Exact compare: a root's path in the tree is the same string the config
+    // entry holds, both having come from there.
+    for (const Root& root : roots_) {   // bounded by the configured roots
+        if (root.path == path) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void FileTreePanel::populate(const wxTreeItemId& item, const std::string& path)
 {
+    // A flattened folder shows every Markdown file beneath it and no
+    // subfolders at all.  populate_filtered with an empty needle matches every
+    // file, which is exactly that.  Dispatching here rather than at the call
+    // sites means expanding one, restoring one, and rebuilding one all agree.
+    if (is_flat_folder_ && is_flat_folder_(path)) {
+        populate_filtered(item, path, "", 0);
+        return;
+    }
     for (const Entry& entry : list_directory(path)) {
         if (entry.is_dir) {
             // Counts are recursive, so 0 means nothing is being concealed.
@@ -310,8 +407,85 @@ void FileTreePanel::on_left_click(wxMouseEvent& event)
 
 void FileTreePanel::on_filter(wxCommandEvent& event)
 {
+    // Redraw on the name filter straight away -- that costs a directory
+    // listing -- and let the content search catch up behind it.
     rebuild();
+    if (content_query().empty()) {
+        content_hits_.clear();
+        searched_for_.clear();
+        searching_ = false;
+        search_timer_.Stop();
+    } else {
+        // Coalesce keystrokes.  Without this every letter of a five-letter
+        // word starts a full-tree read, and four of the five are wasted.
+        search_timer_.Start(kSearchDebounceMs, wxTIMER_ONE_SHOT);
+    }
     event.Skip();
+}
+
+std::string FileTreePanel::content_query() const
+{
+    if (contents_ == nullptr || !contents_->GetValue()) {
+        return {};
+    }
+    const std::string text = lowered(std::string(filter_->GetValue().ToUTF8()));
+    if (text.size() < kMinSearchNeedle) {
+        return {};
+    }
+    return text;
+}
+
+void FileTreePanel::on_search_timer(wxTimerEvent&)
+{
+    start_content_search();
+}
+
+void FileTreePanel::start_content_search()
+{
+    const std::string needle = content_query();
+    if (needle.empty() || roots_.empty()) {
+        return;
+    }
+    if (!alive_) {
+        alive_ = std::make_shared<std::atomic<bool>>(true);
+    }
+    const unsigned generation = ++search_generation_;
+    const std::vector<Root> roots = roots_;
+    std::shared_ptr<std::atomic<bool>> alive = alive_;
+
+    searching_ = true;
+    rebuild();   // show "searching…" while the worker runs
+
+    std::thread([this, roots, needle, generation, alive] {
+        std::map<std::string, std::vector<ContentMatch>> hits;
+        for (const Root& root : roots) {   // bounded by the roots list
+            if (!alive->load() || generation != search_generation_.load()) {
+                return;   // the query moved on; the answer is worthless
+            }
+            // Nothing may escape a detached thread: an uncaught exception is
+            // std::terminate, a hard crash with no message.  Guarded per root
+            // rather than around the loop, for the reason start_scan()
+            // records -- one unreadable root must not discard the rest.
+            try {
+                hits[root.path] = search_file_contents(
+                    root.path, needle, [this, generation, alive] {
+                        return !alive->load() ||
+                               generation != search_generation_.load();
+                    });
+            } catch (...) {
+                // This root contributes nothing; the others still search.
+            }
+        }
+        wxTheApp->CallAfter([this, hits, needle, generation, alive] {
+            if (!alive->load() || generation != search_generation_.load()) {
+                return;
+            }
+            content_hits_ = hits;
+            searched_for_ = needle;
+            searching_ = false;
+            rebuild();
+        });
+    }).detach();
 }
 
 // ----------------------------------------------------------- refreshing --
@@ -380,11 +554,13 @@ void FileTreePanel::restore_expanded(const wxTreeItemId& item,
     if (data == nullptr || data->is_file()) {
         return;
     }
-    // A flat root was already fully populated and expanded by rebuild(); its
-    // children are files, not lazily-loaded folders.  Re-populating it here
-    // with the normal populate() would replace the flat list with a folder
-    // tree -- which is exactly the bug this guard prevents.
-    if (is_flat_root_ && is_flat_root_(data->path())) {
+    // A flat ROOT was already fully populated and expanded by rebuild(), so
+    // there is nothing to restore and re-listing it would only throw the same
+    // files away and read them again.  A flat SUBFOLDER is not exempt: it sits
+    // behind a lazy placeholder like any other, and populate() now knows to
+    // give it a flat listing.
+    if (is_flat_folder_ && is_flat_folder_(data->path()) &&
+        is_root_path(data->path())) {
         return;
     }
     const std::string key = norm_path(data->path());
@@ -426,20 +602,6 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     const std::string dir =
         is_file ? path_to_utf8(path_from_utf8(path).parent_path()) : path;
 
-    // The flat-list toggle is offered only on a top-level root -- it is a
-    // property of the whole root, not of a subfolder within it.  Roots store
-    // the exact path string the toggle is keyed by, so an exact compare is
-    // enough (both come from the same config entry).
-    bool is_root = false;
-    if (!is_file) {
-        for (const Root& root : roots_) {
-            if (root.path == path) {
-                is_root = true;
-                break;
-            }
-        }
-    }
-
     wxMenu menu;
     if (is_file) {
         menu.Append(kIdOpen, "&Open");
@@ -476,11 +638,14 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         menu.Append(kIdFavorite,
                     favorite ? "Remove from fa&vorites" : "Add to fa&vorites");
     }
-    if (is_root && on_toggle_flat_) {
+    // Offered on any folder, not just a top-level root: a deep subtree holding
+    // a handful of documents is exactly as tedious to click through whether it
+    // starts at a root or three levels down.
+    if (!is_file && on_toggle_flat_) {
         menu.AppendSeparator();
         wxMenuItem* flat = menu.AppendCheckItem(kIdFlatList,
                                                 "Show as flat &list");
-        flat->Check(is_flat_root_ && is_flat_root_(path));
+        flat->Check(is_flat_folder_ && is_flat_folder_(path));
     }
     if (on_import_to_inbox_ || on_manage_folders_) {
         menu.AppendSeparator();

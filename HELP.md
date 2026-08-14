@@ -26,12 +26,9 @@ without them.
   the **Files** list: your roots as a combined tree, where each folder shows the
   number of Markdown files within it (counted recursively). Folders with no
   Markdown files anywhere inside them are not listed. A **single click** on a
-  file opens it. Filter with the box above the tree. Right-click a file for
+  file opens it. Filter with the box above the tree — see **Searching** below. Right-click a file for
   New file/folder, Rename, Delete (to the Recycle Bin), Reveal in Explorer,
-  Copy path, and Favorite. Right-click a **top-level folder** and choose
-  **Show as flat list** to list all of its Markdown files at once instead of a
-  tree — useful for a deep folder structure with only a few documents; the
-  choice is remembered per folder.
+  Copy path, and Favorite. Right-click **any folder** — a root or a subfolder at any depth — and choose **Show as flat list** to list every Markdown file beneath it at once instead of a tree. Useful for a deep structure holding only a few documents. Each folder is independent: one subfolder can be flat while its siblings and its root stay trees, and the count beside a flattened folder is exactly how many files it lists. The choice is remembered per folder.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
 - **Recent** (top of the left pane) — the last six documents you opened, newest
@@ -195,6 +192,30 @@ The editor and preview scroll together in both directions: scroll or type in
 the source pane and the preview follows; scroll the preview and the editor
 follows. The position is matched proportionally, so it stays roughly aligned
 even though the source and rendered document differ in height.
+
+## Searching
+
+The box above the tree filters by **filename** as you type. Tick **Contents** beside it to search the **text inside files** as well, and the tree shows both — files whose name matches and files whose text does, each text match with the line number and the line itself so you can see why it matched without opening it:
+
+```text
+Notes  (412)
+   install-guide.md
+      30: sudo systemctl stop the service
+   troubleshooting.md
+      23: > sudo systemctl stop the service
+```
+
+Clicking either the file or the matching line opens the file.
+
+Only the **first** match in each file is shown — the point is to find the right document, not to replace a grep. Matching is case-insensitive.
+
+A few limits, all of them there because a content search reads every Markdown file under every root:
+
+- It needs at least **two characters**. One letter matches almost everything and costs the most to find out.
+- It runs **in the background**, starting once you stop typing for a moment, so the window never freezes while it works. The tree shows *searching…* until results arrive, and a search you type past is abandoned rather than finishing into a stale list.
+- Files over **1 MB** are skipped, and the search stops after 20,000 files or 500 matches.
+
+Untick **Contents** to go back to filtering by name alone. The setting is not remembered between runs; the box always starts as a plain filename filter.
 
 ## Templates
 

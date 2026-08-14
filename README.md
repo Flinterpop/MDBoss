@@ -25,10 +25,16 @@ the same app lives in the repo but is **deprecated** — see
   **A single click opens a file.** Filter box, and full right-click file
   management (new from template, new folder, rename, delete (to the Recycle
   Bin), reveal in File Explorer, copy path).
-- **Flat-list view:** right-click a top-level folder and choose **Show as
-  flat list** to see all of its Markdown files in one list instead of a
-  folder tree — handy for a deep structure holding only a few documents. The
-  choice is remembered per folder.
+- **Flat-list view:** right-click any folder — a root or a subfolder at any
+  depth — and choose **Show as flat list** to see every Markdown file beneath
+  it in one list instead of a folder tree — handy for a deep structure holding
+  only a few documents. Each folder is independent, so one subfolder can be
+  flat while its siblings stay trees. The choice is remembered per folder.
+- **Search inside files:** the filter box matches filenames as you type; tick
+  **Contents** beside it to search the text inside every Markdown file under
+  your roots as well. Each text match is listed with its line number and the
+  matching line. Runs in the background so the window never freezes, and a
+  search you type past is abandoned rather than finishing into a stale list.
 - Recent documents at the top of the left pane: the last six you opened,
   newest-first, maintained automatically.
 - Favorites below Recent (both resizable): newest-first, up to ten, with a
