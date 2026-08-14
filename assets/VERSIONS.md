@@ -15,13 +15,13 @@ recorded here and not on disk is worse than no record at all.
 
 | File | Version | Upstream | Licence |
 |---|---|---|---|
-| `highlight/highlight.min.js` | 11.11.1 | highlight.js | BSD-3-Clause |
-| `highlight/github.min.css` | 11.11.1 | highlight.js, `styles/github.min.css` | BSD-3-Clause |
-| `katex/katex.min.js` | 0.17.0 | KaTeX | MIT |
-| `katex/katex.min.css` | 0.17.0 | KaTeX | MIT |
-| `katex/fonts/*.woff2` (20 files) | 0.17.0 | KaTeX | MIT (fonts: OFL) |
+| `highlight/highlight.min.js` | 11.12.0 | highlight.js | BSD-3-Clause |
+| `highlight/github.min.css` | 11.12.0 | highlight.js, `styles/github.min.css` | BSD-3-Clause |
+| `katex/katex.min.js` | 0.18.4 | KaTeX | MIT |
+| `katex/katex.min.css` | 0.18.4 | KaTeX | MIT |
+| `katex/fonts/*.woff2` (20 files) | 0.18.4 | KaTeX | MIT (fonts: OFL) |
 | `mermaid.min.js` | 11.16.1 | mermaid | MIT |
-| `github-markdown-light.css` | unrecorded | github-markdown-css | MIT |
+| `github-markdown-light.css` | 5.9.0 | github-markdown-css | MIT |
 | `pygments-github.css` | generated | Pygments `HtmlFormatter(style="default")` | BSD-2-Clause |
 
 ## How each version was established
@@ -46,9 +46,14 @@ Recorded from the files themselves, not from memory:
   `cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.min.js`; the embedded
   version string was checked but the bundle is otherwise unverified against a
   publisher signature, which npm does not offer for a CDN file.
-- **github-markdown-css** embeds nothing, and the file has been edited (it
-  opens `/*light */`). Its version is genuinely unknown and is left that way
-  rather than invented. If it is ever replaced, record the version then.
+- **github-markdown-css** embeds nothing, and was long recorded here as
+  "unrecorded" on the reasoning that the file had been edited because it opens
+  `/*light */`. That inference was wrong: `/*light */` is upstream's own first
+  line for the light build, and the vendored file is byte-for-byte identical
+  (SHA-256 `de2d14b5…d885`) to
+  `github-markdown-css@5.9.0/github-markdown-light.css`. Established on
+  2026-08-14 by hashing the two. Nothing was replaced; only the record was
+  wrong.
 - **pygments-github.css** is not vendored so much as generated, by Pygments'
   own `HtmlFormatter`. It therefore tracks whichever Pygments produced it, not
   a release of its own. Regenerate with:

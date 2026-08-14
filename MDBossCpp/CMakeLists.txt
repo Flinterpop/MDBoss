@@ -12,18 +12,28 @@
 #                              md4c:x64-windows-static catch2:x64-windows-static ^
 #                              nlohmann-json:x64-windows-static
 #
-# Note what is NOT in that line: wxwidgets[webview].  The preview is a
-# WebView2 this app creates and owns, because wxWebView's Edge backend never
-# delivers WebResourceRequested and so cannot block a remote request -- see
-# app/PreviewPane.h.  Installing the feature would offer a wx::webview that
-# must not be used, which is worse than not having it.
+# That line omits wxwidgets[webview] on purpose: the preview is a WebView2 this
+# app creates and owns, because wxWebView's Edge backend never delivers
+# WebResourceRequested and so cannot block a remote request -- see
+# app/PreviewPane.h.  Note the feature IS present in the machine-wide install
+# anyway (vcpkg reports wxwidgets[core,debug-support,sound,webview]); nothing
+# here uses it, and the reason it must not be used is above.
 #
-# Then configure, build and test.  There is no CMakePresets.json -- these are
-# the commands release.ps1 runs, so they are the ones kept working:
+# CONFIGURING FROM SCRATCH NEEDS THE PRESET.  CMakePresets.json carries the
+# vcpkg toolchain file, and CMake only honours CMAKE_TOOLCHAIN_FILE on the
+# FIRST configure of a build directory -- so a bare `cmake -S . -B build` into
+# an empty directory fails at find_package(nlohmann_json), and re-running with
+# the preset afterwards cannot repair it because the toolchain-less cache
+# already exists.  Delete the directory and start with the preset:
 #
-#   cmake -S . -B build
-#   cmake --build build --config Release
+#   cmake --preset windows-static
+#   cmake --build --preset release
 #   ctest --test-dir build -C Release --output-on-failure
+#
+# release.ps1 runs the bare `cmake -S . -B build` form, which works only
+# because it configures a build directory that already has a cache.  That is
+# why this comment used to claim there was no presets file: nobody had
+# configured from scratch in a long time.
 
 cmake_minimum_required(VERSION 3.21)
 
