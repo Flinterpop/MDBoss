@@ -28,7 +28,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 # Kept in step with app/Version.h by release.ps1; test_version.cpp enforces it.
-project(MDBossCpp VERSION 1.2.4 LANGUAGES CXX)
+project(MDBossCpp VERSION 1.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
