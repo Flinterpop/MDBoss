@@ -20,7 +20,7 @@ recorded here and not on disk is worse than no record at all.
 | `katex/katex.min.js` | 0.17.0 | KaTeX | MIT |
 | `katex/katex.min.css` | 0.17.0 | KaTeX | MIT |
 | `katex/fonts/*.woff2` (20 files) | 0.17.0 | KaTeX | MIT (fonts: OFL) |
-| `mermaid.min.js` | 11.16.0 | mermaid | MIT |
+| `mermaid.min.js` | 11.16.1 | mermaid | MIT |
 | `github-markdown-light.css` | unrecorded | github-markdown-css | MIT |
 | `pygments-github.css` | generated | Pygments `HtmlFormatter(style="default")` | BSD-2-Clause |
 
@@ -32,8 +32,20 @@ Recorded from the files themselves, not from memory:
   theme has no banner and is only meaningful paired with that release, so it
   carries the same number.
 - **KaTeX** embeds `version:"0.17.0"` in the bundle.
-- **mermaid** embeds `{version:"11.16.0"}` next to its own accessor. The other
+- **mermaid** embeds `{version:"11.16.1"}` next to its own accessor. The other
   version string in that file belongs to DOMPurify; see above.
+
+  Raised from 11.16.0 to 11.16.1 on 2026-08-14 by a rot check: the GitHub
+  Advisory Database listed five advisories against 11.16.0, all first patched
+  in 11.16.1 — radar-diagram DoS (GHSA-rhh3-jpg6-66xh), XY-chart infinite-loop
+  DoS (GHSA-2v8p-3f2j-5mp7), prototype pollution via the configuration APIs
+  (GHSA-c4c3-pg64-4m4v) and via architecture diagrams (GHSA-3rrr-jr9j-h3q3),
+  and CSS injection into siblings of the diagram (GHSA-6x64-9x62-f2gx). The
+  preview being network-locked bounds the impact but does not remove it: the
+  input is a document, and a document can be malformed or hostile. Taken from
+  `cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.min.js`; the embedded
+  version string was checked but the bundle is otherwise unverified against a
+  publisher signature, which npm does not offer for a CDN file.
 - **github-markdown-css** embeds nothing, and the file has been edited (it
   opens `/*light */`). Its version is genuinely unknown and is left that way
   rather than invented. If it is ever replaced, record the version then.
