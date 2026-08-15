@@ -17,6 +17,10 @@ It ships as a native **C++ / wxWidgets** build. (A Python/PySide6 version of
 the same app lives in the repo but is **deprecated** — see
 [The Python app (deprecated)](#the-python-app-deprecated) below.)
 
+## Screenshot
+<img width="2510" height="1628" alt="image" src="https://github.com/user-attachments/assets/720d7dd5-5ae2-474c-8fe0-a85dc809b7cd" />
+
+
 ## Features
 
 **Browse & manage**
