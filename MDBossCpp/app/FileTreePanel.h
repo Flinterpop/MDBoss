@@ -104,6 +104,12 @@ private:
                           std::vector<std::string>& out, int depth) const;
     void restore_expanded(const wxTreeItemId& item,
                           const std::vector<std::string>& paths, int depth);
+    // The item currently showing `path`, or an invalid id if it is not on
+    // screen.  Rebuilding destroys every item, so putting the user back where
+    // they were means finding the row again by path afterwards.
+    wxTreeItemId find_item(const std::string& path) const;
+    wxTreeItemId find_item_under(const wxTreeItemId& item,
+                                 const std::string& key, int depth) const;
 
     // Context-menu actions.  Each ends in refresh() so counts stay honest.
     // An empty `template_path` gives the blank "# <name>" body; otherwise the

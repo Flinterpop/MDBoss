@@ -585,6 +585,49 @@ void FileTreePanel::restore_expanded(const wxTreeItemId& item,
     }
 }
 
+wxTreeItemId FileTreePanel::find_item(const std::string& path) const
+{
+    const wxTreeItemId hidden = tree_->GetRootItem();
+    if (!hidden.IsOk() || path.empty()) {
+        return wxTreeItemId();
+    }
+    const std::string key = norm_path(path);
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
+         root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
+        const wxTreeItemId found = find_item_under(root, key, 0);
+        if (found.IsOk()) {
+            return found;
+        }
+    }
+    return wxTreeItemId();
+}
+
+wxTreeItemId FileTreePanel::find_item_under(const wxTreeItemId& item,
+                                            const std::string& key,
+                                            int depth) const
+{
+    if (depth > kMaxFilterDepth || !item.IsOk()) {
+        return wxTreeItemId();
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+    if (data != nullptr && norm_path(data->path()) == key) {
+        return item;
+    }
+    // Only what is already built is searched -- an unexpanded folder holds a
+    // placeholder, and reading the disk to answer "where was I" would undo the
+    // laziness the whole tree is built on.
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
+        const wxTreeItemId found = find_item_under(child, key, depth + 1);
+        if (found.IsOk()) {
+            return found;
+        }
+    }
+    return wxTreeItemId();
+}
+
 // -------------------------------------------------------- context menu --
 
 void FileTreePanel::on_context_menu(wxTreeEvent& event)
@@ -713,7 +756,29 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         if (on_toggle_flat_) {
             on_toggle_flat_(path);   // flips and persists
         }
-        rebuild();                   // redraw this root in its new shape
+        // With a filter or a content search running there is no folder tree to
+        // stay on -- every root already shows a flat list of matching files --
+        // so redraw plainly.  (rebuild_preserving_expansion() would re-list the
+        // roots as folders and drop the filtered view.)
+        if (!filter_->GetValue().IsEmpty() || !content_query().empty()) {
+            rebuild();
+            return;
+        }
+        // Otherwise redraw in the new shape *without* throwing the user back to
+        // the start view.  A plain rebuild() collapses every root to its lazy
+        // placeholder, so flattening a subfolder three levels down left the
+        // folder just toggled off screen entirely -- the one thing the user was
+        // looking at.
+        rebuild_preserving_expansion();
+        const wxTreeItemId item = find_item(path);
+        if (item.IsOk()) {
+            // Expand as well as select: the whole point of the command is to
+            // see the flat listing, and the folder may have been collapsed
+            // when the menu was raised.
+            tree_->Expand(item);
+            tree_->SelectItem(item);
+            tree_->EnsureVisible(item);
+        }
     }, kIdFlatList);
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         if (on_import_to_inbox_) {
