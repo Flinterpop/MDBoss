@@ -495,9 +495,9 @@ void MainFrame::build_panes()
     }
 
     files_->set_roots(config_.roots());
-    // Reopen the folders that were open last time.  Safe before the counting
-    // scan finishes: the rebuild it triggers carries over whatever is on
-    // screen, so this is restored rather than raced.
+    // Reopen the folders that were open last time.  The tree holds the set
+    // until its scan has produced rows to expand, so handing it over here --
+    // before anything has been scanned -- is the intended order.
     files_->set_expanded_folders(config_.expanded_folders());
     refresh_lists();
 

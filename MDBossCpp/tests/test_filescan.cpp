@@ -81,7 +81,7 @@ TEST_CASE("is_markdown accepts the documented extensions", "[filescan]")
 TEST_CASE("markdown counts are recursive", "[filescan]")
 {
     const TempTree tree;
-    const auto counts = mdboss::md_counts_for_root(tree.path());
+    const auto counts = mdboss::scan_root(tree.path()).counts;
 
     const auto at = [&counts](const std::string& path) {
         const auto found = counts.find(mdboss::norm_path(path));
@@ -98,6 +98,44 @@ TEST_CASE("markdown counts are recursive", "[filescan]")
     // it counts 0, at every level, so hiding it conceals nothing.
     CHECK(at(tree.sub("Empty")) == 0);
     CHECK(at(tree.sub("Empty/Deeper")) == 0);
+}
+
+TEST_CASE("the scan lists every document with its folder", "[filescan]")
+{
+    // The tree is built from these entries, so what is here is exactly what
+    // can appear: a document the scan misses is a document the tree cannot
+    // show, there being no second listing of the disk to fall back on.
+    const TempTree tree;
+    const auto entries = mdboss::scan_root(tree.path()).entries;
+
+    REQUIRE(entries.size() == 4);   // the .txt files are not documents
+
+    // Sorted by folder, then by name within it -- the order the rows appear
+    // in, decided once by the scan rather than at every rebuild.
+    CHECK(entries[0].name == "top.md");
+    CHECK(entries[0].relative_dir.empty());   // directly in the root
+    CHECK(entries[1].name == "alpha.md");
+    CHECK(entries[1].relative_dir == "Notes");
+    CHECK(entries[2].name == "beta.md");
+    CHECK(entries[2].relative_dir == "Notes");
+    CHECK(entries[3].name == "gamma.md");
+    // Forward slashes, whatever the platform separator is: the tree splits
+    // this string into one node per component, and a backslash here would put
+    // the whole path on a single row.
+    CHECK(entries[3].relative_dir == "Notes/Sub");
+
+    // The path is absolute and openable, not relative to anything.  Compared
+    // through norm_path because that is how the app compares paths at all --
+    // the fixture builds its expectation with '/' and the scan reports the
+    // platform separator, and neither spelling is more correct than the other.
+    CHECK(mdboss::norm_path(entries[3].path) ==
+          mdboss::norm_path(tree.sub("Notes/Sub/gamma.md")));
+
+    // Folders holding no documents contribute no entries at all, which is what
+    // keeps them out of the tree.
+    for (const mdboss::DocEntry& entry : entries) {
+        CHECK(entry.relative_dir.find("Empty") == std::string::npos);
+    }
 }
 
 TEST_CASE("directory listing is ordered and filtered", "[filescan]")
@@ -169,7 +207,7 @@ TEST_CASE("scan a real folder", "[.][scanprobe]")
                    << is_dir << " (" << dir_ec.message() << ")");
 
     const auto start = std::chrono::steady_clock::now();
-    const auto counts = mdboss::md_counts_for_root(root);
+    const auto counts = mdboss::scan_root(root).counts;
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start);
 
@@ -182,9 +220,9 @@ TEST_CASE("scan a real folder", "[.][scanprobe]")
 
 TEST_CASE("a missing root yields no counts rather than zeros", "[filescan]")
 {
-    const auto counts =
-        mdboss::md_counts_for_root("Z:\\definitely\\not\\here");
-    CHECK(counts.empty());
+    const auto scan = mdboss::scan_root("Z:\\definitely\\not\\here");
+    CHECK(scan.counts.empty());
+    CHECK(scan.entries.empty());
 }
 
 TEST_CASE("a byte-order mark is stripped from content", "[filescan]")

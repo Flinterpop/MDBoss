@@ -150,13 +150,39 @@ std::vector<ContentMatch> search_file_contents(
     const std::string& root, const std::string& needle,
     const std::function<bool()>& stop = {});
 
-// Recursive Markdown count for every folder at or below `root`.
+// One Markdown file found beneath a root.
+struct DocEntry {
+    std::string path;          // absolute, UTF-8
+    std::string name;          // leaf filename, UTF-8
+    std::string relative_dir;  // "" directly in the root; '/'-separated, UTF-8
+    // Which configured root this came from.  scan_root() knows nothing about
+    // the roots list and always leaves this 0; the caller fills it in.
+    std::size_t root_index = 0;
+};
+
+// Ceiling on documents recorded for one root (Rule of 10).  The tree builds an
+// item per entry, so this bounds both memory and the work of a rebuild; a root
+// past it is truncated rather than allowed to stall the UI thread.
+inline constexpr std::size_t kMaxEntriesPerRoot = 100000;
+
+// Every Markdown file at or below `root`, and the recursive Markdown count for
+// every folder walked.
 //
-// A single bottom-up walk lets each folder sum its own files plus its
-// children's totals.  A folder *missing* from the result was never walked --
-// a junction, or unreadable -- which the tree treats differently from a
-// folder that really holds zero.
-std::map<std::string, int> md_counts_for_root(const std::string& root);
+// ONE walk answers both, which is the point: the tree needs the files to build
+// itself and the counts to label its folders, and walking twice for those was
+// measurably slow over a few thousand files.  A single bottom-up roll-up lets
+// each folder sum its own files plus its children's totals.
+//
+// A folder missing from `counts` was never walked -- a junction, or
+// unreadable.  It contributes no entries either, so it simply does not appear
+// in the tree: with nothing listing directories independently of this walk,
+// there is no longer a way to show a folder the walk could not read.
+struct RootScan {
+    std::vector<DocEntry> entries;
+    std::map<std::string, int> counts;
+};
+
+RootScan scan_root(const std::string& root);
 
 // One entry of a directory listing, already ordered the way the tree shows
 // them: directories first, then files, each case-insensitively by name.

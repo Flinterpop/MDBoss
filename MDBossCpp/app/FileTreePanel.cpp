@@ -40,13 +40,12 @@ constexpr int kMaxFilterDepth = 24;
 // enough not to feel like a pause.
 constexpr int kSearchDebounceMs = 350;
 
-// Non-ASCII UI text must be a WIDE literal.  A narrow "…" in a UTF-8 source
-// is handed to wxString as bytes and decoded in the current ANSI codepage,
-// which renders as "â€¦".  Wide literals are unambiguous.  mojibake-ok: that
-// example is meant to look broken; see the encoding guard in test_sources.
-const wchar_t* const kLazyPlaceholder = L"…";
-
 // Appended to a folder row that is showing as a flat list.
+//
+// Non-ASCII UI text must be a WIDE literal.  A narrow "…" in a UTF-8 source is
+// handed to wxString as bytes and decoded in the current ANSI codepage, which
+// renders as "â€¦".  Wide literals are unambiguous.  mojibake-ok: that example
+// is meant to look broken; see the encoding guard in test_sources.
 const wchar_t* const kFlatSuffix = L"  (flat)";
 
 // Per-item payload: the path, and whether it is a file we can open.
@@ -146,7 +145,8 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
     contents_->Bind(wxEVT_CHECKBOX, &FileTreePanel::on_filter, this);
     search_timer_.SetOwner(this);
     Bind(wxEVT_TIMER, &FileTreePanel::on_search_timer, this);
-    tree_->Bind(wxEVT_TREE_ITEM_EXPANDING, &FileTreePanel::on_expanding, this);
+    tree_->Bind(wxEVT_TREE_ITEM_EXPANDED, &FileTreePanel::on_expanded, this);
+    tree_->Bind(wxEVT_TREE_ITEM_COLLAPSED, &FileTreePanel::on_collapsed, this);
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, &FileTreePanel::on_activated, this);
     tree_->Bind(wxEVT_LEFT_DOWN, &FileTreePanel::on_left_click, this);
     tree_->Bind(wxEVT_TREE_ITEM_MENU, &FileTreePanel::on_context_menu, this);
@@ -166,18 +166,24 @@ void FileTreePanel::set_roots(const std::vector<Root>& roots)
 {
     roots_ = roots;
     counts_.clear();
-    rebuild();       // show the roots straight away, counts to follow
+    entries_.clear();
+    rebuild();       // show the root rows straight away, contents to follow
     start_scan();
 }
 
 void FileTreePanel::start_scan()
 {
-    // Counting must not run on the UI thread.  It did once, in set_roots(),
+    // Scanning must not run on the UI thread.  It did once, in set_roots(),
     // and three real root folders were enough to stall the message loop past
     // the point where WebView2's asynchronous controller creation gives up --
     // CreateCoreWebView2Controller returned E_ABORT and the preview silently
-    // never appeared.  The tree is cheap to show without counts; the counts
-    // arrive when they arrive.
+    // never appeared.  The root rows are cheap to show without contents; the
+    // contents arrive when they arrive.
+    //
+    // This is the one part of the sibling app's design that must NOT be
+    // copied: PDF_Sherpa builds its entry list on the UI thread, which it can
+    // afford only because nothing in that window is waiting on the message
+    // loop the way a WebView2 controller is.
     const std::vector<Root> roots = roots_;
     if (roots.empty()) {
         return;
@@ -190,70 +196,261 @@ void FileTreePanel::start_scan()
 
     std::thread([this, roots, generation, alive] {
         std::map<std::string, int> counts;
+        std::vector<DocEntry> entries;
         // Nothing may escape a detached thread: an uncaught exception here is
         // std::terminate, which is a hard crash with no message.
         //
         // The guard is per root, not around the loop. Wrapping the whole loop
-        // meant one unreadable root discarded every other root's counts too --
+        // meant one unreadable root discarded every other root's results too --
         // a network folder that was briefly unavailable made every tree in the
         // window read (0).
-        for (const Root& root : roots) {
+        for (std::size_t i = 0; i < roots.size(); ++i) {
             try {
-                const std::map<std::string, int> one =
-                    md_counts_for_root(root.path);
-                counts.insert(one.begin(), one.end());
+                RootScan scan = scan_root(roots[i].path);
+                counts.insert(scan.counts.begin(), scan.counts.end());
+                for (DocEntry& entry : scan.entries) {
+                    // scan_root knows nothing about the roots list, so which
+                    // root an entry belongs to is stamped on here.
+                    entry.root_index = i;
+                    entries.push_back(std::move(entry));
+                }
             } catch (...) {
-                // This root contributes nothing; the others still count.
+                // This root contributes nothing; the others still appear.
             }
         }
-        wxTheApp->CallAfter([this, counts, generation, alive] {
+        wxTheApp->CallAfter([this, counts, entries, generation, alive] {
             if (!alive->load() || generation != scan_generation_) {
                 return;   // panel gone, or a newer scan already superseded us
             }
             counts_ = counts;
-            rebuild_preserving_expansion();
+            entries_ = entries;
+            // rebuild() re-applies the remembered expansion itself, including
+            // a set restored from the last session that had no rows to act on
+            // until now.
+            rebuild();
         });
     }).detach();
 }
 
+wxTreeItemId FileTreePanel::folder_item(std::size_t root_index,
+                                        const std::string& relative_dir,
+                                        std::map<std::string, wxTreeItemId>& made)
+{
+    // The tree item for a root-relative folder, creating every missing
+    // ancestor on the way so the result is genuinely nested.
+    //
+    // Creating one node per distinct relative path instead would put
+    // "notes/spec/annexes" on a single row hanging off the root -- a flat list
+    // of slash-separated names wearing a tree's clothes.  Each component gets
+    // its own node, and every later entry beneath it reuses that node.
+    if (root_index >= root_items_.size()) {
+        return wxTreeItemId();
+    }
+    const wxTreeItemId root_item = root_items_[root_index];
+    const std::string root_path = roots_[root_index].path;
+    if (relative_dir.empty()) {
+        return root_item;
+    }
+    // A flattened root swallows everything beneath it: every document hangs
+    // directly off it and no subfolder node is made at all.
+    if (is_flat_folder_ && is_flat_folder_(root_path)) {
+        return root_item;
+    }
+
+    wxTreeItemId parent = root_item;
+    std::string prefix = norm_path(root_path);
+    std::string here = root_path;
+    std::size_t start = 0;
+    int depth = 0;
+    // Bounded by the path's own length, and by the same depth ceiling the
+    // filtered walk used (Rule of 10).
+    while (start <= relative_dir.size() && depth <= kMaxFilterDepth) {
+        const std::size_t slash = relative_dir.find('/', start);
+        const std::string component =
+            relative_dir.substr(start, (slash == std::string::npos)
+                                           ? std::string::npos
+                                           : slash - start);
+        if (!component.empty()) {
+            ++depth;
+            here = path_to_utf8(path_from_utf8(here) /
+                                path_from_utf8(component));
+            prefix = norm_path(here);
+            const auto found = made.find(prefix);
+            if (found != made.end()) {
+                parent = found->second;
+            } else {
+                parent = tree_->AppendItem(parent, folder_label(here, component));
+                tree_->SetItemData(parent, new ItemData(here, false));
+                made.emplace(prefix, parent);
+            }
+            // Stop at the nearest flattened ancestor: everything below it is
+            // listed against it rather than getting nodes of its own.
+            if (is_flat_folder_ && is_flat_folder_(here)) {
+                return parent;
+            }
+        }
+        if (slash == std::string::npos) {
+            break;
+        }
+        start = slash + 1;
+    }
+    return parent;
+}
+
+wxString FileTreePanel::folder_label(const std::string& path,
+                                     const std::string& name) const
+{
+    const auto found = counts_.find(norm_path(path));
+    const int count = (found == counts_.end()) ? 0 : found->second;
+    wxString label =
+        wxString::FromUTF8(name) + wxString::Format("  (%d)", count);
+    // Say so on the row.  A flattened folder shows no subfolders at all, so
+    // without the marker there is nothing to distinguish it from one that
+    // genuinely has none -- and the only way to check was to raise the context
+    // menu and look at the tick.
+    if (is_flat_folder_ && is_flat_folder_(path)) {
+        label += kFlatSuffix;
+    }
+    return label;
+}
+
 void FileTreePanel::rebuild()
 {
+    // Set BEFORE DeleteAllItems, not just around the expanding below:
+    // destroying an expanded row raises a collapse event, and treating those
+    // as the user closing folders emptied the remembered set a rebuild at a
+    // time -- the tree came back fully collapsed after a filter was typed and
+    // cleared.
+    applying_expansion_ = true;
+    // Freeze: this builds every row in one go, and without it a few thousand
+    // documents repaint the control once per item.
+    tree_->Freeze();
     tree_->DeleteAllItems();
+    root_items_.clear();
     const wxTreeItemId hidden = tree_->AddRoot("roots");
     const std::string needle = lowered(std::string(filter_->GetValue().ToUTF8()));
+    const bool searching = !content_query().empty();
 
+    // One node per configured root, made up front so the roots appear in their
+    // configured order even when a later one has nothing to show.
     for (const Root& root : roots_) {
-        const auto found = counts_.find(norm_path(root.path));
-        const int count = (found == counts_.end()) ? 0 : found->second;
-        wxString label =
-            wxString::FromUTF8(root.name) +
-            wxString::Format("  (%d)", count);
-        // Say so on the row.  A flattened folder shows no subfolders at all,
-        // so without the marker there is nothing to distinguish it from one
-        // that genuinely has none -- and the only way to check is to raise the
-        // context menu and look at the tick.
-        if (is_flat_folder_ && is_flat_folder_(root.path)) {
-            label += kFlatSuffix;
-        }
-        const wxTreeItemId item = tree_->AppendItem(hidden, label);
+        const wxTreeItemId item =
+            tree_->AppendItem(hidden, folder_label(root.path, root.name));
         tree_->SetItemData(item, new ItemData(root.path, false));
         tree_->SetItemBold(item, true);
+        root_items_.push_back(item);
+    }
 
-        // A flat root, or any root while a filter is active, shows its
-        // Markdown files directly under it rather than as a folder tree --
-        // populate_filtered with an empty needle matches every file.  Useful
-        // for a deep folder structure that holds only a handful of documents.
-        const bool flat = is_flat_folder_ && is_flat_folder_(root.path);
-        const bool searching = !content_query().empty();
-        if (needle.empty() && !flat && !searching) {
-            // Lazily populated: a placeholder makes the expander appear.
-            tree_->AppendItem(item, kLazyPlaceholder);
+    // Which entries survive the name filter.  A folder with nothing left under
+    // it never gets a node, so filtering prunes the tree rather than replacing
+    // it with a flat list -- the structure stays visible while you type.
+    std::vector<const DocEntry*> shown;
+    shown.reserve(entries_.size());
+    for (const DocEntry& entry : entries_) {   // bounded by the scan's own cap
+        if (needle.empty() ||
+            lowered(entry.name).find(needle) != std::string::npos) {
+            shown.push_back(&entry);
+        }
+    }
+
+    // Two passes, so a folder's subfolders come before its files -- the order
+    // the per-directory listing used to produce.  Pass one makes every folder
+    // node that survives; pass two hangs the documents off them.
+    std::map<std::string, wxTreeItemId> made;
+    for (const DocEntry* entry : shown) {
+        folder_item(entry->root_index, entry->relative_dir, made);
+    }
+    for (const DocEntry* entry : shown) {
+        const wxTreeItemId parent =
+            folder_item(entry->root_index, entry->relative_dir, made);
+        if (!parent.IsOk()) {
+            continue;
+        }
+        const wxTreeItemId file =
+            tree_->AppendItem(parent, wxString::FromUTF8(entry->name));
+        tree_->SetItemData(file, new ItemData(entry->path, true));
+    }
+
+    // Expanding done here is the rebuild's doing, not the user's, and must not
+    // be recorded as a choice either -- applying_expansion_ has been set since
+    // the top of this function and stays set until the tree is finished.
+    for (std::size_t i = 0; i < root_items_.size(); ++i) {
+        if (searching) {
+            append_content_hits(root_items_[i], roots_[i].path);
+        }
+        if (!needle.empty() || searching) {
+            // While filtering or searching, open everything: a match three
+            // folders down is no use if finding it still means hunting for it.
+            tree_->Expand(root_items_[i]);
+            expand_all_under(root_items_[i], 0);
         } else {
-            populate_filtered(item, root.path, needle, 0);
-            if (searching) {
-                append_content_hits(item, root.path);
-            }
-            tree_->Expand(item);
+            // Otherwise put back exactly what the user had open.  Doing this
+            // on every rebuild is what lets a filter be typed and cleared
+            // without losing your place.
+            apply_expansion(root_items_[i], 0);
+        }
+    }
+    applying_expansion_ = false;
+    tree_->Thaw();
+}
+
+void FileTreePanel::apply_expansion(const wxTreeItemId& item, int depth)
+{
+    if (depth > kMaxFilterDepth || !item.IsOk()) {
+        return;
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+    if (data == nullptr || data->is_file()) {
+        return;
+    }
+    if (user_expanded_.count(norm_path(data->path())) != 0) {
+        tree_->Expand(item);
+    }
+    // Descend regardless of whether this folder was wanted: a saved deep
+    // folder still reopens when an ancestor above it was left closed.
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
+        apply_expansion(child, depth + 1);
+    }
+}
+
+void FileTreePanel::on_expanded(wxTreeEvent& event)
+{
+    event.Skip();
+    if (applying_expansion_) {
+        return;   // the rebuild's own doing, not a choice to remember
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(event.GetItem()));
+    if (data != nullptr && !data->is_file()) {
+        user_expanded_.insert(norm_path(data->path()));
+    }
+}
+
+void FileTreePanel::on_collapsed(wxTreeEvent& event)
+{
+    event.Skip();
+    if (applying_expansion_) {
+        return;
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(event.GetItem()));
+    if (data != nullptr && !data->is_file()) {
+        user_expanded_.erase(norm_path(data->path()));
+    }
+}
+
+void FileTreePanel::expand_all_under(const wxTreeItemId& item, int depth)
+{
+    if (depth > kMaxFilterDepth || !item.IsOk()) {
+        return;
+    }
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
+        auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(child));
+        if (data != nullptr && !data->is_file()) {
+            tree_->Expand(child);
+            expand_all_under(child, depth + 1);
         }
     }
 }
@@ -310,93 +507,6 @@ void FileTreePanel::append_content_hits(const wxTreeItemId& item,
         tree_->SetItemData(hit, new ItemData(match.path, true));
         tree_->Expand(file);
     }
-}
-
-bool FileTreePanel::is_root_path(const std::string& path) const
-{
-    // Exact compare: a root's path in the tree is the same string the config
-    // entry holds, both having come from there.
-    for (const Root& root : roots_) {   // bounded by the configured roots
-        if (root.path == path) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void FileTreePanel::populate(const wxTreeItemId& item, const std::string& path)
-{
-    // A flattened folder shows every Markdown file beneath it and no
-    // subfolders at all.  populate_filtered with an empty needle matches every
-    // file, which is exactly that.  Dispatching here rather than at the call
-    // sites means expanding one, restoring one, and rebuilding one all agree.
-    if (is_flat_folder_ && is_flat_folder_(path)) {
-        populate_filtered(item, path, "", 0);
-        return;
-    }
-    for (const Entry& entry : list_directory(path)) {
-        if (entry.is_dir) {
-            // Counts are recursive, so 0 means nothing is being concealed.
-            // A folder absent from the map was never walked (junction or
-            // unreadable) -- leave it visible rather than guess.
-            const auto found = counts_.find(norm_path(entry.path));
-            if (found != counts_.end() && found->second == 0) {
-                continue;
-            }
-            const int count = (found == counts_.end()) ? 0 : found->second;
-            wxString label = wxString::FromUTF8(entry.name) +
-                             wxString::Format("  (%d)", count);
-            if (is_flat_folder_ && is_flat_folder_(entry.path)) {
-                label += kFlatSuffix;
-            }
-            const wxTreeItemId child = tree_->AppendItem(item, label);
-            tree_->SetItemData(child, new ItemData(entry.path, false));
-            tree_->AppendItem(child, kLazyPlaceholder);
-        } else {
-            const wxTreeItemId child =
-                tree_->AppendItem(item, wxString::FromUTF8(entry.name));
-            tree_->SetItemData(child, new ItemData(entry.path, true));
-        }
-    }
-}
-
-void FileTreePanel::populate_filtered(const wxTreeItemId& root_item,
-                                      const std::string& path,
-                                      const std::string& needle, int depth)
-{
-    if (depth > kMaxFilterDepth) {
-        return;
-    }
-    for (const Entry& entry : list_directory(path)) {
-        if (entry.is_dir) {
-            const auto found = counts_.find(norm_path(entry.path));
-            if (found != counts_.end() && found->second == 0) {
-                continue;
-            }
-            populate_filtered(root_item, entry.path, needle, depth + 1);
-        } else if (lowered(entry.name).find(needle) != std::string::npos) {
-            const wxTreeItemId child =
-                tree_->AppendItem(root_item, wxString::FromUTF8(entry.name));
-            tree_->SetItemData(child, new ItemData(entry.path, true));
-        }
-    }
-}
-
-void FileTreePanel::on_expanding(wxTreeEvent& event)
-{
-    const wxTreeItemId item = event.GetItem();
-    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
-    if (data == nullptr || data->is_file()) {
-        return;
-    }
-    // A single "…" child means this folder has not been read yet.
-    wxTreeItemIdValue cookie;
-    const wxTreeItemId first = tree_->GetFirstChild(item, cookie);
-    if (!first.IsOk() || tree_->GetItemText(first) != kLazyPlaceholder) {
-        return;
-    }
-    tree_->DeleteChildren(item);
-    populate(item, data->path());
 }
 
 void FileTreePanel::on_activated(wxTreeEvent& event)
@@ -513,21 +623,13 @@ void FileTreePanel::start_content_search()
 
 void FileTreePanel::refresh()
 {
-    // Show the change at once using the counts we have, then re-scan in the
+    // Show the change at once from the entries we have, then re-scan in the
     // background to correct them.  Doing it the other way round would leave
-    // a renamed file looking untouched until the scan finished.
-    rebuild_preserving_expansion();
-    start_scan();
-}
-
-void FileTreePanel::rebuild_preserving_expansion()
-{
-    // Rebuilding blind would collapse the whole tree, so remember what was
-    // open and put it back.  Same two steps the frame uses to carry the shape
-    // across a restart, so there is one implementation of each.
-    const std::vector<std::string> expanded = expanded_folders();
+    // a renamed file looking untouched until the scan finished.  There is no
+    // preserve-expansion dance any more: rebuild() re-applies the remembered
+    // set itself, every time.
     rebuild();
-    set_expanded_folders(expanded);
+    start_scan();
 }
 
 void FileTreePanel::scroll_fully_left()
@@ -546,91 +648,35 @@ void FileTreePanel::scroll_fully_left()
 
 std::vector<std::string> FileTreePanel::expanded_folders() const
 {
-    std::vector<std::string> expanded;
-    const wxTreeItemId hidden = tree_->GetRootItem();
-    if (!hidden.IsOk()) {
-        return expanded;
-    }
-    wxTreeItemIdValue cookie;
-    for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
-         root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
-        collect_expanded(root, expanded, 0);
-    }
-    return expanded;
+    // What the user chose, not what is on screen: with a filter active the
+    // tree is fully opened down to the matches, and saving that would reopen
+    // the whole tree next launch.
+    return std::vector<std::string>(user_expanded_.begin(),
+                                    user_expanded_.end());
 }
 
 void FileTreePanel::set_expanded_folders(
     const std::vector<std::string>& folders)
 {
-    const wxTreeItemId hidden = tree_->GetRootItem();
-    if (!hidden.IsOk() || folders.empty()) {
-        return;
-    }
-    wxTreeItemIdValue cookie;
-    for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
-         root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
-        restore_expanded(root, folders, 0);
-    }
-}
-
-void FileTreePanel::collect_expanded(const wxTreeItemId& item,
-                                     std::vector<std::string>& out,
-                                     int depth) const
-{
-    if (depth > kMaxFilterDepth || !item.IsOk() || !tree_->IsExpanded(item)) {
-        return;
-    }
-    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
-    if (data != nullptr && !data->is_file()) {
-        out.push_back(norm_path(data->path()));
-    }
-    wxTreeItemIdValue cookie;
-    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
-         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
-        collect_expanded(child, out, depth + 1);
-    }
-}
-
-void FileTreePanel::restore_expanded(const wxTreeItemId& item,
-                                     const std::vector<std::string>& paths,
-                                     int depth)
-{
-    if (depth > kMaxFilterDepth || !item.IsOk()) {
-        return;
-    }
-    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
-    if (data == nullptr || data->is_file()) {
-        return;
-    }
-    // A flat ROOT was already fully populated and expanded by rebuild(), so
-    // there is nothing to restore and re-listing it would only throw the same
-    // files away and read them again.  A flat SUBFOLDER is not exempt: it sits
-    // behind a lazy placeholder like any other, and populate() now knows to
-    // give it a flat listing.
-    if (is_flat_folder_ && is_flat_folder_(data->path()) &&
-        is_root_path(data->path())) {
-        return;
-    }
-    const std::string key = norm_path(data->path());
-    bool wanted = false;
-    for (const std::string& path : paths) {
-        if (path == key) {
-            wanted = true;
-            break;
+    user_expanded_.clear();
+    for (const std::string& path : folders) {   // bounded by the saved list
+        if (!path.empty()) {
+            user_expanded_.insert(norm_path(path));
         }
     }
-    if (!wanted) {
-        return;
+    // Apply to what exists now.  At startup that is nothing -- the scan has
+    // not landed -- but every rebuild applies the set again, so it takes
+    // effect as soon as there are rows.
+    applying_expansion_ = true;
+    const wxTreeItemId hidden = tree_->GetRootItem();
+    if (hidden.IsOk()) {
+        wxTreeItemIdValue cookie;
+        for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
+             root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
+            apply_expansion(root, 0);
+        }
     }
-    tree_->DeleteChildren(item);
-    populate(item, data->path());
-    tree_->Expand(item);
-
-    wxTreeItemIdValue cookie;
-    for (wxTreeItemId child = tree_->GetFirstChild(item, cookie);
-         child.IsOk(); child = tree_->GetNextChild(item, cookie)) {
-        restore_expanded(child, paths, depth + 1);
-    }
+    applying_expansion_ = false;
 }
 
 wxTreeItemId FileTreePanel::find_item(const std::string& path) const
@@ -804,20 +850,10 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         if (on_toggle_flat_) {
             on_toggle_flat_(path);   // flips and persists
         }
-        // With a filter or a content search running there is no folder tree to
-        // stay on -- every root already shows a flat list of matching files --
-        // so redraw plainly.  (rebuild_preserving_expansion() would re-list the
-        // roots as folders and drop the filtered view.)
-        if (!filter_->GetValue().IsEmpty() || !content_query().empty()) {
-            rebuild();
-            return;
-        }
-        // Otherwise redraw in the new shape *without* throwing the user back to
-        // the start view.  A plain rebuild() collapses every root to its lazy
-        // placeholder, so flattening a subfolder three levels down left the
-        // folder just toggled off screen entirely -- the one thing the user was
-        // looking at.
-        rebuild_preserving_expansion();
+        // Redraw in the new shape.  rebuild() puts the remembered expansion
+        // back by itself, so the folder just toggled stays where it was
+        // instead of the tree snapping shut to its roots.
+        rebuild();
         const wxTreeItemId item = find_item(path);
         if (item.IsOk()) {
             // Expand as well as select: the whole point of the command is to

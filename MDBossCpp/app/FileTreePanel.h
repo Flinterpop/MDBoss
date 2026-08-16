@@ -17,6 +17,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -81,39 +82,47 @@ public:
     // Keeps whatever the user had expanded.
     void refresh();
 
-    // The folders open right now, as normalised paths, and re-applying a set
-    // saved earlier.  Together these let the frame persist the tree's shape
-    // across a restart instead of reopening collapsed every launch.
+    // The folders the user has open, as normalised paths, and re-applying a
+    // set saved earlier.  Together these let the frame persist the tree's
+    // shape across a restart instead of reopening collapsed every launch.
     //
-    // Applying is safe before the first scan finishes: whatever is on screen
-    // when the counts arrive is what rebuild_preserving_expansion() carries
-    // over, so an early restore survives the rebuild rather than racing it.
+    // Handing over a set before the first scan finishes is fine: the tree
+    // holds the set and every rebuild re-applies it, so it lands as soon as
+    // there are rows to expand.
     std::vector<std::string> expanded_folders() const;
     void set_expanded_folders(const std::vector<std::string>& folders);
 
 private:
-    // True if `path` is one of the configured top-level roots.
-    bool is_root_path(const std::string& path) const;
     // Add the files under `root` that matched on their text, each with the
     // matching line beneath it.  Skips files the name filter already listed.
     void append_content_hits(const wxTreeItemId& item, const std::string& root);
-    void populate(const wxTreeItemId& item, const std::string& path);
-    void on_expanding(wxTreeEvent& event);
     void on_activated(wxTreeEvent& event);
     void on_left_click(wxMouseEvent& event);
     void on_filter(wxCommandEvent& event);
+
+    // Build every row from `entries_`.  Nothing here touches the disk: the
+    // scan already did, and rebuilding from memory is what makes expanding a
+    // folder instant and lets a filter prune the tree instead of flattening
+    // it.
     void rebuild();
-    // Filtered view: a flat list of matching files per root, because a
-    // wxTreeCtrl item cannot be hidden the way a QTreeWidgetItem can.
-    void populate_filtered(const wxTreeItemId& root_item,
-                           const std::string& path, const std::string& needle,
-                           int depth);
+    // The item for a root-relative folder, creating any missing ancestor.
+    // `made` caches what this rebuild has already created, keyed by normalised
+    // path, so the second pass reuses the first pass's nodes.
+    wxTreeItemId folder_item(std::size_t root_index,
+                             const std::string& relative_dir,
+                             std::map<std::string, wxTreeItemId>& made);
+    // "<name>  (<count>)", plus the flat marker when the folder is flattened.
+    wxString folder_label(const std::string& path,
+                          const std::string& name) const;
+    void expand_all_under(const wxTreeItemId& item, int depth);
+    // Re-open the folders in `user_expanded_`.  Every rebuild ends here, which
+    // is what makes the tree survive a filter being typed and cleared.
+    void apply_expansion(const wxTreeItemId& item, int depth);
+    // The user opening or closing a folder is the only thing that changes
+    // `user_expanded_`; expanding done by a rebuild must not.
+    void on_expanded(wxTreeEvent& event);
+    void on_collapsed(wxTreeEvent& event);
     void on_context_menu(wxTreeEvent& event);
-    void rebuild_preserving_expansion();
-    void collect_expanded(const wxTreeItemId& item,
-                          std::vector<std::string>& out, int depth) const;
-    void restore_expanded(const wxTreeItemId& item,
-                          const std::vector<std::string>& paths, int depth);
     // The item currently showing `path`, or an invalid id if it is not on
     // screen.  Rebuilding destroys every item, so putting the user back where
     // they were means finding the row again by path afterwards.
@@ -131,7 +140,7 @@ private:
     void rename_path(const std::string& path);
     void delete_path(const std::string& path);
 
-    // Counting runs on a worker thread; see the .cpp for why that is not
+    // Scanning runs on a worker thread; see the .cpp for why that is not
     // optional.  `scan_` is generation-stamped so a stale result from a
     // superseded scan is discarded, and `alive_` lets the completion lambda
     // tell that this panel is gone.
@@ -151,7 +160,22 @@ private:
     wxCheckBox* contents_ = nullptr;
     wxTreeCtrl* tree_ = nullptr;
     std::vector<Root> roots_;
+    // Every document under every root, and the recursive count for every
+    // folder walked.  The tree is a view of these two; the disk is read only
+    // by the scan that fills them.
+    std::vector<DocEntry> entries_;
     std::map<std::string, int> counts_;
+    // The row for each configured root, in configured order, valid between a
+    // rebuild and the next one.
+    std::vector<wxTreeItemId> root_items_;
+    // Folders the USER has open, by normalised path.  Kept apart from what is
+    // on screen because a filter opens everything down to its matches, and
+    // that must not be mistaken for a choice: clearing the filter has to put
+    // the tree back the way it was, not leave it fully expanded.
+    std::set<std::string> user_expanded_;
+    // Set while a rebuild expands rows itself, so its own expand events do not
+    // land in user_expanded_.
+    bool applying_expansion_ = false;
     // Results of the last completed search, keyed by root path.
     std::map<std::string, std::vector<ContentMatch>> content_hits_;
     // The query those results answer, so a stale tree can say so.

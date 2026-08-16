@@ -199,12 +199,13 @@ std::vector<ContentMatch> search_file_contents(
     return matches;
 }
 
-std::map<std::string, int> md_counts_for_root(const std::string& root)
+RootScan scan_root(const std::string& root)
 {
-    std::map<std::string, int> counts;
+    RootScan result;
+    std::map<std::string, int>& counts = result.counts;
     std::error_code ec;
     if (!fs::is_directory(path_from_utf8(root), ec) || ec) {
-        return counts;
+        return result;
     }
 
     // ONE walk.  An earlier version collected the directories and then
@@ -214,6 +215,25 @@ std::map<std::string, int> md_counts_for_root(const std::string& root)
     const fs::path root_path = path_from_utf8(root).lexically_normal();
     std::vector<fs::path> dirs{root_path};
     counts[norm_path(path_to_utf8(root_path))] = 0;
+
+    // The folder a file sits in, relative to the root, '/'-separated -- the
+    // form the tree splits into nodes.  Empty for a file directly in the root.
+    // Separators are normalised here rather than at every use: a path built
+    // from native components would otherwise split on the wrong character and
+    // put "sub\deep" on one row.
+    const auto relative_dir = [&root_path](const fs::path& file) {
+        const fs::path rel = file.parent_path().lexically_relative(root_path);
+        if (rel.empty() || rel == ".") {
+            return std::string();
+        }
+        std::string text = path_to_utf8(rel);
+        for (char& c : text) {   // bounded by the path length
+            if (c == '\\') {
+                c = '/';
+            }
+        }
+        return text;
+    };
 
     // Iterate with the error_code-taking increment.  A range-for uses the
     // throwing operator++, which the error_code constructor does NOT make
@@ -236,6 +256,13 @@ std::map<std::string, int> md_counts_for_root(const std::string& root)
             if (found != counts.end()) {
                 ++found->second;
             }
+            if (result.entries.size() < kMaxEntriesPerRoot) {
+                DocEntry doc;
+                doc.path = path_to_utf8(entry.path());
+                doc.name = path_to_utf8(entry.path().filename());
+                doc.relative_dir = relative_dir(entry.path());
+                result.entries.push_back(std::move(doc));
+            }
         }
         it.increment(ec);
     }
@@ -257,7 +284,20 @@ std::map<std::string, int> md_counts_for_root(const std::string& root)
             parent->second += self->second;
         }
     }
-    return counts;
+
+    // Display order, decided once here rather than at every rebuild: folders
+    // in path order, and within a folder the files case-insensitively by name
+    // -- the same ordering the old per-directory listing produced.
+    std::sort(result.entries.begin(), result.entries.end(),
+              [](const DocEntry& a, const DocEntry& b) {
+                  const std::string dir_a = to_lower(a.relative_dir);
+                  const std::string dir_b = to_lower(b.relative_dir);
+                  if (dir_a != dir_b) {
+                      return dir_a < dir_b;
+                  }
+                  return to_lower(a.name) < to_lower(b.name);
+              });
+    return result;
 }
 
 bool send_to_recycle_bin(const std::string& path)
