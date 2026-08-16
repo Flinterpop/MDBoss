@@ -48,6 +48,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+# BOTH lines, and the second is not redundant.  Set-Location moves PowerShell's
+# own location; it does NOT touch .NET's working directory, which is whatever
+# the shell PROCESS was started in.  The version bump below pairs Test-Path
+# (PowerShell, so it finds the file) with [IO.File]::ReadAllText (.NET, so it
+# resolves the same relative path somewhere else entirely) -- the failure is a
+# DirectoryNotFoundException naming a path that is half this repo and half the
+# directory the shell happened to start in.  Running this script from a shell
+# opened anywhere but the repo root is enough to hit it; the sibling app's
+# release script had the identical bug and it was found there first.
+[Environment]::CurrentDirectory = $PSScriptRoot
 
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 function CheckExit($what) {

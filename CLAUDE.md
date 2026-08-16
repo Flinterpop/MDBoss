@@ -149,11 +149,12 @@ silently "update" itself with whatever that asset holds. There is no AppImage
 and no Linux build any more (deprecated with the Python app in v1.2.2); the
 Python suite no longer gates the release.
 
-Two traps, both learned the hard way:
+Three traps, all learned the hard way:
 
 - **Do not pipe it through `2>&1 |`.** PowerShell 5.1 wraps a native command's
   stderr in ErrorRecords and `$ErrorActionPreference = "Stop"` turns a
   build tool's first stderr line into a terminating error. Run it bare.
+- **`Set-Location` is not enough, and the script sets `[Environment]::CurrentDirectory` too.** `Set-Location` moves PowerShell's own location and leaves .NET's working directory at whatever the shell *process* started in. The version bump pairs `Test-Path` (PowerShell — finds the file) with `[IO.File]::ReadAllText` (.NET — resolves the same relative path somewhere else), so the script died on its first bump with a `DirectoryNotFoundException` naming a path half from this repo and half from the shell's start directory. It had always been broken; it only ever passed because the shell happened to start in the repo root. Native tools invoked here (`ISCC`) inherit the process directory too, so the same line covers them.
 - **Test the update path against a real release**, by installing the previous
   build and letting it update itself. Unit tests pass while the handoff is
   broken; that is exactly how v1.1.2 shipped unable to update.
