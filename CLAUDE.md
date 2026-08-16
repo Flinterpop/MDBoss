@@ -135,6 +135,20 @@ Add a whole workspace folder as a root and the walk can meet far more than it ex
 
 **Roots may nest, and the tree has to cope.** A workspace folder added as a root and one folder inside it added as a second root make the same absolute folder reachable from two roots. `folder_item()`'s node cache was keyed on the path alone, so the second root's documents were hung on the first root's node — the file appeared twice under one root, not at all under the other, and the folder count beside it still read 1. The keys carry the root index now. This only surfaced once the scan reached deep enough to produce the collision, which is a good reminder that a bug fixed upstream can uncover one downstream.
 
+## One window per session, and the race that broke it
+
+The single-instance guard exists so a double-clicked `.md` is handed to the running window instead of starting a rival — both instances write `config.json` when they close, and the last one silently discards the other's layout, expanded folders and recents.
+
+It was implemented as a window property plus `WM_COPYDATA`, and a window property cannot be set until there *is* a window. Two launches in the same instant therefore both looked, both found nothing, and both opened. **The installer reproduces this every time**: its `[Run]` entry launches the app while Inno's `isreadme` flag opens `README.md`, which this app is the registered handler for. Two live instances were sitting there after a routine install, started in the same second.
+
+The slot is now claimed with a **named mutex at process start, before any window exists**, and a later launch then *waits* for the first one's window before handing over. Three things about that are deliberate:
+
+- **Claim first, look second.** The other order is the bug.
+- **The wait is bounded** (100 × 100 ms). If the owner is stuck or died between claiming and showing, the caller opens its own window rather than exiting and taking the user's document with it.
+- **`bInitialOwner` is FALSE** — only the existence of the name is being tested, and taking ownership would drag in abandoned-mutex handling for nothing. The name lives only while a handle is open, so a crashed instance frees the slot automatically.
+
+Verified by launching two copies back-to-back with a document on the second: the released v1.5.0 gives two instances 3 times out of 3, the fix gives one 3 times out of 3 with the document forwarded. A test cannot cover this — it needs two real processes — so re-check it by hand if this code is touched.
+
 ## Releasing
 
 `.\release.ps1 <version>` — and **only** that. It owns the version in seven
