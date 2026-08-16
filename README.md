@@ -5,6 +5,8 @@
 [![Downloads](https://img.shields.io/github/downloads/Flinterpop/MDBoss/total)](https://github.com/Flinterpop/MDBoss/releases)
 [![License: MIT](https://img.shields.io/github/license/Flinterpop/MDBoss)](LICENSE)
 
+*Last updated: 15 Aug 2026*
+
 A local Markdown manager, editor, and GitHub-style viewer for Windows.
 
 MD Boss browses Markdown files across up to **five root folders**, edits them
@@ -24,21 +26,10 @@ the same app lives in the repo but is **deprecated** — see
 ## Features
 
 **Browse & manage**
-- Up to five root folders in one combined file tree; each folder shows its
-  recursive Markdown-file count, and folders holding no Markdown are hidden.
-  **A single click opens a file.** Filter box, and full right-click file
-  management (new from template, new folder, rename, delete (to the Recycle
-  Bin), reveal in File Explorer, copy path).
-- **Flat-list view:** right-click any folder — a root or a subfolder at any
-  depth — and choose **Show as flat list** to see every Markdown file beneath
-  it in one list instead of a folder tree — handy for a deep structure holding
-  only a few documents. Each folder is independent, so one subfolder can be
-  flat while its siblings stay trees. The choice is remembered per folder.
-- **Search inside files:** the filter box matches filenames as you type; tick
-  **Contents** beside it to search the text inside every Markdown file under
-  your roots as well. Each text match is listed with its line number and the
-  matching line. Runs in the background so the window never freezes, and a
-  search you type past is abandoned rather than finishing into a stale list.
+- Up to five root folders in one combined file tree; each folder shows its recursive Markdown-file count, and folders holding no Markdown are hidden. **A single click opens a file.** The folders you leave open are remembered between runs. Filter box, and full right-click file management (new from template, new folder, rename, delete (to the Recycle Bin), reveal in File Explorer, copy path).
+- **Flat-list view:** right-click any folder — a root or a subfolder at any depth — and choose **Show as flat list** to see every Markdown file beneath it in one list instead of a folder tree — handy for a deep structure holding only a few documents. A flattened folder is marked `(flat)` after its count. Each folder is independent, so one subfolder can be flat while its siblings stay trees. The choice is remembered per folder.
+- **Filtering keeps the tree:** typing in the filter box prunes the tree rather than flattening it — folders with no surviving file drop out, the rest keep their place, and the tree opens itself down to every match, so a result shows you where the document lives. Clearing the box restores the shape you had.
+- **Search inside files:** the filter box matches filenames as you type; tick **Contents** beside it to search the text inside every Markdown file under your roots as well. Each text match is listed with its line number and the matching line. Runs in the background so the window never freezes, and a search you type past is abandoned rather than finishing into a stale list.
 - Recent documents at the top of the left pane: the last six you opened,
   newest-first, maintained automatically.
 - Favorites below Recent (both resizable): newest-first, up to ten, with a

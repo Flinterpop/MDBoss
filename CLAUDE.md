@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+*Last updated: 15 Aug 2026*
+
 Guidance for Claude Code working in this repository.
 
 ## What this repo is
@@ -83,15 +85,11 @@ before working near what they guard:
 
 ## Anything that reads files goes on a worker thread
 
-Counting Markdown files once ran on the UI thread in `set_roots()`, and three
-real roots were enough to stall the message loop past the point where
-WebView2's asynchronous controller creation gives up:
-`CreateCoreWebView2Controller` returned `E_ABORT` and **the preview silently
-never appeared**. There is no error to see — the pane is just blank.
+Counting Markdown files once ran on the UI thread in `set_roots()`, and three real roots were enough to stall the message loop past the point where WebView2's asynchronous controller creation gives up: `CreateCoreWebView2Controller` returned `E_ABORT` and **the preview silently never appeared**. There is no error to see — the pane is just blank.
 
-So `start_scan()` (counts) and `start_content_search()` (the Contents search)
-both follow the same shape, and anything new that touches the filesystem in
-bulk must too:
+This is the one place the sibling app is the wrong model to copy. `PDF_Sherpa`'s `PdfListPane` builds its entry list on the UI thread and gets away with it, because nothing in that window is waiting on the message loop the way a WebView2 controller is. Take its tree design, not its threading.
+
+So `start_scan()` (documents and counts) and `start_content_search()` (the Contents search) both follow the same shape, and anything new that touches the filesystem in bulk must too:
 
 - a detached worker thread, never the UI thread;
 - a **generation counter** bumped on each start, so a superseded result is
@@ -116,6 +114,17 @@ Python renderer (`make_golden.py`) back when it was the oracle. It is now a
 **frozen expectation** for the C++ renderer, not a live parity check — a
 deliberate rendering change means regenerating the affected golden file, not
 matching Python.
+
+## The files tree is a view of one scan, not a view of the disk
+
+`scan_root()` returns every Markdown file beneath a root *and* the per-folder counts from a single walk; `FileTreePanel` holds that list and builds every row from it. Nothing in the tree reads a directory — expanding a folder is free, and a filter prunes the structure instead of replacing it with a flat list of names, which is what the lazy design could not do. A folder node exists only because a document put it there, so a folder the walk could not read does not appear at all: there is no second listing to fall back on.
+
+Two traps, both found only by driving the built app — neither shows up in a test:
+
+- **Expansion restored at startup has nothing to act on.** No row below a root exists until the scan lands, so applying a saved set in the frame's constructor silently did nothing. Every `rebuild()` re-applies the remembered set, which is what makes the restore land whenever the rows appear.
+- **`DeleteAllItems()` raises a collapse event per expanded row.** Read as the user closing folders, that emptied the remembered set one rebuild at a time and the tree came back fully collapsed after a filter was typed and cleared. The `applying_expansion_` guard is set *before* the delete, not just around the expanding that follows.
+
+The set is the user's own expanding and collapsing, deliberately not what is on screen: a filter opens everything down to its matches, and saving that would reopen the whole tree next launch.
 
 ## Releasing
 

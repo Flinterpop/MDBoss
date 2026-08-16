@@ -1,5 +1,7 @@
 # MD Boss
 
+*Last updated: 15 Aug 2026*
+
 A local Markdown manager, editor, and GitHub-style viewer. Browse Markdown
 files across up to **five root folders**, edit them beside a **live preview**
 rendered with the **GitHub-light** theme, **mermaid** diagrams, and embedded
@@ -22,13 +24,7 @@ without them.
 
 ## Panes
 
-- **Left pane** — **Recent** and **Favorites** sit at the top (see below), above
-  the **Files** list: your roots as a combined tree, where each folder shows the
-  number of Markdown files within it (counted recursively). Folders with no
-  Markdown files anywhere inside them are not listed. A **single click** on a
-  file opens it. Filter with the box above the tree — see **Searching** below. Right-click a file for
-  New file/folder, Rename, Delete (to the Recycle Bin), Reveal in Explorer,
-  Copy path, and Favorite. Right-click **any folder** — a root or a subfolder at any depth — and choose **Show as flat list** to list every Markdown file beneath it at once instead of a tree. Useful for a deep structure holding only a few documents. Each folder is independent: one subfolder can be flat while its siblings and its root stay trees, and the count beside a flattened folder is exactly how many files it lists. The choice is remembered per folder.
+- **Left pane** — **Recent** and **Favorites** sit at the top (see below), above the **Files** list: your roots as a combined tree, where each folder shows the number of Markdown files within it (counted recursively). Folders with no Markdown files anywhere inside them are not listed. A **single click** on a file opens it. Filter with the box above the tree — see **Searching** below. **The folders you leave open are remembered**, so the tree comes back the way you left it next time you start. Right-click a file for New file/folder, Rename, Delete (to the Recycle Bin), Reveal in Explorer, Copy path, and Favorite. Right-click **any folder** — a root or a subfolder at any depth — and choose **Show as flat list** to list every Markdown file beneath it at once instead of a tree. Useful for a deep structure holding only a few documents. A flattened folder is marked **`(flat)`** after its count, since a folder showing no subfolders otherwise looks the same as one that has none. Each folder is independent: one subfolder can be flat while its siblings and its root stay trees, and the count beside a flattened folder is exactly how many files it lists. The choice is remembered per folder.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
 - **Recent** (top of the left pane) — the last six documents you opened, newest
@@ -195,15 +191,19 @@ even though the source and rendered document differ in height.
 
 ## Searching
 
-The box above the tree filters by **filename** as you type. Tick **Contents** beside it to search the **text inside files** as well, and the tree shows both — files whose name matches and files whose text does, each text match with the line number and the line itself so you can see why it matched without opening it:
+The box above the tree filters by **filename** as you type. **Filtering keeps the folder structure**: folders left with no surviving file drop out, the rest stay where they are, and the tree opens itself down to every match — so a result tells you where the document lives, not just what it is called. Clearing the box puts the tree back exactly as you had it.
+
+Tick **Contents** beside it to search the **text inside files** as well, and the tree shows both — files whose name matches and files whose text does, each text match with the line number and the line itself so you can see why it matched without opening it:
 
 ```text
 Notes  (412)
-   install-guide.md
-      30: sudo systemctl stop the service
-   troubleshooting.md
-      23: > sudo systemctl stop the service
+   guides  (18)
+      install-guide.md
+   release-notes.md
+      12: install the service before first run
 ```
+
+Here `install-guide.md` matched on its **name** and stays in the folder it lives in, while `release-notes.md` matched only on its **text** and is listed against the root with the matching line beneath it.
 
 Clicking either the file or the matching line opens the file.
 
