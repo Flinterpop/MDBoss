@@ -302,6 +302,41 @@ TEST_CASE("front matter is only stripped when asked", "[frontmatter]")
 // never been saved, so a wrong answer puts a wrong name in front of the user
 // at the one moment they are least likely to read it carefully.
 
+TEST_CASE("a task list renders as checkboxes", "[mdrender][tasklist]")
+{
+    // Found by looking at the preview, not by a test: ToDoList.md is written
+    // as a checklist and rendered as bullets with a literal "[ ]" in them,
+    // because MD_FLAG_TASKLISTS was off and the <li> handler ignored is_task.
+    // Not specific to that file -- any document using GitHub's task-list
+    // syntax was rendering wrong.
+    const std::string html =
+        mdrender::render_body("- [ ] open\n- [x] done\n", false);
+
+    CHECK(html.find("[ ]") == std::string::npos);
+    CHECK(html.find("[x]") == std::string::npos);
+    CHECK(html.find("type=\"checkbox\"") != std::string::npos);
+
+    // Disabled, as GitHub renders them: the preview is a view of the file, so
+    // a box that could be ticked without the file changing would be lying.
+    CHECK(html.find("disabled") != std::string::npos);
+
+    // The ticked one, and only the ticked one, carries checked.
+    const std::size_t checked = html.find("checked");
+    REQUIRE(checked != std::string::npos);
+    CHECK(html.find("checked", checked + 1) == std::string::npos);
+    CHECK(checked > html.find("open"));   // the second item is the ticked one
+}
+
+TEST_CASE("an ordinary list is untouched by the task-list flag",
+          "[mdrender][tasklist]")
+{
+    // The flag applies to every document, so the far commoner case -- a plain
+    // bullet list -- must render exactly as before.
+    const std::string html = mdrender::render_body("- one\n- two\n", false);
+    CHECK(html.find("checkbox") == std::string::npos);
+    CHECK(html.find("<li>") != std::string::npos);
+}
+
 TEST_CASE("the first heading is the title", "[mdrender][title]")
 {
     CHECK(mdrender::document_title("# The Rule\n\nbody\n") == "The Rule");

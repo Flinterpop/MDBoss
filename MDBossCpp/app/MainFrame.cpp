@@ -27,6 +27,8 @@
 #include "FoldersDialog.h"
 #include "Version.h"
 #include "HelpDialog.h"
+#include "InternalDialogs.h"
+#include "InternalNotes.h"
 #include "PathUtf8.h"
 #include "SingleInstance.h"
 #include "Templates.h"
@@ -67,6 +69,12 @@ constexpr int kIdCheckUpdates = wxID_HIGHEST + 12;
 // the window rather than to a handler of ours -- the app would exit.
 constexpr int kIdCloseDocument = wxID_HIGHEST + 13;
 constexpr int kIdInsertImage = wxID_HIGHEST + 14;
+// The three MD_Internal list commands.  Below kIdSnippetBase, which starts the
+// only open-ended range in this file.
+constexpr int kIdAddLogin = wxID_HIGHEST + 15;
+constexpr int kIdAddTodo = wxID_HIGHEST + 16;
+constexpr int kIdAddDiary = wxID_HIGHEST + 17;
+constexpr int kIdOpenInternal = wxID_HIGHEST + 18;
 // Snippets take ids from here up, one per kSnippets entry.  Bounded (Rule of
 // 10): the array is fixed at compile time, so the range cannot run past the
 // next constant.
@@ -244,6 +252,19 @@ void MainFrame::build_menu()
     // mnemonic makes the key cycle between them instead of choosing one.
     snippets->Append(kIdInsertImage, L"Insert image &file…");
 
+    // The three MD_Internal lists.  A menu of their own rather than more
+    // entries on File: they are not about the open document, they are three
+    // standing lists the app keeps for you.
+    auto* lists = new wxMenu();
+    lists->Append(kIdAddLogin, L"Add a &login record…");
+    lists->Append(kIdAddTodo, L"Add a &to-do…\tCtrl+T");
+    lists->Append(kIdAddDiary, L"Add a Grail &Diary entry…");
+    lists->AppendSeparator();
+    // Without this the three files are only reachable by hunting for the
+    // folder in the tree, which is a poor way to read a list you just added to.
+    lists->Append(kIdOpenInternal,
+                  wxString(L"&Open ") + kInternalName + L" folder");
+
     auto* help = new wxMenu();
     // F1 rides the menu item, so it needs no accelerator table entry.
     help->Append(kIdHelp, "&Help\tF1");
@@ -255,6 +276,7 @@ void MainFrame::build_menu()
     bar->Append(file, "&File");
     bar->Append(view, "&View");
     bar->Append(snippets, "&Snippets");
+    bar->Append(lists, "&Lists");
     bar->Append(help, "&Help");
     SetMenuBar(bar);
 }
@@ -570,6 +592,11 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_insert_image, this, kIdInsertImage);
     Bind(wxEVT_MENU, &MainFrame::on_open_templates_folder, this,
          kIdOpenTemplates);
+    Bind(wxEVT_MENU, &MainFrame::on_add_login, this, kIdAddLogin);
+    Bind(wxEVT_MENU, &MainFrame::on_add_todo, this, kIdAddTodo);
+    Bind(wxEVT_MENU, &MainFrame::on_add_diary, this, kIdAddDiary);
+    Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
+         kIdOpenInternal);
     Bind(wxEVT_MENU, &MainFrame::on_refresh, this, kIdRefresh);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_files, this, kIdToggleFiles);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_outline, this, kIdToggleOutline);
@@ -1110,6 +1137,98 @@ void MainFrame::on_open_templates_folder(wxCommandEvent&)
     }
     const wxString dir = wxString::FromUTF8(templates_dir());
     wxExecute("explorer.exe \"" + dir + "\"", wxEXEC_ASYNC);
+}
+
+// The three MD_Internal commands share this tail: write the block, tell the
+// user what went wrong if it did, and otherwise refresh so the new file (or
+// the folder itself, the first time) appears in the tree straight away.
+void MainFrame::save_internal_entry(const std::string& filename,
+                                    const std::string& seed,
+                                    const std::string& block,
+                                    const wxString& what)
+{
+    const std::string folder = internal_folder(root_paths());
+    const std::string failed =
+        append_to_internal(folder, filename, seed, block);
+    if (!failed.empty()) {
+        wxMessageBox(wxString::FromUTF8(failed), "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    // A new entry changes a file the tree counts, and on first use creates the
+    // folder holding it, so the tree is out of date until this runs.
+    files_->refresh();
+    SetStatusText(what + wxString::FromUTF8(" saved to " + filename));
+}
+
+void MainFrame::on_add_login(wxCommandEvent&)
+{
+    LoginDialog dialog(this);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    const LoginRecord record = dialog.record();
+    if (record.name.empty() && record.login.empty()) {
+        // Both blank means the form was accepted by accident; a row of empty
+        // cells is worse than nothing because it still has to be deleted.
+        wxMessageBox(L"Give the record a name or a login before saving it.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    save_internal_entry(kLoginsFile, logins_seed(), login_table_row(record),
+                        L"Login record");
+}
+
+void MainFrame::on_add_todo(wxCommandEvent&)
+{
+    TodoDialog dialog(this);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    const std::string item = dialog.item();
+    if (item.find_first_not_of(" \t\r\n") == std::string::npos) {
+        return;   // nothing typed: silently do nothing rather than scold
+    }
+    save_internal_entry(kTodoFile, todo_seed(), todo_line(item, today_iso()),
+                        L"To-do");
+}
+
+void MainFrame::on_add_diary(wxCommandEvent&)
+{
+    DiaryDialog dialog(this);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    const std::string body = dialog.markdown();
+    if (body.find_first_not_of(" \t\r\n") == std::string::npos) {
+        return;   // an empty entry is not an entry
+    }
+    save_internal_entry(kDiaryFile, diary_seed(),
+                        diary_entry(body, today_iso()), L"Diary entry");
+}
+
+void MainFrame::on_open_internal_folder(wxCommandEvent&)
+{
+    const std::string folder = internal_folder(root_paths());
+    if (folder.empty()) {
+        wxMessageBox(wxString(L"No folder is configured to keep ") +
+                         kInternalName + L" in.\n\nAdd one with "
+                         L"File ▸ Manage folders first.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    // Created on demand here too: "open the folder" should show you the
+    // folder, not an error about it not existing yet.
+    std::error_code ec;
+    std::filesystem::create_directories(path_from_utf8(folder), ec);
+    if (ec) {
+        wxMessageBox(wxString::FromUTF8("Could not create " + folder + ":\n\n" +
+                                        ec.message()),
+                     "MD Boss", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    wxExecute("explorer.exe \"" + wxString::FromUTF8(folder) + "\"",
+              wxEXEC_ASYNC);
 }
 
 void MainFrame::on_refresh(wxCommandEvent&)

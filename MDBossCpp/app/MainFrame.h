@@ -64,6 +64,15 @@ private:
     // around it that make Markdown treat it as one.
     void insert_block(const std::string& body);
     void on_open_templates_folder(wxCommandEvent& event);
+    // The three MD_Internal lists, and a way to reach the folder itself.
+    void on_add_login(wxCommandEvent& event);
+    void on_add_todo(wxCommandEvent& event);
+    void on_add_diary(wxCommandEvent& event);
+    void on_open_internal_folder(wxCommandEvent& event);
+    // Shared tail of the three: append, report a failure, refresh the tree.
+    void save_internal_entry(const std::string& filename,
+                             const std::string& seed,
+                             const std::string& block, const wxString& what);
     void on_refresh(wxCommandEvent& event);
     void on_toggle_files(wxCommandEvent& event);
     void on_toggle_outline(wxCommandEvent& event);

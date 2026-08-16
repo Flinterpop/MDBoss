@@ -25,6 +25,10 @@ the same app lives in the repo but is **deprecated** — see
 
 ## Features
 
+**Lists**
+- **Three standing lists**, kept as ordinary Markdown in an `MD_Internal` folder beside your `MD_Inbox` and reachable from the **Lists** menu: **login records** (a table of Name / Link / Login / PW / Last Changed / Notes in `logins.md`), **to-dos** (`Ctrl+T`, a dated tickable checklist in `ToDoList.md`), and **Grail Diary entries** (free Markdown under a dated heading in `GrailDiary.md`). Entries are appended, never rewritten, so the files stay perfectly editable by hand — and they appear in the files tree, the counts and the Contents search like any other document.
+- `logins.md` stores passwords **in plain text**, so MD Boss writes a `.gitignore` into `MD_Internal` when it creates the folder — the files cannot be committed to a repository by accident. Anyone who can read the folder can read the passwords, and the Contents search indexes them.
+
 **Browse & manage**
 - Up to five root folders in one combined file tree; each folder shows its recursive Markdown-file count, and folders holding no Markdown are hidden. **A single click opens a file.** The folders you leave open are remembered between runs. Filter box, and full right-click file management (new from template, new folder, rename, delete (to the Recycle Bin), reveal in File Explorer, copy path).
 - **Flat-list view:** right-click any folder — a root or a subfolder at any depth — and choose **Show as flat list** to see every Markdown file beneath it in one list instead of a folder tree — handy for a deep structure holding only a few documents. A flattened folder is marked `(flat)` after its count. Each folder is independent, so one subfolder can be flat while its siblings stay trees. The choice is remembered per folder.

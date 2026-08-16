@@ -13,7 +13,9 @@ add_executable(mdrender_tests
     test_droptarget.cpp
     test_updater.cpp
     test_favorites.cpp
+    test_internalnotes.cpp
     ../app/FileScan.cpp
+    ../app/InternalNotes.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp
     ../app/Templates.cpp

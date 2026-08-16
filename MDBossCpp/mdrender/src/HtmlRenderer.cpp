@@ -181,13 +181,32 @@ int enter_block(MD_BLOCKTYPE type, void* detail, void* userdata)
         }
         break;
     }
-    case MD_BLOCK_LI:
+    case MD_BLOCK_LI: {
         ++r.item_depth;
-        r.block("<li>");
-        // markdown-it writes "<li>\n" unless the item opens with inline
-        // content, so leave the newline pending for the next tag to decide.
-        r.pending_lf = true;
+        const auto* li = static_cast<MD_BLOCK_LI_DETAIL*>(detail);
+        if (li != nullptr && li->is_task != 0) {
+            // A GitHub task list item.  Without this the source "- [ ] thing"
+            // renders as a bullet with a literal "[ ]" in it, which is what
+            // MD Boss did until the Lists menu started writing checklists.
+            // Disabled, as GitHub renders them: the preview is a view of the
+            // file, and a box you could tick without the file changing would
+            // be lying.
+            const bool ticked =
+                li->task_mark == 'x' || li->task_mark == 'X';
+            r.block("<li class=\"task-list-item\">");
+            r.raw(std::string("<input type=\"checkbox\" disabled=\"\"") +
+                  (ticked ? " checked=\"\"" : "") + " /> ");
+            // No pending newline: the checkbox is inline content, so the item
+            // has already opened inline.
+        } else {
+            r.block("<li>");
+            // markdown-it writes "<li>\n" unless the item opens with inline
+            // content, so leave the newline pending for the next tag to
+            // decide.
+            r.pending_lf = true;
+        }
         break;
+    }
     case MD_BLOCK_HR:
         r.block("<hr />\n");
         break;
@@ -504,8 +523,14 @@ bool render_html(std::string_view md_text,
     MD_PARSER parser;
     std::memset(&parser, 0, sizeof(parser));
     parser.abi_version = 0;
+    // TASKLISTS is what turns "- [ ] thing" into a checkbox rather than a
+    // bullet with literal brackets.  Added when the Lists menu began writing
+    // ToDoList.md as a checklist, but it is not specific to that file -- any
+    // document using GitHub's task-list syntax rendered wrong before, and the
+    // whole point of this preview is to look like GitHub.  No golden corpus
+    // file uses the syntax, so enabling it changes no frozen expectation.
     parser.flags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
-                   MD_FLAG_LATEXMATHSPANS;
+                   MD_FLAG_LATEXMATHSPANS | MD_FLAG_TASKLISTS;
     parser.enter_block = &enter_block;
     parser.leave_block = &leave_block;
     parser.enter_span = &enter_span;

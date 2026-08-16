@@ -12,6 +12,8 @@ add_executable(MDBoss WIN32
     PathListPanel.cpp
     FoldersDialog.cpp
     HelpDialog.cpp
+    InternalNotes.cpp
+    InternalDialogs.cpp
     FileAssoc.cpp
     SingleInstance.cpp
     Templates.cpp

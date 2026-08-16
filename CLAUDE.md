@@ -135,6 +135,19 @@ Add a whole workspace folder as a root and the walk can meet far more than it ex
 
 **Roots may nest, and the tree has to cope.** A workspace folder added as a root and one folder inside it added as a second root make the same absolute folder reachable from two roots. `folder_item()`'s node cache was keyed on the path alone, so the second root's documents were hung on the first root's node — the file appeared twice under one root, not at all under the other, and the folder count beside it still read 1. The keys carry the root index now. This only surfaced once the scan reached deep enough to produce the collision, which is a good reminder that a bug fixed upstream can uncover one downstream.
 
+## The Lists menu writes ordinary Markdown, deliberately
+
+Three commands append to three files in `MD_Internal`, a folder beside `MD_Inbox`: `logins.md` (a table), `ToDoList.md` (a checklist), `GrailDiary.md` (dated sections). The ruling when they were added was that **no special handling is required** — `MD_Internal` is scanned, counted, filtered and searched like any other folder, and its files are meant to be hand-edited. So:
+
+- **Append, never rewrite.** The seed (title, and the table header where there is one) is written only when the file does not exist. A file the user has since reordered or edited must survive the next entry untouched.
+- **The formatting is pure and tested; only `append_to_internal()` touches a disk.** That split is why `InternalNotes.cpp` is wx-free and compiled straight into the test binary.
+- **Anything going into a table cell is escaped.** A literal `|` ends the cell and silently shifts every column after it; a newline ends the row. Both render as *something*, which is what makes them easy to ship.
+- **`todo_seed()` ends with a blank line.** Without it the first `- [ ]` sat directly under a paragraph. Found by looking at the app, not by a test — the file still rendered, just not as a list.
+
+**`logins.md` holds plaintext passwords.** That was the explicit choice, with one mitigation: `MD_Internal` gets a deny-everything `.gitignore` the moment it is created, because a document root may sit inside a git repo and two of this author's are public. The guard is written *before* the first file, since the gap between creating the folder and guarding it is exactly when a commit would sweep it up. The other exposure — the Contents search indexes the file like any document — is inherent to the choice and is documented in HELP.md rather than defended against.
+
+**Task lists needed a renderer change.** `MD_FLAG_TASKLISTS` was off and the `<li>` handler ignored `is_task`, so `- [ ] thing` rendered as a bullet with literal brackets. That was never specific to `ToDoList.md`; any document using GitHub's syntax rendered wrong. The boxes are emitted `disabled`, as GitHub does: the preview is a view of the file, and a box you could tick without the file changing would be lying. No golden corpus file uses the syntax, so enabling it changed no frozen expectation — check that again before touching the flag.
+
 ## One window per session, and the race that broke it
 
 The single-instance guard exists so a double-clicked `.md` is handed to the running window instead of starting a rival — both instances write `config.json` when they close, and the last one silently discards the other's layout, expanded folders and recents.

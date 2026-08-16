@@ -54,6 +54,28 @@ Two things worth knowing while a scan is running:
 
 Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
+## Lists: logins, to-dos, and the Grail Diary
+
+The **Lists** menu keeps three standing lists for you. Each command opens a small form, and what you type is appended to a Markdown file in a folder called **`MD_Internal`**, which sits beside your `MD_Inbox`. New entries always go at the end.
+
+| Command | Writes to | What it adds |
+|---|---|---|
+| **Add a login record…** | `logins.md` | A row in a table: Name, Link, Login, PW, Last Changed, Notes |
+| **Add a to-do…** (`Ctrl+T`) | `ToDoList.md` | A tickable checklist item, dated |
+| **Add a Grail Diary entry…** | `GrailDiary.md` | Your Markdown, under a dated heading |
+
+**Use of MD_Internal:** the folder and its files are created the first time you add something, and `MD_Internal` shows in the files tree like any other folder — its documents are counted, filtered and searched exactly as the rest of yours are. Nothing in it is hidden or special-cased. **Open MD_Internal folder** on the same menu takes you there in Explorer.
+
+**These are ordinary Markdown files.** Edit them by hand whenever you like — tick a box, reword an item, sort the table, delete a row. MD Boss only ever appends; it never rewrites what is already there, and it will not add a second heading or table header to a file that has one.
+
+If you have no `MD_Inbox`, `MD_Internal` is created in your first folder instead, so the commands work without setting anything up.
+
+### A warning about logins.md
+
+**Passwords are stored as plain text.** Anyone who can read the file can read them, and because it is an ordinary document its contents are indexed by the **Contents** search — a password can appear in a search result.
+
+To limit the damage, MD Boss writes a `.gitignore` into `MD_Internal` when it creates the folder, so the files cannot be committed to a git repository by accident. Do not delete that file unless you have thought about it, and do not keep anything in `MD_Internal` you would mind being read by whoever can read the folder.
+
 ## Opening files from outside your folders
 
 - **Ctrl+O** (**Open…**) — browse for any Markdown file on disk. It need not be
@@ -268,6 +290,7 @@ A `background-logo.png` already in that folder is never replaced — the copy yo
 | Ctrl+N   | New file |
 | Ctrl+S   | Save |
 | Ctrl+W   | Close the open document |
+| Ctrl+T   | Add a to-do |
 | Ctrl+Y   | Hide/show YAML front matter |
 | F5       | Refresh the tree |
 | F1       | This help |
