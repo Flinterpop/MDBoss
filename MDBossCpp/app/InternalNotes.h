@@ -91,9 +91,19 @@ std::string append_to_internal(const std::string& folder,
                                const std::string& seed,
                                const std::string& block);
 
-// Today as YYYY-MM-DD, local time.  Here rather than at the call sites so all
-// three commands agree, and so a test can compare against a fixed format.
-std::string today_iso();
+// Today as "16 Aug 2026", local time -- day without a leading zero, three
+// letter month, four digit year.  That is this author's documented date
+// format, which rules out ISO and numeric locale forms precisely because
+// 08/09 is ambiguous and 2026-08-16 is not how these files are read.
+//
+// Here rather than at the call sites so all three commands agree, and so a
+// test can pin the format in one place.
+//
+// The cost, accepted knowingly: this does not sort lexicographically, so a
+// column of these cannot be ordered by a plain string sort the way ISO dates
+// could.  Nothing in the app sorts them -- entries are appended in the order
+// they were made, which is already chronological.
+std::string today_stamp();
 
 }  // namespace mdboss
 

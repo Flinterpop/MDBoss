@@ -32,6 +32,17 @@ MD_Note.jpg
 # obvious way out of that is a `git add -A` that would publish it.
 tn.md
 
+# Credential material, for the same reason and more urgently: a password sheet
+# was found sitting untracked in this folder on 2026-08-16, one `git add -A`
+# from being published to a PUBLIC repo.  Ignored by name AND by pattern,
+# because the next one will not be called the same thing.  Keeping such a file
+# outside the repo entirely is better than relying on this.
+1 - Password Sheet.pdf
+*Password*.pdf
+*Password*.md
+*password*.csv
+logins.md
+
 # Intermediate icon renders (source is mdboss.svg; runtime uses mdboss.ico)
 mdboss_*.png
 

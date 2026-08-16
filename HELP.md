@@ -64,6 +64,8 @@ The **Lists** menu keeps three standing lists for you. Each command opens a smal
 | **Add a to-do…** (`Ctrl+T`) | `ToDoList.md` | A tickable checklist item, dated |
 | **Add a Grail Diary entry…** | `GrailDiary.md` | Your Markdown, under a dated heading |
 
+**Dates are written as day, month, year** — `16 Aug 2026`. The to-do's date and the diary's heading are filled in for you; the login record's *Last Changed* is filled in too but stays editable, since the password may have been changed on some other day.
+
 **Use of MD_Internal:** the folder and its files are created the first time you add something, and `MD_Internal` shows in the files tree like any other folder — its documents are counted, filtered and searched exactly as the rest of yours are. Nothing in it is hidden or special-cased. **Open MD_Internal folder** on the same menu takes you there in Explorer.
 
 **These are ordinary Markdown files.** Edit them by hand whenever you like — tick a box, reword an item, sort the table, delete a row. MD Boss only ever appends; it never rewrites what is already there, and it will not add a second heading or table header to a file that has one.

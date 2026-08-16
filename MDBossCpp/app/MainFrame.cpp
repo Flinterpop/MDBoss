@@ -1189,7 +1189,7 @@ void MainFrame::on_add_todo(wxCommandEvent&)
     if (item.find_first_not_of(" \t\r\n") == std::string::npos) {
         return;   // nothing typed: silently do nothing rather than scold
     }
-    save_internal_entry(kTodoFile, todo_seed(), todo_line(item, today_iso()),
+    save_internal_entry(kTodoFile, todo_seed(), todo_line(item, today_stamp()),
                         L"To-do");
 }
 
@@ -1204,7 +1204,7 @@ void MainFrame::on_add_diary(wxCommandEvent&)
         return;   // an empty entry is not an entry
     }
     save_internal_entry(kDiaryFile, diary_seed(),
-                        diary_entry(body, today_iso()), L"Diary entry");
+                        diary_entry(body, today_stamp()), L"Diary entry");
 }
 
 void MainFrame::on_open_internal_folder(wxCommandEvent&)

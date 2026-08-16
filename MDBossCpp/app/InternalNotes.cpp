@@ -170,7 +170,7 @@ std::string internal_gitignore()
            "*\n";
 }
 
-std::string today_iso()
+std::string today_stamp()
 {
     const std::time_t now = std::time(nullptr);
     std::tm parts{};
@@ -179,11 +179,22 @@ std::string today_iso()
     if (localtime_s(&parts, &now) != 0) {
         return {};
     }
-    char buffer[16] = {};
-    if (std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &parts) == 0) {
+
+    // Built by hand rather than with strftime: "%d" pads to two digits and
+    // there is no portable way to ask it not to (MSVC's "%#d" is an extension
+    // and glibc's "%-d" is another), while "%b" is locale-dependent -- on a
+    // non-English Windows it would put a translated month into a file whose
+    // format is meant to be fixed.  Three lines of table beats both.
+    static const char* const kMonths[] = {"Jan", "Feb", "Mar", "Apr",
+                                          "May", "Jun", "Jul", "Aug",
+                                          "Sep", "Oct", "Nov", "Dec"};
+    if (parts.tm_mon < 0 || parts.tm_mon > 11) {
         return {};
     }
-    return buffer;
+    std::ostringstream stamp;
+    stamp << parts.tm_mday << ' ' << kMonths[parts.tm_mon] << ' '
+          << (parts.tm_year + 1900);
+    return stamp.str();
 }
 
 std::string append_to_internal(const std::string& folder,
@@ -200,25 +211,32 @@ std::string append_to_internal(const std::string& folder,
 
     const fs::path dir = path_from_utf8(folder);
     std::error_code ec;
-    const bool existed = fs::is_directory(dir, ec);
-    ec.clear();
-    if (!existed) {
+    if (!fs::is_directory(dir, ec)) {
+        ec.clear();
         fs::create_directories(dir, ec);
         if (ec) {
             return "Could not create " + folder + ": " + ec.message();
         }
-        // Immediately, not lazily: the window between creating the folder and
-        // guarding it is exactly when a commit would sweep it up.
-        const fs::path guard = dir / ".gitignore";
-        if (!fs::exists(guard, ec)) {
-            const std::string failed = write_text_file_checked(
-                path_to_utf8(guard), internal_gitignore());
-            if (!failed.empty()) {
-                return failed;   // refuse rather than leave it unguarded
-            }
-        }
-        ec.clear();
     }
+    ec.clear();
+
+    // Checked on EVERY append, not only when this call created the folder.
+    // Guarding it at creation alone left a real MD_Internal unguarded for over
+    // an hour: the folder can arrive by other means -- made by hand, restored
+    // from a backup, or synced in from another machine -- and then nothing
+    // would ever write the guard, which is precisely when it is needed.
+    // Immediately, too: the window between the folder existing and being
+    // guarded is exactly when a commit would sweep it up.
+    const fs::path guard = dir / ".gitignore";
+    if (!fs::exists(guard, ec)) {
+        ec.clear();
+        const std::string failed =
+            write_text_file_checked(path_to_utf8(guard), internal_gitignore());
+        if (!failed.empty()) {
+            return failed;   // refuse rather than leave it unguarded
+        }
+    }
+    ec.clear();
 
     const fs::path file = dir / path_from_utf8(filename);
     std::string text;

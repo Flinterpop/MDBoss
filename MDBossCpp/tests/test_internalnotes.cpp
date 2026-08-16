@@ -6,6 +6,7 @@
 // ends the row early -- both produce a file that still renders, just not as
 // the table it was meant to be.
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -75,12 +76,12 @@ TEST_CASE("a login row has one cell per column", "[internal]")
     record.link = "https://example.test";
     record.login = "brad";
     record.password = "p|ssword";      // the awkward case, deliberately
-    record.last_changed = "2026-08-16";
+    record.last_changed = "16 Aug 2026";
     record.notes = "note";
 
     const std::string row = mdboss::login_table_row(record);
     CHECK(row == "| Example | https://example.test | brad | p\\|ssword | "
-                 "2026-08-16 | note |\n");
+                 "16 Aug 2026 | note |\n");
 
     // Six columns means seven separators, and the escaped pipe must not be
     // counted as one of them.
@@ -123,7 +124,7 @@ TEST_CASE("the first to-do starts a list, not a paragraph", "[internal]")
     const TempDir dir;
     REQUIRE(mdboss::append_to_internal(dir.path(), mdboss::kTodoFile,
                                        mdboss::todo_seed(),
-                                       mdboss::todo_line("first", "2026-08-16"))
+                                       mdboss::todo_line("first", "16 Aug 2026"))
                 .empty());
     const std::string text = dir.read(mdboss::kTodoFile);
     const std::size_t item = text.find("- [ ] first");
@@ -134,12 +135,12 @@ TEST_CASE("the first to-do starts a list, not a paragraph", "[internal]")
 
 TEST_CASE("a to-do is one tickable line", "[internal]")
 {
-    CHECK(mdboss::todo_line("Ring the supplier", "2026-08-16") ==
-          "- [ ] Ring the supplier -- 2026-08-16\n");
+    CHECK(mdboss::todo_line("Ring the supplier", "16 Aug 2026") ==
+          "- [ ] Ring the supplier -- 16 Aug 2026\n");
 
     // Flattened for the same reason a cell is: a newline ends the list item.
-    CHECK(mdboss::todo_line("two\nlines", "2026-08-16") ==
-          "- [ ] two lines -- 2026-08-16\n");
+    CHECK(mdboss::todo_line("two\nlines", "16 Aug 2026") ==
+          "- [ ] two lines -- 16 Aug 2026\n");
 
     // No date is still a valid item, not an item with a dangling separator.
     CHECK(mdboss::todo_line("undated", "") == "- [ ] undated\n");
@@ -151,8 +152,8 @@ TEST_CASE("a diary entry is a dated section with its markdown intact",
     // Unlike the other two, NOTHING here may be escaped or flattened: the
     // whole point is that the user types Markdown and gets Markdown.
     const std::string entry =
-        mdboss::diary_entry("Found the **cup**.\n\n- one\n- two", "2026-08-16");
-    CHECK(entry == "\n## 2026-08-16\n\nFound the **cup**.\n\n- one\n- two\n");
+        mdboss::diary_entry("Found the **cup**.\n\n- one\n- two", "16 Aug 2026");
+    CHECK(entry == "\n## 16 Aug 2026\n\nFound the **cup**.\n\n- one\n- two\n");
 }
 
 TEST_CASE("appending seeds once, then only adds", "[internal]")
@@ -190,13 +191,33 @@ TEST_CASE("creating the folder writes the gitignore first", "[internal]")
     const TempDir dir;
     REQUIRE(mdboss::append_to_internal(dir.path(), mdboss::kTodoFile,
                                        mdboss::todo_seed(),
-                                       mdboss::todo_line("x", "2026-08-16"))
+                                       mdboss::todo_line("x", "16 Aug 2026"))
                 .empty());
 
     REQUIRE(fs::is_regular_file(dir.file(".gitignore")));
     const std::string guard = dir.read(".gitignore");
     // Deny-by-default, or a new file added later slips out from under it.
     CHECK(guard.find("\n*\n") != std::string::npos);
+}
+
+TEST_CASE("an existing folder still gets the gitignore", "[internal]")
+{
+    // Found in the wild: a real MD_Internal sat unguarded for over an hour
+    // because the guard was written only when append_to_internal() had created
+    // the folder itself.  The folder can arrive by other means -- made by
+    // hand, restored, or synced in from another machine -- and that is exactly
+    // when nobody has written a guard.
+    const TempDir dir;
+    std::error_code ec;
+    fs::create_directories(dir.path(), ec);   // exists, with no guard
+    REQUIRE_FALSE(fs::is_regular_file(dir.file(".gitignore")));
+
+    REQUIRE(mdboss::append_to_internal(dir.path(), mdboss::kTodoFile,
+                                       mdboss::todo_seed(),
+                                       mdboss::todo_line("x", "16 Aug 2026"))
+                .empty());
+
+    CHECK(fs::is_regular_file(dir.file(".gitignore")));
 }
 
 TEST_CASE("a file without a trailing newline still gains a separate entry",
@@ -214,21 +235,46 @@ TEST_CASE("a file without a trailing newline still gains a separate entry",
 
     REQUIRE(mdboss::append_to_internal(dir.path(), mdboss::kTodoFile,
                                        mdboss::todo_seed(),
-                                       mdboss::todo_line("added", "2026-08-16"))
+                                       mdboss::todo_line("added", "16 Aug 2026"))
                 .empty());
 
     const std::string text = dir.read(mdboss::kTodoFile);
     CHECK(text.find("- [ ] existing\n- [ ] added") != std::string::npos);
 }
 
-TEST_CASE("today is a plain ISO date", "[internal]")
+TEST_CASE("today reads as day, month, year", "[internal]")
 {
-    // The three commands share it, so a change of format shows up here rather
-    // than as three files that disagree.
-    const std::string today = mdboss::today_iso();
-    REQUIRE(today.size() == 10);
-    CHECK(today[4] == '-');
-    CHECK(today[7] == '-');
+    // "16 Aug 2026": day with no leading zero, three-letter month, four-digit
+    // year -- this repo's documented date format, which rules out ISO and
+    // numeric locale forms.  The three commands share it, so a drift shows up
+    // here rather than as three files that disagree.
+    const std::string today = mdboss::today_stamp();
+
+    std::istringstream parts(today);
+    int day = 0;
+    std::string month;
+    int year = 0;
+    REQUIRE((parts >> day >> month >> year));
+
+    CHECK(day >= 1);
+    CHECK(day <= 31);
+    CHECK(month.size() == 3);
+    CHECK(year >= 2026);
+
+    // No leading zero, and nothing left over after the year.
+    CHECK(today[0] != '0');
+    std::string trailing;
+    CHECK_FALSE((parts >> trailing));
+
+    // Three fields, so exactly two spaces -- not a numeric or ISO form.
+    CHECK(std::count(today.begin(), today.end(), ' ') == 2);
+    CHECK(today.find('-') == std::string::npos);
+    CHECK(today.find('/') == std::string::npos);
+
+    // The month must be a real abbreviation, not a locale translation: a
+    // non-English Windows would otherwise put a different word in the file.
+    const std::string names = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec";
+    CHECK(names.find(month) != std::string::npos);
 }
 
 TEST_CASE("no roots means a refusal, not a write somewhere random",

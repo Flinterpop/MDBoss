@@ -35,7 +35,7 @@ LoginDialog::LoginDialog(wxWindow* parent)
     link_ = new wxTextCtrl(this, wxID_ANY);
     login_ = new wxTextCtrl(this, wxID_ANY);
     changed_ = new wxTextCtrl(this, wxID_ANY,
-                              wxString::FromUTF8(today_iso()));
+                              wxString::FromUTF8(today_stamp()));
     notes_ = new wxTextCtrl(this, wxID_ANY);
 
     add_field(this, outer, L"Name", name_);
@@ -134,7 +134,7 @@ TodoDialog::TodoDialog(wxWindow* parent)
     outer->Add(new wxStaticText(
                    this, wxID_ANY,
                    wxString::FromUTF8("Added to MD_Internal\\ToDoList.md, "
-                                      "dated " + today_iso() + ".")),
+                                      "dated " + today_stamp() + ".")),
                0, wxALL, 8);
 
     auto* buttons = CreateStdDialogButtonSizer(wxOK | wxCANCEL);
@@ -169,7 +169,7 @@ DiaryDialog::DiaryDialog(wxWindow* parent)
 
     outer->Add(new wxStaticText(
                    this, wxID_ANY,
-                   wxString::FromUTF8("Entry for " + today_iso() +
+                   wxString::FromUTF8("Entry for " + today_stamp() +
                                       ". Markdown is kept as written.")),
                0, wxLEFT | wxRIGHT | wxTOP, 8);
 
