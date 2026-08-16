@@ -65,6 +65,17 @@ public:
     bool is_flat_folder(const std::string& path) const;
     void set_flat_folder(const std::string& path, bool flat);
 
+    // Which folders were expanded in the files tree when the window closed,
+    // under a port-only `wx_expanded_folders` key.  Reopening collapsed means
+    // clicking back down to the same folder every launch; the Python app never
+    // stored this, so the key is ours alone.  Paths are normalised (absolute,
+    // lower-cased) by the panel that writes them.
+    const std::vector<std::string>& expanded_folders() const
+    {
+        return expanded_folders_;
+    }
+    void set_expanded_folders(std::vector<std::string> folders);
+
     // Which starter templates this profile has already been offered, under a
     // port-only `wx_seeded_templates` key.  Recorded by name so a starter
     // added in a later version reaches a profile whose templates folder was
@@ -120,6 +131,7 @@ private:
     std::vector<std::string> favorites_;
     std::vector<std::string> recents_;
     std::vector<std::string> flat_folders_;
+    std::vector<std::string> expanded_folders_;
     std::vector<std::string> seeded_templates_;
     bool seeded_templates_known_ = false;
     bool hide_front_matter_ = false;

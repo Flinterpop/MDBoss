@@ -272,3 +272,41 @@ TEST_CASE("flattening twice does not double up the entry", "[config][flat]")
     config.set_flat_folder("C:\\docs", false);
     CHECK_FALSE(config.is_flat_folder("C:\\docs"));
 }
+
+// ---- Expanded folders -----------------------------------------------------
+
+TEST_CASE("the expanded folder list round-trips", "[config][expanded]")
+{
+    mdboss::Config config;
+    // Empty by default: a profile that predates the key reopens collapsed,
+    // which is what it did before, rather than expanding something arbitrary.
+    CHECK(config.expanded_folders().empty());
+
+    config.set_expanded_folders({"c:\\docs", "c:\\docs\\deep"});
+    REQUIRE(config.expanded_folders().size() == 2);
+    CHECK(config.expanded_folders()[0] == "c:\\docs");
+    CHECK(config.expanded_folders()[1] == "c:\\docs\\deep");
+
+    // Setting replaces rather than accumulates: the panel hands over the whole
+    // current state, so anything collapsed must actually disappear.
+    config.set_expanded_folders({"c:\\other"});
+    REQUIRE(config.expanded_folders().size() == 1);
+    CHECK(config.expanded_folders()[0] == "c:\\other");
+}
+
+TEST_CASE("the expanded folder list is capped", "[config][expanded]")
+{
+    // load() truncates at the same number.  If the setter did not, a session
+    // could write a file whose tail the next load silently dropped -- saved
+    // and restored would disagree with no error anywhere.
+    mdboss::Config config;
+    std::vector<std::string> many;
+    many.reserve(5000);
+    for (std::size_t i = 0; i < 5000; ++i) {   // bounded (Rule of 10)
+        many.push_back("C:\\f" + std::to_string(i));
+    }
+    config.set_expanded_folders(many);
+    CHECK(config.expanded_folders().size() == 4096);
+    // The truncation keeps the front of the list, not a random slice.
+    CHECK(config.expanded_folders().front() == "C:\\f0");
+}

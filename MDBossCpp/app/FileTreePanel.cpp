@@ -10,6 +10,14 @@
 
 #include <wx/app.h>
 
+// WM_HSCROLL/SB_LEFT, to undo EnsureVisible's sideways scroll.  NOMINMAX
+// first: without it windows.h defines min/max as macros and the std::min
+// call further down stops compiling.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
@@ -37,6 +45,9 @@ constexpr int kSearchDebounceMs = 350;
 // which renders as "â€¦".  Wide literals are unambiguous.  mojibake-ok: that
 // example is meant to look broken; see the encoding guard in test_sources.
 const wchar_t* const kLazyPlaceholder = L"…";
+
+// Appended to a folder row that is showing as a flat list.
+const wchar_t* const kFlatSuffix = L"  (flat)";
 
 // Per-item payload: the path, and whether it is a file we can open.
 class ItemData : public wxTreeItemData {
@@ -214,9 +225,16 @@ void FileTreePanel::rebuild()
     for (const Root& root : roots_) {
         const auto found = counts_.find(norm_path(root.path));
         const int count = (found == counts_.end()) ? 0 : found->second;
-        const wxString label =
+        wxString label =
             wxString::FromUTF8(root.name) +
             wxString::Format("  (%d)", count);
+        // Say so on the row.  A flattened folder shows no subfolders at all,
+        // so without the marker there is nothing to distinguish it from one
+        // that genuinely has none -- and the only way to check is to raise the
+        // context menu and look at the tick.
+        if (is_flat_folder_ && is_flat_folder_(root.path)) {
+            label += kFlatSuffix;
+        }
         const wxTreeItemId item = tree_->AppendItem(hidden, label);
         tree_->SetItemData(item, new ItemData(root.path, false));
         tree_->SetItemBold(item, true);
@@ -326,9 +344,12 @@ void FileTreePanel::populate(const wxTreeItemId& item, const std::string& path)
                 continue;
             }
             const int count = (found == counts_.end()) ? 0 : found->second;
-            const wxTreeItemId child = tree_->AppendItem(
-                item, wxString::FromUTF8(entry.name) +
-                          wxString::Format("  (%d)", count));
+            wxString label = wxString::FromUTF8(entry.name) +
+                             wxString::Format("  (%d)", count);
+            if (is_flat_folder_ && is_flat_folder_(entry.path)) {
+                label += kFlatSuffix;
+            }
+            const wxTreeItemId child = tree_->AppendItem(item, label);
             tree_->SetItemData(child, new ItemData(entry.path, false));
             tree_->AppendItem(child, kLazyPlaceholder);
         } else {
@@ -502,26 +523,53 @@ void FileTreePanel::refresh()
 void FileTreePanel::rebuild_preserving_expansion()
 {
     // Rebuilding blind would collapse the whole tree, so remember what was
-    // open and put it back.
+    // open and put it back.  Same two steps the frame uses to carry the shape
+    // across a restart, so there is one implementation of each.
+    const std::vector<std::string> expanded = expanded_folders();
+    rebuild();
+    set_expanded_folders(expanded);
+}
+
+void FileTreePanel::scroll_fully_left()
+{
+    // EnsureVisible scrolls sideways to bring a whole label into view, which
+    // on a deep folder with long filenames pushes the start of every *other*
+    // row off the left edge.  The start of a name matters more than its tail,
+    // so scroll back to the left margin.  wx has no API for this; the native
+    // tree control does.  (Learned in PDF_Sherpa's PdfListPane, which hosts
+    // the same control and hit the same thing.)
+    const auto handle = tree_->GetHandle();
+    if (handle != nullptr) {
+        ::SendMessageW(static_cast<HWND>(handle), WM_HSCROLL, SB_LEFT, 0);
+    }
+}
+
+std::vector<std::string> FileTreePanel::expanded_folders() const
+{
     std::vector<std::string> expanded;
     const wxTreeItemId hidden = tree_->GetRootItem();
-    if (hidden.IsOk()) {
-        wxTreeItemIdValue cookie;
-        for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
-             root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
-            collect_expanded(root, expanded, 0);
-        }
+    if (!hidden.IsOk()) {
+        return expanded;
     }
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
+         root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
+        collect_expanded(root, expanded, 0);
+    }
+    return expanded;
+}
 
-    rebuild();
-
-    const wxTreeItemId new_hidden = tree_->GetRootItem();
-    if (new_hidden.IsOk()) {
-        wxTreeItemIdValue cookie;
-        for (wxTreeItemId root = tree_->GetFirstChild(new_hidden, cookie);
-             root.IsOk(); root = tree_->GetNextChild(new_hidden, cookie)) {
-            restore_expanded(root, expanded, 0);
-        }
+void FileTreePanel::set_expanded_folders(
+    const std::vector<std::string>& folders)
+{
+    const wxTreeItemId hidden = tree_->GetRootItem();
+    if (!hidden.IsOk() || folders.empty()) {
+        return;
+    }
+    wxTreeItemIdValue cookie;
+    for (wxTreeItemId root = tree_->GetFirstChild(hidden, cookie);
+         root.IsOk(); root = tree_->GetNextChild(hidden, cookie)) {
+        restore_expanded(root, folders, 0);
     }
 }
 
@@ -778,6 +826,7 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             tree_->Expand(item);
             tree_->SelectItem(item);
             tree_->EnsureVisible(item);
+            scroll_fully_left();
         }
     }, kIdFlatList);
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {

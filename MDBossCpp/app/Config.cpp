@@ -122,6 +122,9 @@ void Config::load()
     // the old one-per-root bound.  Entries past it are dropped, which loses a
     // display preference and nothing else.
     flat_folders_ = string_array(document, "wx_flat_roots", 4096);
+    // Same reasoning and the same cap: one entry per expanded folder, and a
+    // list past the cap costs a display preference and nothing else.
+    expanded_folders_ = string_array(document, "wx_expanded_folders", 4096);
     // One entry per starter the app ships; the cap is far above that.
     seeded_templates_ = string_array(document, "wx_seeded_templates", 256);
     seeded_templates_known_ = document.contains("wx_seeded_templates") &&
@@ -197,6 +200,7 @@ bool Config::save() const
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
     document["wx_flat_roots"] = flat_folders_;
+    document["wx_expanded_folders"] = expanded_folders_;
     document["wx_seeded_templates"] = seeded_templates_;
 
     const std::filesystem::path file(path());
@@ -280,6 +284,18 @@ void Config::set_flat_folder(const std::string& path, bool flat)
     if (flat) {
         flat_folders_.push_back(path);
     }
+}
+
+void Config::set_expanded_folders(std::vector<std::string> folders)
+{
+    // Capped where load() caps it, so a session that expanded its way past the
+    // limit does not write a file the next load silently truncates -- the two
+    // would disagree about what was saved.
+    constexpr std::size_t kMaxExpandedFolders = 4096;
+    if (folders.size() > kMaxExpandedFolders) {
+        folders.resize(kMaxExpandedFolders);
+    }
+    expanded_folders_ = std::move(folders);
 }
 
 bool Config::is_template_seeded(const std::string& name) const

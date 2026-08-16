@@ -495,6 +495,10 @@ void MainFrame::build_panes()
     }
 
     files_->set_roots(config_.roots());
+    // Reopen the folders that were open last time.  Safe before the counting
+    // scan finishes: the rebuild it triggers carries over whatever is on
+    // screen, so this is restored rather than raced.
+    files_->set_expanded_folders(config_.expanded_folders());
     refresh_lists();
 
     // Re-apply hidden columns from last time.  The sash positions are already
@@ -1664,6 +1668,11 @@ void MainFrame::on_close(wxCloseEvent& event)
     }
     if (favorites_split_ != nullptr) {
         config_.set_favorites_sash(favorites_split_->GetSashPosition());
+    }
+    if (files_ != nullptr) {
+        // Which folders were open is part of the layout: reopening collapsed
+        // means clicking back down to the same folder every launch.
+        config_.set_expanded_folders(files_->expanded_folders());
     }
     config_.save();
     event.Skip();

@@ -81,6 +81,16 @@ public:
     // Keeps whatever the user had expanded.
     void refresh();
 
+    // The folders open right now, as normalised paths, and re-applying a set
+    // saved earlier.  Together these let the frame persist the tree's shape
+    // across a restart instead of reopening collapsed every launch.
+    //
+    // Applying is safe before the first scan finishes: whatever is on screen
+    // when the counts arrive is what rebuild_preserving_expansion() carries
+    // over, so an early restore survives the rebuild rather than racing it.
+    std::vector<std::string> expanded_folders() const;
+    void set_expanded_folders(const std::vector<std::string>& folders);
+
 private:
     // True if `path` is one of the configured top-level roots.
     bool is_root_path(const std::string& path) const;
@@ -107,6 +117,8 @@ private:
     // The item currently showing `path`, or an invalid id if it is not on
     // screen.  Rebuilding destroys every item, so putting the user back where
     // they were means finding the row again by path afterwards.
+    // Undo the sideways scroll EnsureVisible does; see the .cpp.
+    void scroll_fully_left();
     wxTreeItemId find_item(const std::string& path) const;
     wxTreeItemId find_item_under(const wxTreeItemId& item,
                                  const std::string& key, int depth) const;
