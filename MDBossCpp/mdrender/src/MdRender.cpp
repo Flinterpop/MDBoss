@@ -34,6 +34,10 @@ constexpr std::string_view kPhKatexCss = "@@MDBOSS_KATEX_CSS@@";
 constexpr std::string_view kPhKatexJs = "@@MDBOSS_KATEX_JS@@";
 constexpr std::string_view kPhTitle = "@@MDBOSS_TITLE@@";
 constexpr std::string_view kPhBody = "@@MDBOSS_BODY@@";
+// The class on <body>.  The theme sheet needs it to outrank the template's own
+// inline <style>, which is emitted after the linked stylesheets and would
+// otherwise win every tie on .markdown-body.
+constexpr std::string_view kPhTheme = "@@MDBOSS_THEME@@";
 
 std::string& asset_dir_storage()
 {
@@ -251,9 +255,22 @@ std::string document_title(std::string_view md_text)
     return tidy_title(outline.front().text);
 }
 
+std::string theme_name(Theme theme)
+{
+    return theme == Theme::kNotes ? "notes" : "github";
+}
+
+Theme theme_from_name(std::string_view name)
+{
+    // Unknown values fall back rather than fail: this comes from a settings
+    // file, and a profile written by a later build must not break an earlier
+    // one.
+    return name == "notes" ? Theme::kNotes : Theme::kGitHub;
+}
+
 std::string render_document(std::string_view md_text,
                             std::string_view base_href, std::string_view title,
-                            bool strip_yaml)
+                            bool strip_yaml, Theme theme)
 {
     assert(!base_href.empty() && base_href.back() == '/' &&
            "base_href needs a trailing slash");
@@ -268,10 +285,18 @@ std::string render_document(std::string_view md_text,
     buffer << stream.rdbuf();
     std::string page = buffer.str();
 
+    // The only two things a theme changes, plus the body class.  Everything
+    // else about the page -- and all of render_body() -- is identical.
+    const bool notes = (theme == Theme::kNotes);
+    const char* const body_css =
+        notes ? "notes-light.css" : "github-markdown-light.css";
+    const char* const code_css =
+        notes ? "highlight/xcode.min.css" : "highlight/github.min.css";
+
     const std::pair<std::string_view, std::string> values[] = {
         {kPhBase, std::string(base_href)},
-        {kPhGhCss, asset_uri("github-markdown-light.css")},
-        {kPhHljsCss, asset_uri("highlight/github.min.css")},
+        {kPhGhCss, asset_uri(body_css)},
+        {kPhHljsCss, asset_uri(code_css)},
         {kPhHljsJs, asset_uri("highlight/highlight.min.js")},
         {kPhMermaid, asset_uri("mermaid.min.js")},
         {kPhKatexCss, asset_uri("katex/katex.min.css")},
@@ -281,6 +306,8 @@ std::string render_document(std::string_view md_text,
         page = replace_all(std::move(page), placeholder,
                            detail::escape_html_quoted(value));
     }
+    page = replace_all(std::move(page), kPhTheme,
+                       notes ? "theme-notes" : "theme-github");
     page = replace_all(std::move(page), kPhTitle,
                        detail::escape_html_quoted(title));
     page = replace_all(std::move(page), kPhBody,

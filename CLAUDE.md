@@ -135,6 +135,18 @@ Add a whole workspace folder as a root and the walk can meet far more than it ex
 
 **Roots may nest, and the tree has to cope.** A workspace folder added as a root and one folder inside it added as a second root make the same absolute folder reachable from two roots. `folder_item()`'s node cache was keyed on the path alone, so the second root's documents were hung on the first root's node — the file appeared twice under one root, not at all under the other, and the folder count beside it still read 1. The keys carry the root index now. This only surfaced once the scan reached deep enough to produce the collision, which is a good reminder that a bug fixed upstream can uncover one downstream.
 
+## A preview theme changes two stylesheets and a body class — nothing else
+
+`mdrender::Theme` picks between `github-markdown-light.css` + `highlight/github.min.css` and `notes-light.css` + `highlight/xcode.min.css`, and stamps `theme-github` / `theme-notes` on `<body>`. **`render_body()` has no theme parameter at all**, which is the whole design: the generated body HTML is byte-identical either way, so the ~30 golden files cannot be disturbed by adding or changing a theme. A test asserts exactly that, and it is the one to check first if a theme ever seems to break the corpus.
+
+Three things worth knowing before touching this:
+
+- **The body class is load-bearing, not decoration.** The template's inline `<style>` is emitted *after* the linked stylesheets, so it wins every tie on `.markdown-body`. A theme sheet that is not scoped under `body.theme-x` will silently lose its layout rules — the colours will apply and the geometry will not, which looks like a half-finished stylesheet rather than a specificity bug.
+- **`highlight/xcode.min.css` is hand-written, not vendored**, because ITAR rules out fetching it. Its palette was measured off a reference PDF and transcribed against highlight.js v11 scope names. A wrong scope name fails *silently* as plain text, so it was verified by rendering a tagged fence and reading the span colours back out of the exported PDF. Do the same if you extend it — `assets/VERSIONS.md` records the palette.
+- **An unknown theme name falls back to GitHub** rather than failing. The name comes from `config.json`, which a later build may have written, and settings are never load-bearing.
+
+Known gap: a fence with **no language tag** is not highlighted in either theme, whereas the note app the Notes theme is modelled on auto-detects. Changing that would affect the GitHub theme too, so it was left alone.
+
 ## PDF export is WebView2 printing the preview, not a second renderer
 
 `PreviewPane::export_pdf()` calls `ICoreWebView2_7::PrintToPdf` on the page already on screen. That is the whole point: it is Chromium laying out the very page the user is looking at, so the PDF carries the GitHub stylesheet, highlight.js colours, mermaid and KaTeX without any of it being reimplemented. A second PDF library rendering the Markdown again would agree with the preview by coincidence, and not for long.

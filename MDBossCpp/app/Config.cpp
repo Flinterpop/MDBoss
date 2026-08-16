@@ -126,6 +126,12 @@ void Config::load()
     // dropped here does not cost a display preference, it puts a folder back
     // into the scan.  4096 exclusions is far past any plausible use.
     excluded_folders_ = string_array(document, "wx_excluded_folders", 4096);
+    // A name, not an index; an unknown one falls back to github at render
+    // time rather than being rejected here.
+    if (document.contains("wx_preview_theme") &&
+        document["wx_preview_theme"].is_string()) {
+        preview_theme_ = document["wx_preview_theme"].get<std::string>();
+    }
     // Same reasoning and the same cap: one entry per expanded folder, and a
     // list past the cap costs a display preference and nothing else.
     expanded_folders_ = string_array(document, "wx_expanded_folders", 4096);
@@ -205,6 +211,7 @@ bool Config::save() const
     document["wx_favorites_sash"] = favorites_sash_;
     document["wx_flat_roots"] = flat_folders_;
     document["wx_excluded_folders"] = excluded_folders_;
+    document["wx_preview_theme"] = preview_theme_;
     document["wx_expanded_folders"] = expanded_folders_;
     document["wx_seeded_templates"] = seeded_templates_;
 

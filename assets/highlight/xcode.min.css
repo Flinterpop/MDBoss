@@ -1,0 +1,89 @@
+/* highlight.js theme -- Xcode-like, for MD Boss's "Notes" preview theme.
+ *
+ * HAND-WRITTEN, not vendored.  highlight.js ships an xcode.css, but this repo
+ * is ITAR-controlled and nothing here may be fetched from the network, so the
+ * palette was recovered by measuring the text spans of a reference PDF that
+ * used it:
+ *
+ *   #AA0D91  keywords            #C41A16  strings
+ *   #1C00CF  numbers, literals   #007400  comments
+ *   #5C2699  identifiers, calls  #3F6E74  types, attributes
+ *   #1A1A1A  plain code text
+ *
+ * Class names follow highlight.js v11's scope list.  Anything not named here
+ * simply inherits the plain colour, which degrades quietly rather than
+ * rendering as unstyled black-on-white in one language and coloured in
+ * another.
+ */
+
+.hljs {
+  color: #1a1a1a;
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #007400;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-name,
+.hljs-meta .hljs-keyword {
+  color: #aa0d91;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-meta .hljs-string {
+  color: #c41a16;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-template-variable,
+.hljs-variable.constant_,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: #1c00cf;
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-section,
+.hljs-selector-id {
+  color: #5c2699;
+}
+
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-params,
+.hljs-variable,
+.hljs-template-tag {
+  color: #3f6e74;
+}
+
+.hljs-meta,
+.hljs-tag {
+  color: #643820;
+}
+
+.hljs-deletion {
+  color: #c41a16;
+}
+
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
+/* Links inside a code block must not take the prose link colour, which would
+   make a URL in a comment louder than the code around it. */
+.hljs a { color: inherit; text-decoration: underline; }

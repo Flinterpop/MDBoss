@@ -49,12 +49,30 @@ std::string document_title(std::string_view md_text);
 // Just the ``.markdown-body`` inner HTML -- no page chrome.
 std::string render_body(std::string_view md_text, bool strip_yaml = false);
 
+// Which stylesheets a rendered page is dressed in.
+//
+// The Markdown itself is identical either way -- a theme changes only the two
+// stylesheet links and a class on <body>, never the generated body HTML.  That
+// is what keeps the golden corpus, which compares render_body() output, wholly
+// independent of theming.
+enum class Theme {
+    kGitHub,   // github-markdown-light.css + highlight/github
+    kNotes,    // notes-light.css + highlight/xcode -- quieter, page-like
+};
+
+// The value stored in config and accepted from it: "github" or "notes".
+// Anything unrecognised reads back as kGitHub rather than failing, since a
+// settings file is a convenience and never load-bearing.
+std::string theme_name(Theme theme);
+Theme theme_from_name(std::string_view name);
+
 // A complete HTML page for md_text.  base_href must be a file:/// URL to the
 // document's own folder, with a trailing slash, so relative images resolve.
 std::string render_document(std::string_view md_text,
                             std::string_view base_href,
                             std::string_view title = "MDBoss",
-                            bool strip_yaml = false);
+                            bool strip_yaml = false,
+                            Theme theme = Theme::kGitHub);
 
 // Directory holding the bundled render assets (github-markdown-light.css,
 // mermaid.min.js, katex/, template.html).  Defaults to "assets" beside the

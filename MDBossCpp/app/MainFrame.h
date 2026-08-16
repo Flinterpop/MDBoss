@@ -71,6 +71,8 @@ private:
     void on_open_internal_folder(wxCommandEvent& event);
     // Export the rendered preview to PDF via WebView2's own print pipeline.
     void on_export_pdf(wxCommandEvent& event);
+    // Switch the preview stylesheet (View menu). Persists and re-renders.
+    void on_preview_theme(wxCommandEvent& event);
     // Shared tail of the three: append, report a failure, refresh the tree.
     void save_internal_entry(const std::string& filename,
                              const std::string& seed,

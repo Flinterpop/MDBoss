@@ -1,0 +1,194 @@
+/* MD Boss "Notes" theme -- an alternative to the GitHub style.
+ *
+ * Modelled on a note-app export (Segoe UI, tight vertical rhythm, quiet
+ * headings, panelled code) rather than on a web page.  Every value below was
+ * measured off a reference PDF rather than guessed: body Segoe UI 9.8pt in
+ * #1A1A1A, headings Segoe UI Semibold 11.4pt with NO rules, code Consolas 9pt
+ * on a bordered grey panel, links #0078C5 underlined.
+ *
+ * Scoped under body.theme-notes.  That is not decoration: the template's own
+ * inline <style> comes AFTER this file and would otherwise win every tie on
+ * .markdown-body, so the layout rules here need the extra specificity to
+ * override it.
+ *
+ * Loaded INSTEAD OF github-markdown-light.css, so this file has to stand
+ * alone -- it cannot lean on GitHub's reset.
+ */
+
+body.theme-notes {
+  background: #ffffff;
+}
+
+body.theme-notes .markdown-body {
+  /* Narrower than GitHub's 980px and with wider side margins, which is what
+     gives the reference its page-like feel rather than a web-page feel. */
+  max-width: 820px;
+  padding: 40px 56px 96px;
+  margin: 0 auto;
+  color: #1a1a1a;
+  background: #ffffff;
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system,
+               "Helvetica Neue", Arial, sans-serif;
+  /* 14px/1.45 reproduces the reference's 9.8pt at a comfortable screen size.
+     The tight leading is not a detail -- it is most of what distinguishes
+     this from the GitHub sheet, whose airier rhythm reads as a web page. */
+  font-size: 14px;
+  line-height: 1.45;
+  word-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.theme-notes .markdown-body > *:first-child { margin-top: 0; }
+body.theme-notes .markdown-body > *:last-child { margin-bottom: 0; }
+
+/* -- headings -----------------------------------------------------------
+ * Quiet, and deliberately so: the reference steps only slightly above body
+ * size and draws NO rule under h1/h2, which is the single most visible
+ * difference from the GitHub sheet.  Semibold (600), not bold.
+ */
+body.theme-notes .markdown-body h1,
+body.theme-notes .markdown-body h2,
+body.theme-notes .markdown-body h3,
+body.theme-notes .markdown-body h4,
+body.theme-notes .markdown-body h5,
+body.theme-notes .markdown-body h6 {
+  margin: 1.35em 0 .5em;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #1a1a1a;
+  border-bottom: none;   /* the GitHub sheet rules h1/h2; this one must not */
+  padding-bottom: 0;
+}
+
+body.theme-notes .markdown-body h1 { font-size: 1.5em; }
+body.theme-notes .markdown-body h2 { font-size: 1.28em; }
+body.theme-notes .markdown-body h3 { font-size: 1.14em; }
+body.theme-notes .markdown-body h4 { font-size: 1.02em; }
+body.theme-notes .markdown-body h5 { font-size: .95em; }
+body.theme-notes .markdown-body h6 { font-size: .9em; color: #5a5a5a; }
+
+/* -- prose -------------------------------------------------------------- */
+
+/* Consecutive paragraphs sit almost on consecutive lines in the reference --
+   a short note reads as a block of related lines, not as separated stanzas.
+   Headings keep their space above, which is what still gives the page
+   structure once the paragraph gaps are this small. */
+body.theme-notes .markdown-body p { margin: 0 0 .42em; }
+
+body.theme-notes .markdown-body a {
+  color: #0078c5;
+  text-decoration: underline;
+  text-underline-offset: .15em;
+}
+body.theme-notes .markdown-body a:hover { color: #005a94; }
+
+body.theme-notes .markdown-body strong { font-weight: 600; }
+
+body.theme-notes .markdown-body hr {
+  height: 1px;
+  margin: 1.6em 0;
+  border: 0;
+  background: #e3e3e3;
+}
+
+body.theme-notes .markdown-body blockquote {
+  margin: 0 0 .75em;
+  padding: .1em 0 .1em 1em;
+  color: #4a4a4a;
+  border-left: 3px solid #d8d8d8;
+}
+body.theme-notes .markdown-body blockquote > :last-child { margin-bottom: 0; }
+
+/* -- lists -------------------------------------------------------------- */
+
+body.theme-notes .markdown-body ul,
+body.theme-notes .markdown-body ol {
+  margin: 0 0 .75em;
+  padding-left: 1.6em;
+}
+body.theme-notes .markdown-body li { margin: .15em 0; }
+body.theme-notes .markdown-body li > p { margin-bottom: .35em; }
+/* A nested list belongs to the item above it, not to the paragraph flow. */
+body.theme-notes .markdown-body li > ul,
+body.theme-notes .markdown-body li > ol { margin: .15em 0; }
+
+body.theme-notes .markdown-body li.task-list-item { list-style: none; }
+body.theme-notes .markdown-body li.task-list-item input[type="checkbox"] {
+  margin: 0 .4em 0 -1.4em;
+  vertical-align: middle;
+}
+
+/* -- code --------------------------------------------------------------- */
+
+body.theme-notes .markdown-body code,
+body.theme-notes .markdown-body kbd,
+body.theme-notes .markdown-body pre,
+body.theme-notes .markdown-body samp {
+  font-family: Consolas, "Cascadia Mono", "SFMono-Regular", "Liberation Mono",
+               Menlo, monospace;
+}
+
+/* Inline code: a tint, no border -- a border on every inline span makes
+   running prose look like a form. */
+body.theme-notes .markdown-body :not(pre) > code {
+  padding: .12em .35em;
+  font-size: .88em;
+  background: #f2f2f2;
+  border-radius: 4px;
+}
+
+/* Blocks: the panel is the signature of this theme -- rounded, bordered,
+   and roomier than GitHub's. */
+body.theme-notes .markdown-body pre {
+  margin: 0 0 1em;
+  padding: .85em 1em;
+  overflow: auto;
+  font-size: .86em;
+  line-height: 1.5;
+  background: #f7f7f7;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+}
+body.theme-notes .markdown-body pre > code {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-size: inherit;
+  white-space: pre;
+}
+
+/* Mermaid draws its own art; a panel around it would box a diagram twice. */
+body.theme-notes .markdown-body pre.mermaid {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+/* -- tables ------------------------------------------------------------- */
+
+body.theme-notes .markdown-body table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+  overflow: auto;
+  border-collapse: collapse;
+  font-size: .95em;
+}
+body.theme-notes .markdown-body table th,
+body.theme-notes .markdown-body table td {
+  padding: .4em .8em;
+  border: 1px solid #e0e0e0;
+}
+body.theme-notes .markdown-body table th {
+  font-weight: 600;
+  background: #fafafa;
+}
+
+/* -- images ------------------------------------------------------------- */
+
+body.theme-notes .markdown-body img {
+  max-width: 100%;
+  box-sizing: content-box;
+  background: #ffffff;
+}

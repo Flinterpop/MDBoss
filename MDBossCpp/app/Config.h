@@ -65,6 +65,16 @@ public:
     bool is_flat_folder(const std::string& path) const;
     void set_flat_folder(const std::string& path, bool flat);
 
+    // Which preview stylesheet is in use, under a port-only
+    // `wx_preview_theme` key: "github" or "notes".  Stored as the name rather
+    // than an index so a value written by a later build is readable rather
+    // than silently meaning a different theme.
+    const std::string& preview_theme() const { return preview_theme_; }
+    void set_preview_theme(std::string theme)
+    {
+        preview_theme_ = std::move(theme);
+    }
+
     // Folders the files scan does not descend into, under a port-only
     // `wx_excluded_folders` key.  A generated folder inside a root -- a build
     // tree, a tile cache -- can hold orders of magnitude more entries than
@@ -145,6 +155,7 @@ private:
     std::vector<std::string> recents_;
     std::vector<std::string> flat_folders_;
     std::vector<std::string> excluded_folders_;
+    std::string preview_theme_ = "github";
     std::vector<std::string> expanded_folders_;
     std::vector<std::string> seeded_templates_;
     bool seeded_templates_known_ = false;

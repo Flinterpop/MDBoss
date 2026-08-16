@@ -43,6 +43,21 @@ tn.md
 *password*.csv
 logins.md
 
+# Personal notes dropped in the repo folder.  Naming them one at a time did
+# not work: hours after the sheet above was ignored, a `git add -A` staged an
+# unrelated note holding an SSH login and internal addresses, and only the
+# pre-commit grep caught it.  So the rule is now shape-based, not name-based.
+#
+# No PDF is tracked in this repo, so ignoring them all at the root costs
+# nothing; the three .md files that ARE tracked (README, HELP, CLAUDE) are
+# already tracked and so are unaffected by an ignore rule, but they are
+# re-included by name anyway so the intent survives a fresh clone.
+/*.pdf
+/*.md
+!/README.md
+!/HELP.md
+!/CLAUDE.md
+
 # Intermediate icon renders (source is mdboss.svg; runtime uses mdboss.ico)
 mdboss_*.png
 

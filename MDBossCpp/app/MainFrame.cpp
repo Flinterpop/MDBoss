@@ -76,6 +76,10 @@ constexpr int kIdAddTodo = wxID_HIGHEST + 16;
 constexpr int kIdAddDiary = wxID_HIGHEST + 17;
 constexpr int kIdOpenInternal = wxID_HIGHEST + 18;
 constexpr int kIdExportPdf = wxID_HIGHEST + 19;
+// Preview themes.  Radio items, so the menu shows which one is active rather
+// than two tick boxes that can both look off.
+constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
+constexpr int kIdThemeNotes = wxID_HIGHEST + 21;
 // Snippets take ids from here up, one per kSnippets entry.  Bounded (Rule of
 // 10): the array is fixed at compile time, so the range cannot run past the
 // next constant.
@@ -243,6 +247,17 @@ void MainFrame::build_menu()
     view->AppendCheckItem(kIdToggleFrontMatter,
                           "Hide &YAML front matter\tCtrl+Y");
     view->Check(kIdToggleFrontMatter, config_.hide_front_matter());
+    view->AppendSeparator();
+    view->AppendRadioItem(kIdThemeGitHub, "Preview style: &GitHub");
+    view->AppendRadioItem(kIdThemeNotes, "Preview style: &Notes");
+    // Ticked from the stored name, not from a remembered index: an
+    // unrecognised value renders as GitHub, so the menu has to agree with what
+    // the renderer will actually do.
+    view->Check(mdrender::theme_from_name(config_.preview_theme()) ==
+                        mdrender::Theme::kNotes
+                    ? kIdThemeNotes
+                    : kIdThemeGitHub,
+                true);
 
     auto* snippets = new wxMenu();
     for (std::size_t i = 0; i < std::size(kSnippets); ++i) {   // bounded
@@ -601,6 +616,8 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
          kIdOpenInternal);
     Bind(wxEVT_MENU, &MainFrame::on_export_pdf, this, kIdExportPdf);
+    Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeGitHub);
+    Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeNotes);
     Bind(wxEVT_MENU, &MainFrame::on_refresh, this, kIdRefresh);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_files, this, kIdToggleFiles);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_outline, this, kIdToggleOutline);
@@ -1049,7 +1066,8 @@ void MainFrame::render_preview()
             : path_to_utf8(path_from_utf8(current_path_).filename());
 
     preview_->show_page(mdrender::render_document(
-        markdown, base, title, config_.hide_front_matter()));
+        markdown, base, title, config_.hide_front_matter(),
+        mdrender::theme_from_name(config_.preview_theme())));
 
     // Same source, same strip_yaml, so the slugs here are the ids in the page
     // that was just rendered.
@@ -1209,6 +1227,23 @@ void MainFrame::on_add_diary(wxCommandEvent&)
     }
     save_internal_entry(kDiaryFile, diary_seed(),
                         diary_entry(body, today_stamp()), L"Diary entry");
+}
+
+void MainFrame::on_preview_theme(wxCommandEvent& event)
+{
+    const mdrender::Theme wanted = (event.GetId() == kIdThemeNotes)
+                                       ? mdrender::Theme::kNotes
+                                       : mdrender::Theme::kGitHub;
+    const std::string name = mdrender::theme_name(wanted);
+    if (name == config_.preview_theme()) {
+        return;   // radio items also fire when re-selecting the active one
+    }
+    config_.set_preview_theme(name);
+    config_.save();
+    // Re-render rather than reload: the Markdown has not changed, only the two
+    // stylesheets it is dressed in, and reloading would lose the scroll
+    // position and any unsaved edit.
+    render_preview();
 }
 
 void MainFrame::on_export_pdf(wxCommandEvent&)

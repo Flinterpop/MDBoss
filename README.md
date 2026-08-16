@@ -25,6 +25,9 @@ the same app lives in the repo but is **deprecated** — see
 
 ## Features
 
+**Preview style**
+- **Two looks, switchable from the View menu and remembered:** **GitHub** (the default — GitHub's own stylesheet, ruled headings, GitHub syntax colours) and **Notes** (quieter and more page-like: Segoe UI, unruled headings, tighter rhythm, code in a rounded bordered panel with an Xcode-style palette). Only the styling changes; switching re-renders in place, and PDF export uses whichever style is showing.
+
 **Export**
 - **Export as PDF** (File menu) — the document exactly as the preview renders it: GitHub styling, code-block shading and syntax colours, mermaid, KaTeX, tables and task-list boxes. **Hyperlinks are blue and clickable**, written as real PDF link annotations, and no browser header/footer is stamped on the pages.
 

@@ -302,6 +302,70 @@ TEST_CASE("front matter is only stripped when asked", "[frontmatter]")
 // never been saved, so a wrong answer puts a wrong name in front of the user
 // at the one moment they are least likely to read it carefully.
 
+TEST_CASE("a theme changes only the dressing, never the body", "[theme]")
+{
+    // The claim the whole design rests on, and the reason ~30 golden files
+    // cannot be disturbed by adding a theme: render_body() has no theme
+    // parameter at all, so the generated HTML is identical and only the two
+    // stylesheet links and the <body> class differ.
+    REQUIRE(mdrender::set_asset_dir(MDBOSS_ASSET_DIR));
+    const std::string md = "# Title\n\ntext with `code` and a [link](x).\n";
+
+    const std::string github = mdrender::render_document(
+        md, "file:///c:/x/", "T", false, mdrender::Theme::kGitHub);
+    const std::string notes = mdrender::render_document(
+        md, "file:///c:/x/", "T", false, mdrender::Theme::kNotes);
+
+    const std::string body = mdrender::render_body(md, false);
+    REQUIRE_FALSE(body.empty());
+    CHECK(github.find(body) != std::string::npos);
+    CHECK(notes.find(body) != std::string::npos);
+
+    // The dressing, and only the dressing.
+    CHECK(github.find("github-markdown-light.css") != std::string::npos);
+    CHECK(github.find("notes-light.css") == std::string::npos);
+    CHECK(notes.find("notes-light.css") != std::string::npos);
+    CHECK(notes.find("github-markdown-light.css") == std::string::npos);
+
+    CHECK(github.find("highlight/github.min.css") != std::string::npos);
+    CHECK(notes.find("highlight/xcode.min.css") != std::string::npos);
+
+    // The body class is what lets the theme sheet outrank the template's own
+    // inline <style>; without it the layout rules silently lose.
+    CHECK(notes.find("theme-notes") != std::string::npos);
+    CHECK(github.find("theme-github") != std::string::npos);
+
+    // No placeholder may survive in either.
+    CHECK(github.find("@@MDBOSS_") == std::string::npos);
+    CHECK(notes.find("@@MDBOSS_") == std::string::npos);
+}
+
+TEST_CASE("theme names round-trip and fall back", "[theme]")
+{
+    CHECK(mdrender::theme_name(mdrender::Theme::kGitHub) == "github");
+    CHECK(mdrender::theme_name(mdrender::Theme::kNotes) == "notes");
+    CHECK(mdrender::theme_from_name("notes") == mdrender::Theme::kNotes);
+    CHECK(mdrender::theme_from_name("github") == mdrender::Theme::kGitHub);
+    // A profile written by a later build, or a hand-edited one, must render
+    // as something rather than fail.
+    CHECK(mdrender::theme_from_name("") == mdrender::Theme::kGitHub);
+    CHECK(mdrender::theme_from_name("solarized") == mdrender::Theme::kGitHub);
+}
+
+TEST_CASE("every theme's stylesheets are actually bundled", "[theme][assets]")
+{
+    // The same guard the GitHub assets already have: a theme whose CSS is not
+    // shipped renders as unstyled text, and only in the installed build.
+    REQUIRE(mdrender::set_asset_dir(MDBOSS_ASSET_DIR));
+    const std::filesystem::path assets(MDBOSS_ASSET_DIR);
+    for (const char* name : {"github-markdown-light.css", "notes-light.css",
+                             "highlight/github.min.css",
+                             "highlight/xcode.min.css"}) {
+        INFO(name);
+        CHECK(std::filesystem::is_regular_file(assets / name));
+    }
+}
+
 TEST_CASE("a task list renders as checkboxes", "[mdrender][tasklist]")
 {
     // Found by looking at the preview, not by a test: ToDoList.md is written

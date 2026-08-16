@@ -62,6 +62,24 @@ Recorded from the files themselves, not from memory:
   python -c "from pygments.formatters import HtmlFormatter; print(HtmlFormatter(style='default').get_style_defs('.highlight'))"
   ```
 
+## First-party stylesheets (not vendored)
+
+Two files here are written by this project rather than taken from upstream, and so have no version to track. They exist because the C++ port offers a second preview style ("Notes") beside the GitHub one.
+
+- **`notes-light.css`** — the Notes theme's Markdown stylesheet. Not derived from any upstream sheet: it was written against measurements taken from a reference PDF (Segoe UI 9.8pt body in `#1A1A1A`, Semibold headings with no rules, Consolas 9pt in a bordered grey panel, links `#0078C5`). Everything is scoped under `body.theme-notes`, which is load-bearing — the template's own inline `<style>` is emitted after the linked sheets and would otherwise win every tie on `.markdown-body`.
+- **`highlight/xcode.min.css`** — the Notes theme's highlight.js palette. highlight.js does ship an `xcode.css`, but **this repo is ITAR-controlled and nothing may be fetched from the network**, so the palette was recovered by measuring the text spans of the same reference PDF and transcribed by hand against highlight.js v11's scope names:
+
+  | Colour | Scope |
+  |---|---|
+  | `#AA0D91` | keywords |
+  | `#C41A16` | strings |
+  | `#1C00CF` | numbers, literals |
+  | `#007400` | comments |
+  | `#5C2699` | identifiers, calls |
+  | `#3F6E74` | types, attributes |
+
+  Verified by rendering a tagged fence and reading the span colours back out of the exported PDF, since a wrong scope name fails silently as plain text.
+
 ## A note on the C++ port
 
 The port highlights in the browser with highlight.js instead of server-side
