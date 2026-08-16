@@ -122,6 +122,10 @@ void Config::load()
     // the old one-per-root bound.  Entries past it are dropped, which loses a
     // display preference and nothing else.
     flat_folders_ = string_array(document, "wx_flat_roots", 4096);
+    // Same cap and same reasoning, with one difference that matters: an entry
+    // dropped here does not cost a display preference, it puts a folder back
+    // into the scan.  4096 exclusions is far past any plausible use.
+    excluded_folders_ = string_array(document, "wx_excluded_folders", 4096);
     // Same reasoning and the same cap: one entry per expanded folder, and a
     // list past the cap costs a display preference and nothing else.
     expanded_folders_ = string_array(document, "wx_expanded_folders", 4096);
@@ -200,6 +204,7 @@ bool Config::save() const
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
     document["wx_flat_roots"] = flat_folders_;
+    document["wx_excluded_folders"] = excluded_folders_;
     document["wx_expanded_folders"] = expanded_folders_;
     document["wx_seeded_templates"] = seeded_templates_;
 
@@ -283,6 +288,33 @@ void Config::set_flat_folder(const std::string& path, bool flat)
     }
     if (flat) {
         flat_folders_.push_back(path);
+    }
+}
+
+bool Config::is_excluded_folder(const std::string& path) const
+{
+    for (const std::string& excluded : excluded_folders_) {
+        if (excluded == path) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Config::set_excluded_folder(const std::string& path, bool excluded)
+{
+    assert(!path.empty() && "an excluded folder needs a path");
+    for (auto it = excluded_folders_.begin(); it != excluded_folders_.end();
+         ++it) {
+        if (*it == path) {
+            if (!excluded) {
+                excluded_folders_.erase(it);
+            }
+            return;   // already present: nothing to add, only maybe remove
+        }
+    }
+    if (excluded) {
+        excluded_folders_.push_back(path);
     }
 }
 

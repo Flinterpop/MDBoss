@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-*Last updated: 15 Aug 2026*
+*Last updated: 16 Aug 2026*
 
 Guidance for Claude Code working in this repository.
 
@@ -87,7 +87,7 @@ before working near what they guard:
 
 Counting Markdown files once ran on the UI thread in `set_roots()`, and three real roots were enough to stall the message loop past the point where WebView2's asynchronous controller creation gives up: `CreateCoreWebView2Controller` returned `E_ABORT` and **the preview silently never appeared**. There is no error to see — the pane is just blank.
 
-This is the one place the sibling app is the wrong model to copy. `PDF_Sherpa`'s `PdfListPane` builds its entry list on the UI thread and gets away with it, because nothing in that window is waiting on the message loop the way a WebView2 controller is. Take its tree design, not its threading.
+This used to be the one place the sibling app was the wrong model to copy: `PDF_Sherpa`'s `PdfListPane` built its entry list on the UI thread and got away with it, because nothing in that window waits on the message loop the way a WebView2 controller does. That is no longer true — its scan, its topic-list builds and its drop handling all run on workers now — so the two apps agree again, and the rule is simply that neither reads the filesystem in bulk on the UI thread.
 
 So `start_scan()` (documents and counts) and `start_content_search()` (the Contents search) both follow the same shape, and anything new that touches the filesystem in bulk must too:
 
@@ -125,6 +125,15 @@ Two traps, both found only by driving the built app — neither shows up in a te
 - **`DeleteAllItems()` raises a collapse event per expanded row.** Read as the user closing folders, that emptied the remembered set one rebuild at a time and the tree came back fully collapsed after a filter was typed and cleared. The `applying_expansion_` guard is set *before* the delete, not just around the expanding that follows.
 
 The set is the user's own expanding and collapsing, deliberately not what is on screen: a filter opens everything down to its matches, and saving that would reopen the whole tree next launch.
+
+### A bound the walk can hit has to be reportable, and folders have to be skippable
+
+Add a whole workspace folder as a root and the walk can meet far more than it expects: one measured well over a million entries against a bound of 100,000, with the overwhelming majority of them inside a single generated cache folder. The walk stopped partway through the alphabet, every folder after that point was simply absent from the tree, and nothing on screen said so — the count beside the root read like a total. Two things came out of that, and both are load-bearing:
+
+- **`RootScan::truncated`.** The ceiling is now high enough that no real tree reaches it, and reaching it marks the root `(partial — scan limit reached)`. A silent cap presents a short list as the whole answer, which is worse than being slow.
+- **`wx_excluded_folders`** — folders the walk does not descend into, toggled from a folder's context menu. A built-in list of names to skip was considered and rejected: the folder that actually cost the scan was an app's own output directory with an app-specific name, not `node_modules` or `.git`, so the choice has to be the user's. An excluded folder still gets a row, marked `(excluded)`, because a pruned folder that leaves no trace is indistinguishable from an empty one *and* its row is the only place the exclusion can be undone.
+
+**Roots may nest, and the tree has to cope.** A workspace folder added as a root and one folder inside it added as a second root make the same absolute folder reachable from two roots. `folder_item()`'s node cache was keyed on the path alone, so the second root's documents were hung on the first root's node — the file appeared twice under one root, not at all under the other, and the folder count beside it still read 1. The keys carry the root index now. This only surfaced once the scan reached deep enough to produce the collision, which is a good reminder that a bug fixed upstream can uncover one downstream.
 
 ## Releasing
 

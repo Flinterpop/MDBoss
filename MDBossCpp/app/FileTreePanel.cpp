@@ -75,6 +75,7 @@ constexpr int kIdImportInbox = wxID_HIGHEST + 68;
 constexpr int kIdManageTemplates = wxID_HIGHEST + 69;
 constexpr int kIdManageFolders = wxID_HIGHEST + 70;
 constexpr int kIdFlatList = wxID_HIGHEST + 71;
+constexpr int kIdExclude = wxID_HIGHEST + 72;
 // Templates take ids from here up.  Bounded (Rule of 10) so a folder full of
 // templates cannot run the range into the next constant.
 constexpr int kIdTemplateBase = wxID_HIGHEST + 80;
@@ -111,6 +112,43 @@ std::string lowered(const std::string& text)
         }
     }
     return out;
+}
+
+// `path` relative to `root`, '/'-separated -- the form folder_item() splits
+// into nodes.  Empty when `path` is not strictly beneath `root`, which is also
+// what a caller iterating the roots uses to mean "not this one".
+//
+// Compared on the normalised form so case and separators cannot cause a miss,
+// but the slice is taken from the ORIGINAL string: the tree shows folder names
+// as they are spelled on disk, and returning the lower-cased form would rename
+// every excluded folder on screen.
+std::string relative_under(const std::string& root, const std::string& path)
+{
+    const std::string norm_root = norm_path(root);
+    const std::string norm_full = norm_path(path);
+    if (norm_root.empty() || norm_full.size() <= norm_root.size() + 1) {
+        return {};
+    }
+    if (norm_full.compare(0, norm_root.size(), norm_root) != 0) {
+        return {};
+    }
+    const char separator = norm_full[norm_root.size()];
+    if (separator != '\\' && separator != '/') {
+        return {};   // "C:\Docs" must not match "C:\Docs2"
+    }
+    // The normalised form differs from the original only in case and in
+    // separator spelling, never in length, so the offset carries across --
+    // but only take the slice if the original really is that long.
+    if (path.size() <= norm_root.size() + 1) {
+        return {};
+    }
+    std::string relative = path.substr(norm_root.size() + 1);
+    for (char& ch : relative) {
+        if (ch == '\\') {
+            ch = '/';
+        }
+    }
+    return relative;
 }
 
 }  // namespace
@@ -200,10 +238,16 @@ void FileTreePanel::start_scan()
     }
     const unsigned generation = ++scan_generation_;
     std::shared_ptr<std::atomic<bool>> alive = alive_;
+    // Read here, on the UI thread, and passed by value: the worker must not
+    // reach back into Config while the user may be editing the same list.
+    const std::vector<std::string> excluded =
+        excluded_list_ ? excluded_list_() : std::vector<std::string>();
 
-    std::thread([this, roots, generation, alive] {
+    std::thread([this, roots, generation, alive, excluded] {
         std::map<std::string, int> counts;
         std::vector<DocEntry> entries;
+        std::set<std::string> truncated;
+        std::map<std::string, std::string> excluded_seen;
         // Nothing may escape a detached thread: an uncaught exception here is
         // std::terminate, which is a hard crash with no message.
         //
@@ -213,8 +257,14 @@ void FileTreePanel::start_scan()
         // window read (0).
         for (std::size_t i = 0; i < roots.size(); ++i) {
             try {
-                RootScan scan = scan_root(roots[i].path);
+                RootScan scan = scan_root(roots[i].path, excluded);
                 counts.insert(scan.counts.begin(), scan.counts.end());
+                if (scan.truncated) {
+                    truncated.insert(norm_path(roots[i].path));
+                }
+                for (const std::string& folder : scan.excluded_folders) {
+                    excluded_seen.emplace(norm_path(folder), folder);
+                }
                 for (DocEntry& entry : scan.entries) {
                     // scan_root knows nothing about the roots list, so which
                     // root an entry belongs to is stamped on here.
@@ -225,12 +275,15 @@ void FileTreePanel::start_scan()
                 // This root contributes nothing; the others still appear.
             }
         }
-        wxTheApp->CallAfter([this, counts, entries, generation, alive] {
+        wxTheApp->CallAfter([this, counts, entries, truncated, excluded_seen,
+                             generation, alive] {
             if (!alive->load() || generation != scan_generation_) {
                 return;   // panel gone, or a newer scan already superseded us
             }
             counts_ = counts;
             entries_ = entries;
+            truncated_roots_ = truncated;
+            excluded_seen_ = excluded_seen;
             // rebuild() re-applies the remembered expansion itself, including
             // a set restored from the last session that had no rows to act on
             // until now.
@@ -264,8 +317,17 @@ wxTreeItemId FileTreePanel::folder_item(std::size_t root_index,
         return root_item;
     }
 
+    // Cache keys are qualified with the root index, and must be.  Roots may
+    // nest -- a workspace folder added as a root, and one repo inside it added
+    // as a second -- and then the SAME absolute folder is reachable from two
+    // roots.  Keyed on the path alone, the second root's walk found the first
+    // root's node and hung its documents there: the file appeared twice under
+    // one root and not at all under the other, with the folder count beside it
+    // still reading 1.  It only showed up once the scan reached deep enough to
+    // produce the collision.
+    const std::string key_prefix = std::to_string(root_index) + "|";
+
     wxTreeItemId parent = root_item;
-    std::string prefix = norm_path(root_path);
     std::string here = root_path;
     std::size_t start = 0;
     int depth = 0;
@@ -281,7 +343,7 @@ wxTreeItemId FileTreePanel::folder_item(std::size_t root_index,
             ++depth;
             here = path_to_utf8(path_from_utf8(here) /
                                 path_from_utf8(component));
-            prefix = norm_path(here);
+            const std::string prefix = key_prefix + norm_path(here);
             const auto found = made.find(prefix);
             if (found != made.end()) {
                 parent = found->second;
@@ -307,10 +369,22 @@ wxTreeItemId FileTreePanel::folder_item(std::size_t root_index,
 wxString FileTreePanel::folder_label(const std::string& path,
                                      const std::string& name) const
 {
-    const auto found = counts_.find(norm_path(path));
+    const std::string norm = norm_path(path);
+    const auto found = counts_.find(norm);
     const int count = (found == counts_.end()) ? 0 : found->second;
     wxString label =
         wxString::FromUTF8(name) + wxString::Format("  (%d)", count);
+    // An excluded folder has no count because nothing under it was walked, so
+    // without this it reads as an empty folder rather than a skipped one.
+    if (excluded_seen_.count(norm) != 0) {
+        label += L"  (excluded)";
+    }
+    // The walk stopped before the end of this root, so the count below it is a
+    // floor, not a total.  Saying nothing is what made a half-scanned
+    // workspace indistinguishable from a fully scanned one.
+    if (truncated_roots_.count(norm) != 0) {
+        label += L"  (partial — scan limit reached)";
+    }
     // Say so on the row.  A flattened folder shows no subfolders at all, so
     // without the marker there is nothing to distinguish it from one that
     // genuinely has none -- and the only way to check was to raise the context
@@ -366,6 +440,26 @@ void FileTreePanel::rebuild()
     std::map<std::string, wxTreeItemId> made;
     for (const DocEntry* entry : shown) {
         folder_item(entry->root_index, entry->relative_dir, made);
+    }
+
+    // Rows for the folders the scan skipped.  No document put them there, so
+    // without this pass an excluded folder simply vanishes -- and with nothing
+    // to right-click, the exclusion could be made but never undone.  Only when
+    // nothing is being filtered or searched: a query is a question about
+    // documents, and a folder holding none of them is not an answer.
+    if (needle.empty() && !searching) {
+        for (const auto& pair : excluded_seen_) {   // bounded by the exclusions
+            const std::string& absolute = pair.second;
+            for (std::size_t i = 0; i < roots_.size(); ++i) {
+                const std::string relative =
+                    relative_under(roots_[i].path, absolute);
+                if (relative.empty()) {
+                    continue;   // not under this root
+                }
+                folder_item(i, relative, made);
+                break;
+            }
+        }
     }
     for (const DocEntry* entry : shown) {
         const wxTreeItemId parent =
@@ -745,6 +839,16 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     // New items land beside a file, or inside a folder.
     const std::string dir =
         is_file ? path_to_utf8(path_from_utf8(path).parent_path()) : path;
+    // A configured root, as opposed to a folder inside one.  Compared by path
+    // rather than by depth, because a root row is the only row whose path is
+    // one of the configured roots.
+    bool is_root_row = false;
+    for (const Root& root : roots_) {   // bounded by the roots list
+        if (norm_path(root.path) == norm_path(path)) {
+            is_root_row = true;
+            break;
+        }
+    }
 
     wxMenu menu;
     if (is_file) {
@@ -790,6 +894,15 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
         wxMenuItem* flat = menu.AppendCheckItem(kIdFlatList,
                                                 "Show as flat &list");
         flat->Check(is_flat_folder_ && is_flat_folder_(path));
+    }
+    // Offered on a subfolder, never on a root: excluding a root would leave it
+    // in the folders list contributing nothing, which is what removing it is
+    // for.  The point of this is the generated folder inside a root -- a build
+    // tree or a cache -- that costs the scan far more than it is worth.
+    if (!is_file && on_toggle_excluded_ && !is_root_row) {
+        const bool excluded = is_excluded_folder_ && is_excluded_folder_(path);
+        menu.AppendCheckItem(kIdExclude, "S&kip when scanning")
+            ->Check(excluded);
     }
     if (on_import_to_inbox_ || on_manage_folders_) {
         menu.AppendSeparator();
@@ -872,6 +985,15 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             scroll_fully_left();
         }
     }, kIdFlatList);
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_toggle_excluded_) {
+            on_toggle_excluded_(path);   // flips and persists
+        }
+        // A full rescan, not a rebuild: excluding a folder changes what the
+        // walk collects, and un-excluding one needs the documents underneath
+        // it read for the first time.  Nothing in memory can answer either.
+        refresh();
+    }, kIdExclude);
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         if (on_import_to_inbox_) {
             on_import_to_inbox_();

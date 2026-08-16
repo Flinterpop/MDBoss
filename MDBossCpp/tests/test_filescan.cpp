@@ -100,6 +100,64 @@ TEST_CASE("markdown counts are recursive", "[filescan]")
     CHECK(at(tree.sub("Empty/Deeper")) == 0);
 }
 
+TEST_CASE("an excluded folder is pruned, and reported", "[filescan]")
+{
+    // Exists because a workspace root of ~20 repos measured 1.76M entries,
+    // 93% of them one app's generated cache, and the walk hit its bound a
+    // fifth of the way through -- silently.  Excluding that one folder is what
+    // makes such a root scannable, and the exclusion has to be REPORTED: a
+    // pruned folder that leaves no trace looks exactly like an empty one, and
+    // its row is the only place the user can put it back.
+    const TempTree tree;
+    const mdboss::RootScan scan =
+        mdboss::scan_root(tree.path(), {tree.sub("Notes")});
+
+    // Nothing from under the excluded folder, and everything beside it.
+    REQUIRE(scan.entries.size() == 1);
+    CHECK(scan.entries[0].name == "top.md");
+
+    REQUIRE(scan.excluded_folders.size() == 1);
+    CHECK(mdboss::norm_path(scan.excluded_folders[0]) ==
+          mdboss::norm_path(tree.sub("Notes")));
+
+    // Pruning is not truncation: the walk finished, it was simply told to skip
+    // part of the tree.  Conflating the two would put "(partial)" on a root
+    // whose listing is exactly what was asked for.
+    CHECK_FALSE(scan.truncated);
+
+    // The excluded folder gets no count entry -- nothing under it was walked,
+    // so any number here would be a guess.
+    CHECK(scan.counts.find(mdboss::norm_path(tree.sub("Notes"))) ==
+          scan.counts.end());
+}
+
+TEST_CASE("a scan with no exclusions is unchanged and complete", "[filescan]")
+{
+    // The default argument must not quietly prune anything, and a tree this
+    // size must never come back flagged truncated -- the flag is what the tree
+    // uses to say the list is incomplete, so a false positive is a permanent
+    // "(partial)" on a root that is fully scanned.
+    const TempTree tree;
+    const mdboss::RootScan scan = mdboss::scan_root(tree.path());
+
+    CHECK(scan.entries.size() == 4);
+    CHECK(scan.excluded_folders.empty());
+    CHECK_FALSE(scan.truncated);
+}
+
+TEST_CASE("excluding a folder that is not there changes nothing", "[filescan]")
+{
+    // An exclusion outlives the folder it names: the path is stored in the
+    // profile and the folder can be renamed or deleted afterwards.  A stale
+    // entry must be inert, not a reason to prune something else.
+    const TempTree tree;
+    const mdboss::RootScan scan =
+        mdboss::scan_root(tree.path(), {tree.sub("NoSuchFolder")});
+
+    CHECK(scan.entries.size() == 4);
+    CHECK(scan.excluded_folders.empty());
+}
+
 TEST_CASE("the scan lists every document with its folder", "[filescan]")
 {
     // The tree is built from these entries, so what is here is exactly what

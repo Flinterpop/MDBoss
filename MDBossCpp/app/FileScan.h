@@ -177,12 +177,32 @@ inline constexpr std::size_t kMaxEntriesPerRoot = 100000;
 // unreadable.  It contributes no entries either, so it simply does not appear
 // in the tree: with nothing listing directories independently of this walk,
 // there is no longer a way to show a folder the walk could not read.
+//
+// `truncated` says the walk stopped before the end of the tree, and exists
+// because it once did so silently.  A workspace root of ~20 repos came to
+// 1.76M entries against a 100,000 bound, 93% of it one app's tile cache: the
+// walk gave up a fifth of the way through the alphabet and every repo after
+// that simply was not in the tree, with nothing on screen to say so.  A bound
+// that can be hit has to be reportable -- see kMaxWalkedEntries.
 struct RootScan {
     std::vector<DocEntry> entries;
     std::map<std::string, int> counts;
+    bool truncated = false;
+    // Folders the walk was told to skip and did, absolute and UTF-8.  Reported
+    // rather than merely obeyed: a pruned folder that leaves no trace in the
+    // tree looks exactly like one that is empty, and the row is also the only
+    // place the user can put it back.
+    std::vector<std::string> excluded_folders;
 };
 
-RootScan scan_root(const std::string& root);
+// `excluded` folders are pruned: matched on the normalised absolute path, not
+// descended into, and reported back in RootScan::excluded_folders.  Excluding
+// one big generated folder (a build tree, a tile cache) is what keeps a scan
+// of a whole workspace quick.  A built-in list of names to skip does not work:
+// the folder that costs the most is as likely to be an app's own output
+// directory, named whatever its author chose, as it is to be "node_modules".
+RootScan scan_root(const std::string& root,
+                   const std::vector<std::string>& excluded = {});
 
 // One entry of a directory listing, already ordered the way the tree shows
 // them: directories first, then files, each case-insensitively by name.

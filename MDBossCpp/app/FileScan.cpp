@@ -7,6 +7,7 @@
 #include <climits>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -21,8 +22,20 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// Bounded (Rule of 10): a pathological tree must not spin the UI.
-constexpr int kMaxWalkedDirs = 100000;
+// Bounded (Rule of 10): a pathological tree must not spin the walk forever.
+//
+// This counts every entry visited, files included -- it was named
+// kMaxWalkedDirs and read like a directory count, which is part of why 100,000
+// looked generous.  It is not: a workspace root of ~20 repos measured 1.76M
+// entries, 93% of it a single app's tile cache, so the walk stopped a fifth of
+// the way through and silently dropped 13 repos' worth of Markdown.
+//
+// The ceiling is now high enough that no real tree reaches it, and reaching it
+// sets RootScan::truncated so the tree can say the list is incomplete instead
+// of quietly presenting a short one as the whole answer.  The cost of a walk
+// this size is time, not responsiveness: it runs on a worker (see
+// FileTreePanel::start_scan) and the folder exclusions are what keep it quick.
+constexpr std::size_t kMaxWalkedEntries = 5000000;
 constexpr std::size_t kMaxEntriesPerDir = 20000;
 
 std::string to_lower(std::string text)
@@ -199,13 +212,21 @@ std::vector<ContentMatch> search_file_contents(
     return matches;
 }
 
-RootScan scan_root(const std::string& root)
+RootScan scan_root(const std::string& root,
+                   const std::vector<std::string>& excluded)
 {
     RootScan result;
     std::map<std::string, int>& counts = result.counts;
     std::error_code ec;
     if (!fs::is_directory(path_from_utf8(root), ec) || ec) {
         return result;
+    }
+
+    // Normalised once, so the per-entry test is a set lookup rather than a
+    // path comparison repeated over a million entries.
+    std::set<std::string> excluded_set;
+    for (const std::string& path : excluded) {
+        excluded_set.insert(norm_path(path));
     }
 
     // ONE walk.  An earlier version collected the directories and then
@@ -242,14 +263,25 @@ RootScan scan_root(const std::string& root)
     fs::recursive_directory_iterator it(
         root_path, fs::directory_options::skip_permission_denied, ec);
     const fs::recursive_directory_iterator end;
-    int walked = 0;
-    while (!ec && it != end && walked < kMaxWalkedDirs) {
+    std::size_t walked = 0;
+    while (!ec && it != end && walked < kMaxWalkedEntries) {
         ++walked;
         const fs::directory_entry entry = *it;
         std::error_code kind_ec;
         if (entry.is_directory(kind_ec) && !kind_ec) {
-            dirs.push_back(entry.path());
-            counts.emplace(norm_path(path_to_utf8(entry.path())), 0);
+            const std::string norm = norm_path(path_to_utf8(entry.path()));
+            if (excluded_set.count(norm) != 0) {
+                // Prune, and remember it: an excluded folder the tree does not
+                // mention is indistinguishable from one that is empty or
+                // missing, and there would then be no row to right-click to
+                // put it back.  disable_recursion_pending() skips the subtree
+                // without disturbing the walk of everything beside it.
+                result.excluded_folders.push_back(path_to_utf8(entry.path()));
+                it.disable_recursion_pending();
+            } else {
+                dirs.push_back(entry.path());
+                counts.emplace(norm, 0);
+            }
         } else if (is_markdown(path_to_utf8(entry.path().filename()))) {
             const auto found =
                 counts.find(norm_path(path_to_utf8(entry.path().parent_path())));
@@ -266,6 +298,12 @@ RootScan scan_root(const std::string& root)
         }
         it.increment(ec);
     }
+
+    // Either bound tells the same story: what follows is not the whole tree.
+    // `ec` covers the walk being cut short mid-way, which the loop condition
+    // treats as the end -- it is not, and reporting it is the difference
+    // between a short list and a short list that admits it.
+    result.truncated = (walked >= kMaxWalkedEntries) || static_cast<bool>(ec);
 
     // Roll the direct counts up, deepest first, so each parent adds its
     // children's finished totals exactly once.

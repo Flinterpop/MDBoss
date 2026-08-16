@@ -60,6 +60,19 @@ public:
         on_toggle_flat_ = std::move(toggle);
     }
 
+    // Whether the scan skips a folder, and toggling it -- the same
+    // query/toggle split as the flat hooks, and for the same reason: the tree
+    // shows the state and the menu item, the app owns where it is kept.
+    // `list` supplies the exclusions to the scan itself.
+    void set_exclude_hooks(std::function<bool(const std::string&)> query,
+                           std::function<void(const std::string&)> toggle,
+                           std::function<std::vector<std::string>()> list)
+    {
+        is_excluded_folder_ = std::move(query);
+        on_toggle_excluded_ = std::move(toggle);
+        excluded_list_ = std::move(list);
+    }
+
     // "Import files into MD_Inbox…", which the tree offers wherever the menu
     // is raised -- including empty space, as the Python app does, because the
     // command is about the roots as a whole and not the row under the cursor.
@@ -165,6 +178,15 @@ private:
     // by the scan that fills them.
     std::vector<DocEntry> entries_;
     std::map<std::string, int> counts_;
+    // Roots whose walk stopped short of the whole tree, by normalised path, so
+    // the row can say the list under it is incomplete.  A bound that can be
+    // hit and never mentioned is how a workspace root silently lost 13 repos.
+    std::set<std::string> truncated_roots_;
+    // Folders the scan was told to skip: normalised path -> the path as it is
+    // spelled on disk.  Both halves are needed -- the normalised form to mark
+    // the row, the original to build it, since no document put it there and
+    // the row is the only place the exclusion can be undone.
+    std::map<std::string, std::string> excluded_seen_;
     // The row for each configured root, in configured order, valid between a
     // rebuild and the next one.
     std::vector<wxTreeItemId> root_items_;
@@ -192,6 +214,9 @@ private:
     std::function<bool(const std::string&)> is_favorite_;
     std::function<bool(const std::string&)> is_flat_folder_;
     std::function<void(const std::string&)> on_toggle_flat_;
+    std::function<bool(const std::string&)> is_excluded_folder_;
+    std::function<void(const std::string&)> on_toggle_excluded_;
+    std::function<std::vector<std::string>()> excluded_list_;
     std::function<void()> on_import_to_inbox_;
     std::function<void()> on_manage_templates_;
     std::function<void()> on_manage_folders_;

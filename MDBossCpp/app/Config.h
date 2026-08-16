@@ -65,6 +65,19 @@ public:
     bool is_flat_folder(const std::string& path) const;
     void set_flat_folder(const std::string& path, bool flat);
 
+    // Folders the files scan does not descend into, under a port-only
+    // `wx_excluded_folders` key.  A generated folder inside a root -- a build
+    // tree, a tile cache -- can hold orders of magnitude more entries than
+    // everything the user actually wants indexed, and walking it costs the
+    // scan tens of seconds for nothing.  Stored as absolute paths, normalised
+    // by the panel that writes them, exactly as `wx_flat_roots` is.
+    const std::vector<std::string>& excluded_folders() const
+    {
+        return excluded_folders_;
+    }
+    bool is_excluded_folder(const std::string& path) const;
+    void set_excluded_folder(const std::string& path, bool excluded);
+
     // Which folders were expanded in the files tree when the window closed,
     // under a port-only `wx_expanded_folders` key.  Reopening collapsed means
     // clicking back down to the same folder every launch; the Python app never
@@ -131,6 +144,7 @@ private:
     std::vector<std::string> favorites_;
     std::vector<std::string> recents_;
     std::vector<std::string> flat_folders_;
+    std::vector<std::string> excluded_folders_;
     std::vector<std::string> expanded_folders_;
     std::vector<std::string> seeded_templates_;
     bool seeded_templates_known_ = false;

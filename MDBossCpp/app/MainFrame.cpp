@@ -428,6 +428,16 @@ void MainFrame::build_panes()
             config_.set_flat_folder(path, !config_.is_flat_folder(path));
             config_.save();
         });
+    files_->set_exclude_hooks(
+        [this](const std::string& path) {
+            return config_.is_excluded_folder(path);
+        },
+        [this](const std::string& path) {
+            config_.set_excluded_folder(path,
+                                        !config_.is_excluded_folder(path));
+            config_.save();
+        },
+        [this]() { return config_.excluded_folders(); });
 
     outline_split_ = new wxSplitterWindow(files_split_, wxID_ANY,
                                           wxDefaultPosition, wxDefaultSize,

@@ -1,6 +1,6 @@
 # MD Boss
 
-*Last updated: 15 Aug 2026*
+*Last updated: 16 Aug 2026*
 
 A local Markdown manager, editor, and GitHub-style viewer. Browse Markdown
 files across up to **five root folders**, edit them beside a **live preview**
@@ -24,7 +24,7 @@ without them.
 
 ## Panes
 
-- **Left pane** — **Recent** and **Favorites** sit at the top (see below), above the **Files** list: your roots as a combined tree, where each folder shows the number of Markdown files within it (counted recursively). Folders with no Markdown files anywhere inside them are not listed. A **single click** on a file opens it. Filter with the box above the tree — see **Searching** below. **The folders you leave open are remembered**, so the tree comes back the way you left it next time you start. Right-click a file for New file/folder, Rename, Delete (to the Recycle Bin), Reveal in Explorer, Copy path, and Favorite. Right-click **any folder** — a root or a subfolder at any depth — and choose **Show as flat list** to list every Markdown file beneath it at once instead of a tree. Useful for a deep structure holding only a few documents. A flattened folder is marked **`(flat)`** after its count, since a folder showing no subfolders otherwise looks the same as one that has none. Each folder is independent: one subfolder can be flat while its siblings and its root stay trees, and the count beside a flattened folder is exactly how many files it lists. The choice is remembered per folder.
+- **Left pane** — **Recent** and **Favorites** sit at the top (see below), above the **Files** list: your roots as a combined tree, where each folder shows the number of Markdown files within it (counted recursively). Folders with no Markdown files anywhere inside them are not listed. A **single click** on a file opens it. Filter with the box above the tree — see **Searching** below. **The folders you leave open are remembered**, so the tree comes back the way you left it next time you start. Right-click a file for New file/folder, Rename, Delete (to the Recycle Bin), Reveal in Explorer, Copy path, and Favorite. Right-click **any folder** — a root or a subfolder at any depth — and choose **Show as flat list** to list every Markdown file beneath it at once instead of a tree. Useful for a deep structure holding only a few documents. A flattened folder is marked **`(flat)`** after its count, since a folder showing no subfolders otherwise looks the same as one that has none. Each folder is independent: one subfolder can be flat while its siblings and its root stay trees, and the count beside a flattened folder is exactly how many files it lists. The choice is remembered per folder. The same menu offers **Skip when scanning** for a folder that should be left out of the scan altogether — see **Big root folders** below.
 - **Outline** (middle) — headings of the current document. Click a heading to
   scroll the preview to it.
 - **Recent** (top of the left pane) — the last six documents you opened, newest
@@ -40,6 +40,19 @@ without them.
 - **Editor \| Preview** (right) — the source editor beside the live preview.
   Use the **Edit** toolbar button to hide the editor for distraction-free
   reading.
+
+## Big root folders
+
+Adding a whole working folder as a root is a reasonable thing to want, and it works — but the scan walks everything beneath it, and generated folders can hold far more than your documents do. A build tree, a package cache or an application's own output directory can easily contain hundreds of times as many files as the notes you actually want listed, and every one of them costs the scan time.
+
+**Right-click any folder inside a root and choose *Skip when scanning*** to leave it out. The choice is remembered, and refreshing afterwards is enough to see the difference. A skipped folder is still listed, marked **`(excluded)`** with a count of `0` — that row is how you find it again, and right-clicking it a second time puts it back.
+
+Two things worth knowing while a scan is running:
+
+- **It runs in the background.** The root folders appear immediately and the window stays usable; the folder counts and the documents beneath them fill in when the walk finishes. On a very large root that can take a while, and nothing is wrong.
+- **A root marked `(partial — scan limit reached)` is not fully listed.** MD Boss stops walking a single root once it has seen a very large number of files, so a runaway folder cannot keep it busy forever. Real folders do not reach that limit, so seeing it means something enormous is inside — find the folder responsible, skip it, and press **F5**.
+
+Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
 ## Opening files from outside your folders
 
