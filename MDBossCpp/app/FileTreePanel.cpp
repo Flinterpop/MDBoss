@@ -126,8 +126,15 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
         L"Also match text inside files, not just their names.  Searching "
         L"reads every Markdown file under each root, so it runs in the "
         L"background and needs at least two characters.");
+    // The flags are spelled out rather than taken from wxTR_DEFAULT_STYLE,
+    // which on MSW is wxTR_HAS_BUTTONS | wxTR_NO_LINES | wxTR_LINES_AT_ROOT |
+    // wxTR_TWIST_BUTTONS | wxTR_FULL_ROW_HIGHLIGHT -- NO_LINES with
+    // TWIST_BUTTONS is what gives the Explorer chevrons and drops the
+    // connecting lines.  A folder tree reads better with the lines: they show
+    // which parent a deep row belongs to, which chevrons leave you counting
+    // indents.  Same set as PDF_Sherpa's PdfListPane, deliberately.
     tree_ = new wxTreeCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                           wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT |
+                           wxTR_HAS_BUTTONS | wxTR_HIDE_ROOT | wxTR_SINGLE |
                                wxTR_LINES_AT_ROOT);
 
     // The box and its modifier on one row: the checkbox changes what the text
