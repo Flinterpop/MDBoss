@@ -49,6 +49,25 @@ public:
         on_scrolled_ = std::move(handler);
     }
 
+    // Write the page currently shown to a PDF at `path`.
+    //
+    // WebView2's own print pipeline does this, which is what makes the export
+    // worth having: it is Chromium laying out the very page on screen, so the
+    // PDF carries the GitHub styling, the fonts, the mermaid diagrams and the
+    // KaTeX exactly as rendered -- and it emits real link annotations, so a
+    // hyperlink stays blue and stays clickable in the reader.  Re-rendering
+    // the Markdown through some second PDF library would agree with the
+    // preview only by coincidence, and would not agree for long.
+    //
+    // Asynchronous: `on_done` runs on the UI thread with an empty string on
+    // success, or a sentence describing what failed.  Exporting while the
+    // preview is still starting up is refused rather than queued -- an export
+    // is something the user asked for now, and silently producing the PDF
+    // some seconds later, of a page they may have navigated away from, would
+    // be worse than saying no.
+    void export_pdf(const std::string& path,
+                    std::function<void(std::string)> on_done);
+
     // False until the WebView2 is live; the caller can show a placeholder.
     bool ready() const { return webview_ != nullptr; }
 

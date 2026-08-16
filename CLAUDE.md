@@ -135,6 +135,18 @@ Add a whole workspace folder as a root and the walk can meet far more than it ex
 
 **Roots may nest, and the tree has to cope.** A workspace folder added as a root and one folder inside it added as a second root make the same absolute folder reachable from two roots. `folder_item()`'s node cache was keyed on the path alone, so the second root's documents were hung on the first root's node — the file appeared twice under one root, not at all under the other, and the folder count beside it still read 1. The keys carry the root index now. This only surfaced once the scan reached deep enough to produce the collision, which is a good reminder that a bug fixed upstream can uncover one downstream.
 
+## PDF export is WebView2 printing the preview, not a second renderer
+
+`PreviewPane::export_pdf()` calls `ICoreWebView2_7::PrintToPdf` on the page already on screen. That is the whole point: it is Chromium laying out the very page the user is looking at, so the PDF carries the GitHub stylesheet, highlight.js colours, mermaid and KaTeX without any of it being reimplemented. A second PDF library rendering the Markdown again would agree with the preview by coincidence, and not for long.
+
+Three things that are deliberate:
+
+- **Print settings are created, not left null.** The defaults print a header, a footer and no backgrounds, which would stamp a URL and date on every page and drop the shading behind code blocks. `ShouldPrintBackgrounds` on, `ShouldPrintHeaderAndFooter` off.
+- **Hyperlinks are free, and verified.** Chromium's print pipeline emits real link annotations, so links stay clickable; the blue is just the stylesheet's `#0969da` surviving, because there is no `@media print` rule anywhere in the bundled CSS to override it. Both were checked by reading the exported PDF back with PyMuPDF — annotation URIs and the text span colour — not by looking at it.
+- **An export while the preview is still starting is refused, not queued.** The user asked for a PDF now; producing one seconds later, of a page they may have navigated away from, is worse than saying no.
+
+`ICoreWebView2_7` is queried rather than assumed. The runtime is evergreen and long past that version, but a failure there is an old runtime, not a bug, and the message says so.
+
 ## The Lists menu writes ordinary Markdown, deliberately
 
 Three commands append to three files in `MD_Internal`, a folder beside `MD_Inbox`: `logins.md` (a table), `ToDoList.md` (a checklist), `GrailDiary.md` (dated sections). The ruling when they were added was that **no special handling is required** — `MD_Internal` is scanned, counted, filtered and searched like any other folder, and its files are meant to be hand-edited. So:

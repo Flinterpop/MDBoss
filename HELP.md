@@ -54,6 +54,16 @@ Two things worth knowing while a scan is running:
 
 Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
+## Export as PDF
+
+**File ▸ Export as PDF…** writes the document exactly as the preview shows it — the GitHub styling, the code-block shading and syntax colours, mermaid diagrams, KaTeX maths, tables and task-list boxes. The filename is suggested from the document's own name, in its own folder.
+
+**Hyperlinks stay blue and stay clickable.** They are written as real PDF link annotations, so clicking one in Acrobat, Edge or any other reader opens the URL in your browser.
+
+The page is printed without the header and footer a browser would normally add, so there is no URL or date stamped across the top of every page. What you get is the page, not a printout of a web page.
+
+Exporting needs the preview to be up; if you try during the first second or two after launch it will say so rather than produce a blank file.
+
 ## Lists: logins, to-dos, and the Grail Diary
 
 The **Lists** menu keeps three standing lists for you. Each command opens a small form, and what you type is appended to a Markdown file in a folder called **`MD_Internal`**, which sits beside your `MD_Inbox`. New entries always go at the end.

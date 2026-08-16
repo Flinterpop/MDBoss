@@ -414,6 +414,70 @@ void PreviewPane::navigate_to_pending()
     }
 }
 
+void PreviewPane::export_pdf(const std::string& path,
+                             std::function<void(std::string)> on_done)
+{
+    assert(on_done != nullptr && "an export with no completion is a caller bug");
+    if (!webview_) {
+        on_done("The preview is still starting up. Try again in a moment.");
+        return;
+    }
+
+    // PrintToPdf arrived in ICoreWebView2_7.  The runtime is evergreen and
+    // long past that, but querying is still the contract -- a failure here is
+    // a runtime too old, not a bug, and should say so.
+    ComPtr<ICoreWebView2_7> printer;
+    if (FAILED(webview_.As(&printer)) || !printer) {
+        on_done("This WebView2 runtime is too old to export PDFs. "
+                "Updating Microsoft Edge WebView2 will fix it.");
+        return;
+    }
+
+    // Settings are optional -- passing nullptr uses the defaults -- but the
+    // defaults print headers, footers and no backgrounds, which would put a
+    // URL and a date on every page and drop the shading behind code blocks.
+    // The export is meant to look like the preview.
+    ComPtr<ICoreWebView2PrintSettings> settings;
+    ComPtr<ICoreWebView2Environment6> printing_environment;
+    if (environment_ && SUCCEEDED(environment_.As(&printing_environment)) &&
+        printing_environment) {
+        if (SUCCEEDED(printing_environment->CreatePrintSettings(&settings)) &&
+            settings) {
+            settings->put_ShouldPrintBackgrounds(TRUE);
+            settings->put_ShouldPrintHeaderAndFooter(FALSE);
+        } else {
+            settings.Reset();
+        }
+    }
+
+    // Copied into the handler: PrintToPdf is asynchronous and this function
+    // has returned long before it fires.
+    auto done = std::make_shared<std::function<void(std::string)>>(
+        std::move(on_done));
+    const std::string wanted = path;
+
+    const HRESULT started = printer->PrintToPdf(
+        widen(path).c_str(), settings.Get(),
+        Callback<ICoreWebView2PrintToPdfCompletedHandler>(
+            [done, wanted](HRESULT result, BOOL ok) -> HRESULT {
+                // Already on the UI thread -- WebView2 raises its events on
+                // the thread the controller was created on -- so the caller's
+                // handler can touch windows directly.
+                if (SUCCEEDED(result) && ok) {
+                    (*done)(std::string());
+                } else {
+                    (*done)("Could not write " + wanted +
+                            ". Check the folder exists and is writable.");
+                }
+                return S_OK;
+            })
+            .Get());
+
+    if (FAILED(started)) {
+        (*done)("Could not start the PDF export.");
+    }
+}
+
 void PreviewPane::scroll_to(double ratio)
 {
     if (!webview_) {

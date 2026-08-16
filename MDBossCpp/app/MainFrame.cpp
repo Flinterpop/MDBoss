@@ -75,6 +75,7 @@ constexpr int kIdAddLogin = wxID_HIGHEST + 15;
 constexpr int kIdAddTodo = wxID_HIGHEST + 16;
 constexpr int kIdAddDiary = wxID_HIGHEST + 17;
 constexpr int kIdOpenInternal = wxID_HIGHEST + 18;
+constexpr int kIdExportPdf = wxID_HIGHEST + 19;
 // Snippets take ids from here up, one per kSnippets entry.  Bounded (Rule of
 // 10): the array is fixed at compile time, so the range cannot run past the
 // next constant.
@@ -229,6 +230,8 @@ void MainFrame::build_menu()
     file->Append(wxID_OPEN, L"&Open…\tCtrl+O");
     file->Append(wxID_SAVE, "&Save\tCtrl+S");
     file->Append(kIdCloseDocument, "&Close document\tCtrl+W");
+    file->AppendSeparator();
+    file->Append(kIdExportPdf, L"&Export as PDF…");
     file->AppendSeparator();
     file->Append(kIdOpenTemplates, "Open &templates folder");
     file->Append(kIdManageFolders, L"&Manage folders…");
@@ -597,6 +600,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_add_diary, this, kIdAddDiary);
     Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
          kIdOpenInternal);
+    Bind(wxEVT_MENU, &MainFrame::on_export_pdf, this, kIdExportPdf);
     Bind(wxEVT_MENU, &MainFrame::on_refresh, this, kIdRefresh);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_files, this, kIdToggleFiles);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_outline, this, kIdToggleOutline);
@@ -1205,6 +1209,49 @@ void MainFrame::on_add_diary(wxCommandEvent&)
     }
     save_internal_entry(kDiaryFile, diary_seed(),
                         diary_entry(body, today_stamp()), L"Diary entry");
+}
+
+void MainFrame::on_export_pdf(wxCommandEvent&)
+{
+    if (!preview_->ready()) {
+        wxMessageBox(L"The preview is still starting up. Try again in a "
+                     L"moment.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    // Named after the document, so exporting is one keystroke away from a
+    // sensible filename rather than a "Save as" hunt.  An untitled buffer has
+    // no name to borrow, so it falls back rather than proposing ".pdf".
+    wxString stem = "Untitled";
+    wxString folder;
+    if (!current_path_.empty()) {
+        const std::filesystem::path source = path_from_utf8(current_path_);
+        stem = wxString::FromUTF8(path_to_utf8(source.stem()));
+        folder = wxString::FromUTF8(path_to_utf8(source.parent_path()));
+    }
+
+    wxFileDialog dialog(this, L"Export as PDF", folder, stem + ".pdf",
+                        "PDF files (*.pdf)|*.pdf",
+                        wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    const std::string target = std::string(dialog.GetPath().ToUTF8());
+
+    SetStatusText(L"Exporting PDF…");
+    // The export is asynchronous, so the frame may be gone by the time it
+    // finishes.  A modal file dialog has just been dismissed, not a modal
+    // wait, so nothing is holding the window open.
+    preview_->export_pdf(target, [this, target](std::string failed) {
+        if (!failed.empty()) {
+            SetStatusText(wxEmptyString);
+            wxMessageBox(wxString::FromUTF8(failed), "MD Boss",
+                         wxOK | wxICON_ERROR, this);
+            return;
+        }
+        SetStatusText(wxString::FromUTF8("Exported " + target));
+    });
 }
 
 void MainFrame::on_open_internal_folder(wxCommandEvent&)

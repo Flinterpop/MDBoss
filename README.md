@@ -25,6 +25,9 @@ the same app lives in the repo but is **deprecated** — see
 
 ## Features
 
+**Export**
+- **Export as PDF** (File menu) — the document exactly as the preview renders it: GitHub styling, code-block shading and syntax colours, mermaid, KaTeX, tables and task-list boxes. **Hyperlinks are blue and clickable**, written as real PDF link annotations, and no browser header/footer is stamped on the pages.
+
 **Lists**
 - **Three standing lists**, kept as ordinary Markdown in an `MD_Internal` folder beside your `MD_Inbox` and reachable from the **Lists** menu: **login records** (a table of Name / Link / Login / PW / Last Changed / Notes in `logins.md`), **to-dos** (`Ctrl+T`, a dated tickable checklist in `ToDoList.md`), and **Grail Diary entries** (free Markdown under a dated heading in `GrailDiary.md`). Entries are appended, never rewritten, so the files stay perfectly editable by hand — and they appear in the files tree, the counts and the Contents search like any other document.
 - `logins.md` stores passwords **in plain text**, so MD Boss writes a `.gitignore` into `MD_Internal` when it creates the folder — the files cannot be committed to a repository by accident. Anyone who can read the folder can read the passwords, and the Contents search indexes them.
