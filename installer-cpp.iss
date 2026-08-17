@@ -13,7 +13,7 @@
 ; ISCC lives at the non-default %LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe.
 
 #define AppName "MD Boss (C++)"
-#define AppVersion "1.6.0"
+#define AppVersion "1.7.0"
 #define AppExe "MDBoss.exe"
 #define BuildDir "MDBossCpp\build\app\Release"
 
