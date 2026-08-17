@@ -83,11 +83,33 @@ std::string escape_table_cell(const std::string& text)
     return out;
 }
 
+std::string normalise_link(const std::string& text)
+{
+    const std::string link = trimmed(text);
+    // Only a URL is normalised.  The Link column is sometimes used for a note
+    // instead ("use the app on your phone"), and turning the spaces in a
+    // sentence into %20 would be worse than leaving a URL unclickable.
+    if (link.compare(0, 7, "http://") != 0 &&
+        link.compare(0, 8, "https://") != 0) {
+        return link;
+    }
+    std::string out;
+    out.reserve(link.size());
+    for (const char ch : link) {   // bounded by the field length
+        // A raw space is not legal in a URL, and it silently truncates the
+        // link: an autolink -- md4c's or ours -- ends at the first one, so the
+        // address that gets opened is the part before it.  Learned from a
+        // file whose URLs arrived from a PDF with a space at every wrap.
+        out += (ch == ' ') ? "%20" : std::string(1, ch);
+    }
+    return out;
+}
+
 std::string login_table_row(const LoginRecord& record)
 {
     std::ostringstream row;
     row << "| " << escape_table_cell(record.name)
-        << " | " << escape_table_cell(record.link)
+        << " | " << escape_table_cell(normalise_link(record.link))
         << " | " << escape_table_cell(record.login)
         << " | " << escape_table_cell(record.password)
         << " | " << escape_table_cell(record.last_changed)

@@ -110,6 +110,8 @@ The **Lists** menu keeps four standing lists for you. Each command opens a small
 
 A URL inside a code span or a fenced block stays literal, and only `http` and `https` become links — `javascript:` or `file:` in a document is never turned into something clickable.
 
+**A link stops at the first space**, because a space is not legal in a URL and nothing can tell where the address was meant to end. If a URL you paste contains spaces — copying one out of a PDF often does, since the PDF wrapped it — only the part before the first space becomes the link. **Add a login record** encodes spaces as `%20` for you when the Link field holds a URL; elsewhere, replace them yourself or wrap the address in `<` and `>`.
+
 ### Fact records
 
 A **fact record** is one dated fact, entered one at a time the way a diary entry is, but stored as a **table row** rather than a section — because this one is an index you look things up in, not a journal you read forwards. One fact per row is what lets a column of dates and a column of tags be scanned, and what makes the **Contents** search land on the exact fact rather than on a wall of text.

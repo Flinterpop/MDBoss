@@ -76,6 +76,16 @@ struct FactRecord {
 // the row.  Pipes are escaped and newlines become spaces.
 std::string escape_table_cell(const std::string& text);
 
+// A Link cell that cannot be truncated: spaces in a URL become %20.
+//
+// A raw space is not legal in a URL and it silently shortens the link, because
+// an autolink ends at the first one -- so the address that opens is only the
+// part before it.  Applied ONLY when the value starts with http:// or https://
+// (user ruling, 2026-08-17): the column is sometimes used for a note instead,
+// and turning the spaces in a sentence into %20 would be worse than leaving a
+// URL unclickable.
+std::string normalise_link(const std::string& text);
+
 // The block each command appends.  Each ends with exactly one newline, so
 // appending several in a row cannot run two entries together or leave a
 // widening gap.

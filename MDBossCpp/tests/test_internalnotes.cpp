@@ -156,6 +156,34 @@ TEST_CASE("a diary entry is a dated section with its markdown intact",
     CHECK(entry == "\n## 16 Aug 2026\n\nFound the **cup**.\n\n- one\n- two\n");
 }
 
+TEST_CASE("a Link cell's spaces are encoded, a note's are not", "[internal]")
+{
+    // A raw space is not legal in a URL and it truncates the link: an autolink
+    // ends at the first one, so the address that opens is the part before it.
+    // Learned from a file whose URLs arrived from a PDF with a space at every
+    // line wrap -- the links opened a prefix of themselves.
+    CHECK(mdboss::normalise_link("https://example.com/a b/c") ==
+          "https://example.com/a%20b/c");
+    CHECK(mdboss::normalise_link("http://10.10.10.88:8443/x y") ==
+          "http://10.10.10.88:8443/x%20y");
+    CHECK(mdboss::normalise_link("  https://example.com/a  ") ==
+          "https://example.com/a");
+
+    // NOT a URL: the column is sometimes a note instead, and %20-ing an
+    // English sentence would be worse than leaving a URL unclickable.
+    CHECK(mdboss::normalise_link("use the app on your phone") ==
+          "use the app on your phone");
+    CHECK(mdboss::normalise_link("") == "");
+
+    // And it reaches the row builder, which is the thing that actually writes.
+    mdboss::LoginRecord record;
+    record.name = "Example";
+    record.link = "https://example.com/a b";
+    const std::string row = mdboss::login_table_row(record);
+    CHECK(row.find("https://example.com/a%20b") != std::string::npos);
+    CHECK(row.find("https://example.com/a b") == std::string::npos);
+}
+
 TEST_CASE("a fact is one table row, every cell escaped", "[internal]")
 {
     mdboss::FactRecord record;
