@@ -53,6 +53,15 @@ PathListPanel::PathListPanel(wxWindow* parent, const wxString& title,
     sizer->Add(list_, 1, wxEXPAND);
     SetSizer(sizer);
 
+    // A single click opens, matching the files tree.  Double-click and Enter
+    // still work, because ACTIVATED stays bound.
+    //
+    // Deliberately the mouse event and a hit-test, NOT wxEVT_LIST_ITEM_SELECTED:
+    // selection also changes when arrowing through the list, so binding that
+    // would open a document on every keypress -- and each one would raise the
+    // unsaved-edits prompt for the document being left.  Keyboard navigation
+    // does not come through here at all.
+    list_->Bind(wxEVT_LEFT_DOWN, &PathListPanel::on_left_click, this);
     list_->Bind(wxEVT_LIST_ITEM_ACTIVATED, &PathListPanel::on_activated, this);
     list_->Bind(wxEVT_LIST_ITEM_RIGHT_CLICK, &PathListPanel::on_context_menu,
                 this);
@@ -91,6 +100,20 @@ std::string PathListPanel::selected_path() const
         return {};
     }
     return paths_[static_cast<std::size_t>(row)];
+}
+
+void PathListPanel::on_left_click(wxMouseEvent& event)
+{
+    // Hit-test the click point rather than trusting the current selection:
+    // the click may land on a row that is not selected yet, and that row is
+    // the one to open.
+    int flags = 0;
+    const long row = list_->HitTest(event.GetPosition(), flags);
+    if (row >= 0 && static_cast<std::size_t>(row) < paths_.size() &&
+        on_activate_) {
+        on_activate_(paths_[static_cast<std::size_t>(row)]);
+    }
+    event.Skip();   // let the list select and focus the row as usual
 }
 
 void PathListPanel::on_activated(wxListEvent& event)

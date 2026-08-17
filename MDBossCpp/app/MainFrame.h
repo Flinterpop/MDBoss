@@ -85,6 +85,10 @@ private:
     void on_toggle_files(wxCommandEvent& event);
     void on_toggle_outline(wxCommandEvent& event);
     void on_toggle_editor(wxCommandEvent& event);
+    // Hide the rendered preview, leaving the editor the whole pane.  Shares
+    // one splitter with the editor, so the two toggles are not independent:
+    // hiding both would leave nothing, and either toggle restores the pair.
+    void on_toggle_preview(wxCommandEvent& event);
     void on_file_types(wxCommandEvent& event);
     void on_help(wxCommandEvent& event);
     void on_about(wxCommandEvent& event);

@@ -36,6 +36,56 @@
     padding: 28px 40px 96px;
   }
   pre.mermaid { background: transparent; text-align: center; }
+  /* Tables fit the pane instead of scrolling off it.
+   *
+   * The bundled GitHub sheet sizes a table to max-content and lets it scroll
+   * sideways, which is what GitHub itself does.  That falls apart on a table
+   * holding a long URL: max-content ignores wrapping, so ONE 270-character
+   * link makes its column that wide and shoves every later column past the
+   * edge -- on a logins table the password ends up off-screen behind a
+   * scrollbar.
+   *
+   * `table-layout: fixed` at full width, NOT auto.  Auto was tried first and
+   * is worse: it sizes columns by content, so the giant Link cell takes most
+   * of the width and starves Name, Login and PW down to roughly one character
+   * per line.  Fixed gives every column an equal share, which a six-column
+   * logins table wants anyway.
+   *
+   * `overflow-wrap: anywhere` is needed as well, so a URL with no spaces in
+   * it can break at all.  The wrap alone does nothing, which is why the
+   * obvious one-line fix does not work.
+   *
+   * Set here rather than in a theme sheet because it applies to both, and
+   * github-markdown-light.css is vendored byte-for-byte from upstream and
+   * must not be edited (see assets/VERSIONS.md).  This block is emitted after
+   * the linked sheets, so it wins.
+   */
+  .markdown-body table {
+    display: table;
+    table-layout: fixed;
+    /* A table is let out of the 980px reading column and may use the whole
+     * pane, while prose stays capped -- long lines of text are hard to read,
+     * a six-column table starved into 150px columns is harder.
+     *
+     * The cap lives on .markdown-body itself, so the escape is the standard
+     * full-bleed: span the viewport, then pull left by the difference between
+     * half the container and half the viewport.  Moving the cap onto the
+     * children instead was tried and does not work -- the vendored sheet sets
+     * SHORTHAND margins on several of them (h1 is `margin: .67em 0`,
+     * blockquote is `margin: 0`) at a higher specificity, which resets the
+     * auto side-margins that approach depends on.
+     *
+     * 96px of inset, not 0: `100vw` counts the vertical scrollbar in
+     * Chromium, so a full-width child overflows by its width and raises a
+     * horizontal scrollbar.  The inset is comfortably wider than any
+     * scrollbar and doubles as the page margin.
+     */
+    width: calc(100vw - 96px);
+    margin-left: calc(50% - 50vw + 48px);
+    margin-right: calc(50% - 50vw + 48px);
+  }
+  .markdown-body table th,
+  .markdown-body table td { overflow-wrap: anywhere; }
   /* LaTeX math (KaTeX). Display math scrolls horizontally if wide. */
   .math-display { margin: 1em 0; overflow-x: auto; overflow-y: hidden; }
   .katex-display { margin: 0 }

@@ -167,7 +167,8 @@ void Config::load()
     for (const auto& [key, target] :
          {std::pair<const char*, bool*>{"wx_show_files", &show_files_},
           {"wx_show_outline", &show_outline_},
-          {"wx_show_editor", &show_editor_}}) {
+          {"wx_show_editor", &show_editor_},
+          {"wx_show_preview", &show_preview_}}) {
         if (document.contains(key) && document[key].is_boolean()) {
             *target = document[key].get<bool>();
         }
@@ -207,6 +208,7 @@ bool Config::save() const
     document["wx_show_files"] = show_files_;
     document["wx_show_outline"] = show_outline_;
     document["wx_show_editor"] = show_editor_;
+    document["wx_show_preview"] = show_preview_;
     document["wx_recent_sash"] = recent_sash_;
     document["wx_favorites_sash"] = favorites_sash_;
     document["wx_flat_roots"] = flat_folders_;

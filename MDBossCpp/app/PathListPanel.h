@@ -48,6 +48,9 @@ public:
     void add_menu_command(const wxString& label, std::function<void()> handler);
 
 private:
+    // Single click opens; see the .cpp for why this is a mouse event and not
+    // wxEVT_LIST_ITEM_SELECTED.
+    void on_left_click(wxMouseEvent& event);
     void on_activated(wxListEvent& event);
     void on_context_menu(wxListEvent& event);
     std::string selected_path() const;

@@ -322,13 +322,21 @@ TEST_CASE("a theme changes only the dressing, never the body", "[theme]")
     CHECK(notes.find(body) != std::string::npos);
 
     // The dressing, and only the dressing.
-    CHECK(github.find("github-markdown-light.css") != std::string::npos);
-    CHECK(github.find("notes-light.css") == std::string::npos);
-    CHECK(notes.find("notes-light.css") != std::string::npos);
-    CHECK(notes.find("github-markdown-light.css") == std::string::npos);
+    //
+    // Matched WITH the closing quote, so this tests the href of a <link> and
+    // not merely the name appearing somewhere: the template's inline style
+    // carries a comment naming github-markdown-light.css, which a bare
+    // substring search finds in the Notes page too and fails on.
+    const auto links = [](const std::string& page, const char* file) {
+        return page.find(std::string(file) + "\"") != std::string::npos;
+    };
+    CHECK(links(github, "github-markdown-light.css"));
+    CHECK_FALSE(links(github, "notes-light.css"));
+    CHECK(links(notes, "notes-light.css"));
+    CHECK_FALSE(links(notes, "github-markdown-light.css"));
 
-    CHECK(github.find("highlight/github.min.css") != std::string::npos);
-    CHECK(notes.find("highlight/xcode.min.css") != std::string::npos);
+    CHECK(links(github, "highlight/github.min.css"));
+    CHECK(links(notes, "highlight/xcode.min.css"));
 
     // The body class is what lets the theme sheet outrank the template's own
     // inline <style>; without it the layout rules silently lose.

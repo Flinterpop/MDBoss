@@ -76,6 +76,7 @@ constexpr int kIdAddTodo = wxID_HIGHEST + 16;
 constexpr int kIdAddDiary = wxID_HIGHEST + 17;
 constexpr int kIdOpenInternal = wxID_HIGHEST + 18;
 constexpr int kIdExportPdf = wxID_HIGHEST + 19;
+constexpr int kIdTogglePreview = wxID_HIGHEST + 22;
 // Preview themes.  Radio items, so the menu shows which one is active rather
 // than two tick boxes that can both look off.
 constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
@@ -339,6 +340,8 @@ void MainFrame::build_toolbar()
          L"Show or hide the outline pane", true, false},
         {kIdToggleEditor, L"Edit", wxART_EDIT,
          L"Show or hide the source editor", true, false},
+        {kIdTogglePreview, L"Preview", wxART_FIND,
+         L"Show or hide the rendered preview", true, false},
         {kIdToggleFrontMatter, L"Hide YAML", wxART_MINUS,
          L"Hide a YAML front-matter block at the top of the file", true, true},
 
@@ -383,6 +386,7 @@ void MainFrame::build_toolbar()
     bar->ToggleTool(kIdToggleFiles, config_.show_files());
     bar->ToggleTool(kIdToggleOutline, config_.show_outline());
     bar->ToggleTool(kIdToggleEditor, config_.show_editor());
+    bar->ToggleTool(kIdTogglePreview, config_.show_preview());
     bar->ToggleTool(kIdToggleFrontMatter, config_.hide_front_matter());
     bar->Realize();
 
@@ -566,8 +570,13 @@ void MainFrame::build_panes()
     if (!config_.show_outline()) {
         outline_split_->Unsplit(outline_);
     }
+    // Editor checked first, then preview: the two share one splitter and both
+    // cannot be hidden, so a profile claiming neither is showing resolves to
+    // "editor only" rather than to an empty pane.
     if (!config_.show_editor()) {
         split_->Unsplit(editor_);
+    } else if (!config_.show_preview()) {
+        split_->Unsplit(preview_);
     }
 }
 
@@ -626,6 +635,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_toggle_files, this, kIdToggleFiles);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_outline, this, kIdToggleOutline);
     Bind(wxEVT_MENU, &MainFrame::on_toggle_editor, this, kIdToggleEditor);
+    Bind(wxEVT_MENU, &MainFrame::on_toggle_preview, this, kIdTogglePreview);
     Bind(wxEVT_MENU, &MainFrame::on_file_types, this, kIdFileTypes);
     Bind(wxEVT_MENU, &MainFrame::on_help, this, kIdHelp);
     Bind(wxEVT_MENU, &MainFrame::on_about, this, wxID_ABOUT);
@@ -1371,6 +1381,20 @@ void MainFrame::on_toggle_editor(wxCommandEvent&)
         hidden_editor_sash_ = split_->GetSashPosition();
         split_->Unsplit(editor_);
     } else {
+        // Whichever pane is alone, restoring the pair is the only sensible
+        // answer: hiding the editor when the preview is already hidden would
+        // leave nothing at all.
+        split_->SplitVertically(editor_, preview_, hidden_editor_sash_);
+    }
+    save_pane_visibility();
+}
+
+void MainFrame::on_toggle_preview(wxCommandEvent&)
+{
+    if (split_->IsSplit()) {
+        hidden_editor_sash_ = split_->GetSashPosition();
+        split_->Unsplit(preview_);   // the editor keeps the whole pane
+    } else {
         split_->SplitVertically(editor_, preview_, hidden_editor_sash_);
     }
     save_pane_visibility();
@@ -1389,7 +1413,11 @@ void MainFrame::save_pane_visibility()
         config_.set_show_outline(outline_split_->IsSplit());
     }
     if (split_ != nullptr) {
-        config_.set_show_editor(split_->IsSplit());
+        // One splitter, two panes, so IsSplit() alone cannot say WHICH one is
+        // hidden.  When unsplit, GetWindow1() is whichever survived.
+        const bool both = split_->IsSplit();
+        config_.set_show_editor(both || split_->GetWindow1() == editor_);
+        config_.set_show_preview(both || split_->GetWindow1() == preview_);
     }
     config_.save();
 }
@@ -1881,9 +1909,11 @@ void MainFrame::on_close(wxCloseEvent& event)
     // Save the sash a hidden pane *would* return to, not the meaningless
     // value an unsplit splitter reports.
     if (split_ != nullptr) {
-        config_.set_show_editor(split_->IsSplit());
-        config_.set_editor_sash(split_->IsSplit() ? split_->GetSashPosition()
-                                                  : hidden_editor_sash_);
+        const bool both = split_->IsSplit();
+        config_.set_show_editor(both || split_->GetWindow1() == editor_);
+        config_.set_show_preview(both || split_->GetWindow1() == preview_);
+        config_.set_editor_sash(both ? split_->GetSashPosition()
+                                     : hidden_editor_sash_);
     }
     if (outline_split_ != nullptr) {
         config_.set_show_outline(outline_split_->IsSplit());

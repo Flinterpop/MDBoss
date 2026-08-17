@@ -145,9 +145,11 @@ public:
     bool show_files() const { return show_files_; }
     bool show_outline() const { return show_outline_; }
     bool show_editor() const { return show_editor_; }
+    bool show_preview() const { return show_preview_; }
     void set_show_files(bool v) { show_files_ = v; }
     void set_show_outline(bool v) { show_outline_ = v; }
     void set_show_editor(bool v) { show_editor_ = v; }
+    void set_show_preview(bool v) { show_preview_ = v; }
     int favorites_sash() const { return favorites_sash_; }
     void set_window_size(int width, int height);
     void set_editor_sash(int sash) { editor_sash_ = sash; }
@@ -175,6 +177,7 @@ private:
     bool show_files_ = true;
     bool show_outline_ = true;
     bool show_editor_ = true;
+    bool show_preview_ = true;
     int recent_sash_ = 150;
     int favorites_sash_ = 170;
 };

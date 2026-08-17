@@ -29,17 +29,16 @@ without them.
   scroll the preview to it.
 - **Recent** (top of the left pane) — the last six documents you opened, newest
   first, kept automatically. Re-opening one moves it back to the top rather than
-  adding a duplicate. Click to reopen; right-click to open, favorite, reveal, or
+  adding a duplicate. **A single click opens it**, the same as the files tree;
+  right-click to open, favorite, reveal, or
   copy a path, and use the **⋯** menu to clear the list.
 - **Favorites** (below Recent) — pin up to ten documents, newest first
   (adding an 11th drops the oldest). Drag the divider below it to make the
   panel taller or shorter. Rows show the filename (hover for the full path);
-  missing files show in red. Right-click a file in the tree to add or remove
+  missing files show in red. **A single click opens one.** Right-click a file in the tree to add or remove
   it; right-click a favorite to open, remove, reveal, or copy its path; and use
   the **⋯** menu in the Favorites header to export, import, or clear the list.
-- **Editor \| Preview** (right) — the source editor beside the live preview.
-  Use the **Edit** toolbar button to hide the editor for distraction-free
-  reading.
+- **Editor \| Preview** (right) — the source editor beside the live preview. The **Edit** and **Preview** toolbar buttons hide either one: turn **Edit** off for distraction-free reading, or **Preview** off to give the editor the whole pane. They share one splitter, so they cannot both be off — turning the second one off brings the pair back. Both choices are remembered.
 
 ## Big root folders
 

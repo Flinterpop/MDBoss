@@ -152,6 +152,18 @@ Two implementation notes:
 
 Files only. A folder drag would relocate a whole subtree on one mis-drop and needs an ancestor check (dropping a folder into its own descendant) that a file move does not.
 
+## The preview's reading column, and why tables escape it
+
+The width cap is MD Boss's own, in `assets/template-webview2.html`'s inline `<style>` — **not** the vendored GitHub sheet, which only sets `max-width: 100%` on images and tables. `.markdown-body` is `max-width: 980px; margin: 0 auto; padding: 28px 40px`, so the text column is at most 900px and a wider pane only adds gutters. The Notes theme narrows it to 820px.
+
+**Tables are let out of that column** and may use the whole pane, because the trade-offs point opposite ways: long prose lines are hard to read, but a six-column table starved into 150px columns is harder. Three things about how, each of which was arrived at by trying the alternative first:
+
+- **Full-bleed, not "cap the children".** Moving `max-width` onto `.markdown-body > *` looks tidier and does not work: the vendored sheet sets **shorthand** margins on several children (`h1` is `margin: .67em 0`, `blockquote` is `margin: 0`) at a higher specificity, which resets the auto side-margins that approach depends on.
+- **`table-layout: fixed`, not `auto`.** Auto sizes columns by content, so one 270-character URL takes most of the width and starves `Name`, `Login` and `PW` to about one character per line. Fixed gives equal columns, which is what a logins table wants.
+- **`overflow-wrap: anywhere` on cells is required as well.** Without it a URL with no spaces cannot break at all. The wrap alone changes nothing, because it does not affect `max-content` sizing — which is why the obvious one-line fix does not work.
+
+The bleed insets 48px per side rather than spanning `100vw` exactly: **Chromium counts the vertical scrollbar in `100vw`**, so a truly full-width child overflows by the scrollbar's width and raises a horizontal scrollbar.
+
 ## A preview theme changes two stylesheets and a body class — nothing else
 
 `mdrender::Theme` picks between `github-markdown-light.css` + `highlight/github.min.css` and `notes-light.css` + `highlight/xcode.min.css`, and stamps `theme-github` / `theme-notes` on `<body>`. **`render_body()` has no theme parameter at all**, which is the whole design: the generated body HTML is byte-identical either way, so the ~30 golden files cannot be disturbed by adding or changing a theme. A test asserts exactly that, and it is the one to check first if a theme ever seems to break the corpus.

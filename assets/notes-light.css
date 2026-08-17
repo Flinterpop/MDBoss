@@ -166,15 +166,23 @@ body.theme-notes .markdown-body pre.mermaid {
 
 /* -- tables ------------------------------------------------------------- */
 
+/* Fitting rather than scrolling; the template's inline block explains why and
+   restates the same widths, since it has to override the vendored GitHub
+   sheet for the other theme. */
+/* Same full-bleed as the GitHub theme -- the template's inline block explains
+   it -- but from a 820px column, so the escape is larger. */
 body.theme-notes .markdown-body table {
-  display: block;
-  width: max-content;
-  max-width: 100%;
+  display: table;
+  table-layout: fixed;
+  width: calc(100vw - 96px);
   margin: 0 0 1em;
-  overflow: auto;
+  margin-left: calc(50% - 50vw + 48px);
+  margin-right: calc(50% - 50vw + 48px);
   border-collapse: collapse;
   font-size: .95em;
 }
+body.theme-notes .markdown-body table th,
+body.theme-notes .markdown-body table td { overflow-wrap: anywhere; }
 body.theme-notes .markdown-body table th,
 body.theme-notes .markdown-body table td {
   padding: .4em .8em;
