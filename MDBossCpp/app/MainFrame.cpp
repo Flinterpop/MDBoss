@@ -81,6 +81,7 @@ constexpr int kIdExportPdf = wxID_HIGHEST + 19;
 constexpr int kIdTogglePreview = wxID_HIGHEST + 22;
 constexpr int kIdTechNotes = wxID_HIGHEST + 23;
 constexpr int kIdPromoteDocument = wxID_HIGHEST + 24;
+constexpr int kIdAddFact = wxID_HIGHEST + 25;
 // Preview themes.  Radio items, so the menu shows which one is active rather
 // than two tick boxes that can both look off.
 constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
@@ -301,6 +302,7 @@ void MainFrame::build_menu()
     lists->Append(kIdAddLogin, L"Add a &login record…");
     lists->Append(kIdAddTodo, L"Add a &to-do…\tCtrl+T");
     lists->Append(kIdAddDiary, L"Add a Grail &Diary entry…");
+    lists->Append(kIdAddFact, L"Add a &fact…");
     lists->AppendSeparator();
     // Named for the thing, not the verb: "Rebuild the tech-note index"
     // describes what the command does to a file, which is no help to someone
@@ -673,6 +675,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_add_login, this, kIdAddLogin);
     Bind(wxEVT_MENU, &MainFrame::on_add_todo, this, kIdAddTodo);
     Bind(wxEVT_MENU, &MainFrame::on_add_diary, this, kIdAddDiary);
+    Bind(wxEVT_MENU, &MainFrame::on_add_fact, this, kIdAddFact);
     Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
          kIdOpenInternal);
     Bind(wxEVT_MENU, &MainFrame::on_tech_notes, this, kIdTechNotes);
@@ -1337,6 +1340,25 @@ void MainFrame::on_add_diary(wxCommandEvent&)
     }
     save_internal_entry(kDiaryFile, diary_seed(),
                         diary_entry(body, today_stamp()), L"Diary entry");
+}
+
+void MainFrame::on_add_fact(wxCommandEvent&)
+{
+    FactDialog dialog(this);
+    if (dialog.ShowModal() != wxID_OK) {
+        return;
+    }
+    const FactRecord record = dialog.record();
+    if (record.fact.find_first_not_of(" \t\r\n") == std::string::npos) {
+        // The date is prefilled, so an accepted-by-accident form would other-
+        // wise add a row that is nothing but a date -- still there, still to
+        // be deleted by hand.
+        wxMessageBox(L"Type the fact before saving it.", "MD Boss",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    save_internal_entry(kFactsFile, facts_seed(), fact_table_row(record),
+                        L"Fact");
 }
 
 void MainFrame::on_path_moved(const std::string& from, const std::string& to)

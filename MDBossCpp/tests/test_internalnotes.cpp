@@ -156,6 +156,44 @@ TEST_CASE("a diary entry is a dated section with its markdown intact",
     CHECK(entry == "\n## 16 Aug 2026\n\nFound the **cup**.\n\n- one\n- two\n");
 }
 
+TEST_CASE("a fact is one table row, every cell escaped", "[internal]")
+{
+    mdboss::FactRecord record;
+    record.date = "11 Apr 2023";
+    record.fact = "The mask angle is measured from the horizontal";
+    record.tags = "radar, survey";
+    record.source = "site notes";
+
+    CHECK(mdboss::fact_table_row(record) ==
+          "| 11 Apr 2023 | The mask angle is measured from the horizontal "
+          "| radar, survey | site notes |\n");
+
+    // Every cell, INCLUDING the date -- it is prefilled but editable, so it is
+    // user input like the rest, and a pipe there shifts the three columns
+    // after it.  A newline would end the row outright.
+    mdboss::FactRecord hostile;
+    hostile.date = "a|b";
+    hostile.fact = "one\ntwo";
+    hostile.tags = "x|y";
+    hostile.source = "p|q";
+    const std::string row = mdboss::fact_table_row(hostile);
+    CHECK(row == "| a\\|b | one two | x\\|y | p\\|q |\n");
+    CHECK(row.find('\n') == row.size() - 1);
+}
+
+TEST_CASE("the facts seed carries the table header", "[internal]")
+{
+    const std::string seed = mdboss::facts_seed();
+    CHECK(seed.find("# Facts") != std::string::npos);
+    CHECK(seed.find("| Date | Fact | Tags | Source |") != std::string::npos);
+    CHECK(seed.find("|---|---|---|---|") != std::string::npos);
+    // The one thing about this file that cannot be inferred by looking at it.
+    CHECK(seed.find("when the fact is true of") != std::string::npos);
+    // Ends ready for a row: no blank line between the header and the first
+    // entry, or the table is closed before anything is added to it.
+    CHECK(seed.substr(seed.size() - 2) == "|\n");
+}
+
 TEST_CASE("appending seeds once, then only adds", "[internal]")
 {
     const TempDir dir;

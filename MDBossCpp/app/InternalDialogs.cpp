@@ -193,4 +193,62 @@ std::string DiaryDialog::markdown() const
     return body_->GetValue().utf8_string();
 }
 
+// ---------------------------------------------------------------------------
+// FactDialog
+// ---------------------------------------------------------------------------
+
+FactDialog::FactDialog(wxWindow* parent)
+    : wxDialog(parent, wxID_ANY, L"Add a fact", wxDefaultPosition,
+               wxSize(560, -1))
+{
+    auto* outer = new wxBoxSizer(wxVERTICAL);
+
+    // Prefilled with today, but editable: a fact is true of some date, which
+    // is often not the day it was written down.
+    date_ = new wxTextCtrl(this, wxID_ANY, wxString::FromUTF8(today_stamp()));
+    // wxTE_PROCESS_ENTER on the fact itself, as the to-do has: the common case
+    // is one line and a tab-tab-click to confirm is a poor trade.  Single line
+    // because the row is a table row; a newline would end it.
+    fact_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                           wxDefaultSize, wxTE_PROCESS_ENTER);
+    tags_ = new wxTextCtrl(this, wxID_ANY);
+    source_ = new wxTextCtrl(this, wxID_ANY);
+
+    add_field(this, outer, L"Date", date_);
+    add_field(this, outer, L"Fact", fact_);
+    add_field(this, outer, L"Tags", tags_);
+    add_field(this, outer, L"Source", source_);
+
+    outer->Add(new wxStaticText(
+                   this, wxID_ANY,
+                   wxString::FromUTF8(
+                       "Added to MD_Internal\\Facts.md. Tags are free text -- "
+                       "separate several with commas.")),
+               0, wxALL, 8);
+
+    auto* buttons = CreateStdDialogButtonSizer(wxOK | wxCANCEL);
+    if (buttons != nullptr) {
+        outer->Add(buttons, 0, wxEXPAND | wxALL, 8);
+    }
+
+    SetSizerAndFit(outer);
+    fact_->SetFocus();
+
+    fact_->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent&) {
+        if (IsModal()) {
+            EndModal(wxID_OK);
+        }
+    });
+}
+
+FactRecord FactDialog::record() const
+{
+    FactRecord out;
+    out.date = date_->GetValue().utf8_string();
+    out.fact = fact_->GetValue().utf8_string();
+    out.tags = tags_->GetValue().utf8_string();
+    out.source = source_->GetValue().utf8_string();
+    return out;
+}
+
 }  // namespace mdboss

@@ -95,15 +95,26 @@ The page is printed without the header and footer a browser would normally add, 
 
 Exporting needs the preview to be up; if you try during the first second or two after launch it will say so rather than produce a blank file.
 
-## Lists: logins, to-dos, and the Grail Diary
+## Lists: logins, to-dos, facts, and the Grail Diary
 
-The **Lists** menu keeps three standing lists for you. Each command opens a small form, and what you type is appended to a Markdown file in a folder called **`MD_Internal`**, which sits beside your `MD_Inbox`. New entries always go at the end.
+The **Lists** menu keeps four standing lists for you. Each command opens a small form, and what you type is appended to a Markdown file in a folder called **`MD_Internal`**, which sits beside your `MD_Inbox`. New entries always go at the end.
 
 | Command | Writes to | What it adds |
 |---|---|---|
 | **Add a login record…** | `logins.md` | A row in a table: Name, Link, Login, PW, Last Changed, Notes |
 | **Add a to-do…** (`Ctrl+T`) | `ToDoList.md` | A tickable checklist item, dated |
 | **Add a Grail Diary entry…** | `GrailDiary.md` | Your Markdown, under a dated heading |
+| **Add a fact…** | `Facts.md` | A row in a table: Date, Fact, Tags, Source |
+
+### Fact records
+
+A **fact record** is one dated fact, entered one at a time the way a diary entry is, but stored as a **table row** rather than a section — because this one is an index you look things up in, not a journal you read forwards. One fact per row is what lets a column of dates and a column of tags be scanned, and what makes the **Contents** search land on the exact fact rather than on a wall of text.
+
+The trade is that a fact has to fit on one line. If it needs a paragraph, it is probably a diary entry or a note of its own.
+
+**The date is the date the fact is true of, not the day you typed it.** It is prefilled with today and left editable for exactly that reason — a fact you are recording now may be true of a measurement taken years ago. `Tags` is free text; separate several with commas. `Source` is where the fact came from, so it can be checked later.
+
+To find things again, use **Contents** search (see [Searching](#searching)) — `Facts.md` is an ordinary document in an ordinary folder, so it is indexed like any other.
 
 ### The tech-note index
 

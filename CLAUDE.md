@@ -239,12 +239,14 @@ Three things that are deliberate:
 
 ## The Lists menu writes ordinary Markdown, deliberately
 
-Three commands append to three files in `MD_Internal`, a folder beside `MD_Inbox`: `logins.md` (a table), `ToDoList.md` (a checklist), `GrailDiary.md` (dated sections). The ruling when they were added was that **no special handling is required** — `MD_Internal` is scanned, counted, filtered and searched like any other folder, and its files are meant to be hand-edited. So:
+Four commands append to four files in `MD_Internal`, a folder beside `MD_Inbox`: `logins.md` (a table), `ToDoList.md` (a checklist), `GrailDiary.md` (dated sections), `Facts.md` (a table). The ruling when they were added was that **no special handling is required** — `MD_Internal` is scanned, counted, filtered and searched like any other folder, and its files are meant to be hand-edited. So:
 
 - **Append, never rewrite.** The seed (title, and the table header where there is one) is written only when the file does not exist. A file the user has since reordered or edited must survive the next entry untouched.
 - **The formatting is pure and tested; only `append_to_internal()` touches a disk.** That split is why `InternalNotes.cpp` is wx-free and compiled straight into the test binary.
 - **Anything going into a table cell is escaped.** A literal `|` ends the cell and silently shifts every column after it; a newline ends the row. Both render as *something*, which is what makes them easy to ship.
 - **`todo_seed()` ends with a blank line.** Without it the first `- [ ]` sat directly under a paragraph. Found by looking at the app, not by a test — the file still rendered, just not as a list.
+- **A fact is a table row, not a dated section, although it is entered like a diary entry** (user request, 2026-08-17: "a searchable index of dated facts… entered one at a time like the grail diary entry"). The diary is read forwards; this is looked things up in, and one fact per row is what makes a column of dates, a column of tags and a Contents search hit all mean something. The cost — a fact must fit on one line — is the reason the diary is *not* this shape.
+- **`FactRecord::date` is escaped like every other cell.** It is prefilled with today but left editable, because the date a fact is true of is rarely the day it was typed — which makes it user input, and an unescaped pipe there shifts the three columns after it.
 
 **`logins.md` holds plaintext passwords.** That was the explicit choice, with one mitigation: `MD_Internal` gets a deny-everything `.gitignore` the moment it is created, because a document root may sit inside a git repo and two of this author's are public. The guard is written *before* the first file, since the gap between creating the folder and guarding it is exactly when a commit would sweep it up. The other exposure — the Contents search indexes the file like any document — is inherent to the choice and is documented in HELP.md rather than defended against.
 

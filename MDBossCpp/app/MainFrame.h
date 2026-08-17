@@ -68,6 +68,8 @@ private:
     void on_add_login(wxCommandEvent& event);
     void on_add_todo(wxCommandEvent& event);
     void on_add_diary(wxCommandEvent& event);
+    // One dated fact, appended as a row of MD_Internal\Facts.md.
+    void on_add_fact(wxCommandEvent& event);
     void on_open_internal_folder(wxCommandEvent& event);
     // Rebuild MD_Internal\TechNotes.md from the documents on disk and open it.
     void on_tech_notes(wxCommandEvent& event);

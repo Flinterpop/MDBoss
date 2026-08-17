@@ -67,6 +67,26 @@ private:
     wxTextCtrl* body_ = nullptr;
 };
 
+// One dated fact, one row of Facts.md.
+//
+// The date is prefilled with today but left EDITABLE, which is the difference
+// between this and the diary: a diary entry is dated when you write it, while
+// a fact is true of some date that may be years back.  Recording the day it
+// was typed instead would make the Date column useless for the one thing an
+// index of facts is for.
+class FactDialog : public wxDialog {
+public:
+    explicit FactDialog(wxWindow* parent);
+
+    FactRecord record() const;
+
+private:
+    wxTextCtrl* date_ = nullptr;
+    wxTextCtrl* fact_ = nullptr;
+    wxTextCtrl* tags_ = nullptr;
+    wxTextCtrl* source_ = nullptr;
+};
+
 }  // namespace mdboss
 
 #endif  // MDBOSS_APP_INTERNAL_DIALOGS_H

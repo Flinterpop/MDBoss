@@ -35,6 +35,7 @@ inline constexpr const char* kInternalName = "MD_Internal";
 inline constexpr const char* kLoginsFile = "logins.md";
 inline constexpr const char* kTodoFile = "ToDoList.md";
 inline constexpr const char* kDiaryFile = "GrailDiary.md";
+inline constexpr const char* kFactsFile = "Facts.md";
 
 // Where MD_Internal belongs, given the configured roots.  It is the sibling of
 // MD_Inbox -- same parent folder -- so the two app-managed folders sit
@@ -55,6 +56,21 @@ struct LoginRecord {
     std::string notes;
 };
 
+// One row of Facts.md: a dated fact, with where it came from and how to find
+// it again.
+//
+// A TABLE rather than the Grail Diary's dated sections, although entries are
+// made the same way -- one at a time, from a dialog.  The diary is a journal
+// you read forwards; this is an index you look things up in, and one fact per
+// row is what makes a column of dates, a column of tags and the Contents search
+// all work on it.  The cost is that a fact must fit on one line.
+struct FactRecord {
+    std::string date;    // when the fact is true of, not when it was typed
+    std::string fact;
+    std::string tags;    // free text, comma-separated by convention
+    std::string source;
+};
+
 // A cell that cannot break the table it is put in: a literal '|' would end the
 // cell early and silently shift every column after it, and a newline would end
 // the row.  Pipes are escaped and newlines become spaces.
@@ -66,6 +82,7 @@ std::string escape_table_cell(const std::string& text);
 std::string login_table_row(const LoginRecord& record);
 std::string todo_line(const std::string& item, const std::string& date);
 std::string diary_entry(const std::string& markdown, const std::string& date);
+std::string fact_table_row(const FactRecord& record);
 
 // What a file gets when it does not exist yet: a title, and for logins the
 // table header the rows hang off.  A file the user has since edited by hand is
@@ -73,6 +90,7 @@ std::string diary_entry(const std::string& markdown, const std::string& date);
 std::string logins_seed();
 std::string todo_seed();
 std::string diary_seed();
+std::string facts_seed();
 
 // The .gitignore written into MD_Internal when it is created.  See the note at
 // the top of this file.

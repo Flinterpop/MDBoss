@@ -129,6 +129,20 @@ std::string diary_entry(const std::string& markdown, const std::string& date)
     return entry.str();
 }
 
+std::string fact_table_row(const FactRecord& record)
+{
+    // Every cell escaped, including the date: it is prefilled but editable, so
+    // it is user input like the rest and a pipe typed into it would shift the
+    // three columns after it.
+    std::ostringstream row;
+    row << "| " << escape_table_cell(record.date)
+        << " | " << escape_table_cell(record.fact)
+        << " | " << escape_table_cell(record.tags)
+        << " | " << escape_table_cell(record.source)
+        << " |\n";
+    return row.str();
+}
+
 std::string logins_seed()
 {
     return "# Logins\n"
@@ -155,6 +169,20 @@ std::string todo_seed()
 std::string diary_seed()
 {
     return "# Grail Diary\n";
+}
+
+std::string facts_seed()
+{
+    // Says what the Date column means, because it is the one thing about this
+    // file that cannot be inferred from looking at it: the date a fact is true
+    // of is not always the day it was written down.
+    return "# Facts\n"
+           "\n"
+           "Managed by MD Boss (Lists menu). Rows may also be edited by hand.\n"
+           "The date is when the fact is true of, not when it was recorded.\n"
+           "\n"
+           "| Date | Fact | Tags | Source |\n"
+           "|---|---|---|---|\n";
 }
 
 std::string internal_gitignore()
