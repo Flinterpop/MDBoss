@@ -195,6 +195,11 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, &FileTreePanel::on_activated, this);
     tree_->Bind(wxEVT_LEFT_DOWN, &FileTreePanel::on_left_click, this);
     tree_->Bind(wxEVT_TREE_ITEM_MENU, &FileTreePanel::on_context_menu, this);
+    // BEGIN_DRAG must be bound for a drag to happen at all: wxTreeCtrl only
+    // starts one if a handler calls Allow(), so leaving this unbound is how
+    // the tree behaved before -- inert, not broken.
+    tree_->Bind(wxEVT_TREE_BEGIN_DRAG, &FileTreePanel::on_begin_drag, this);
+    tree_->Bind(wxEVT_TREE_END_DRAG, &FileTreePanel::on_end_drag, this);
 }
 
 FileTreePanel::~FileTreePanel()
@@ -1067,6 +1072,148 @@ void FileTreePanel::new_folder(const std::string& dir)
     refresh();
 }
 
+std::string FileTreePanel::owning_root(const std::string& path) const
+{
+    const std::string target = norm_path(path);
+    for (const Root& root : roots_) {   // bounded by the roots list
+        if (root.path.empty()) {
+            continue;
+        }
+        std::string base = norm_path(root.path);
+        if (!base.empty() && (base.back() == '\\' || base.back() == '/')) {
+            base.pop_back();
+        }
+        if (target == base) {
+            return root.path;
+        }
+        if (target.size() > base.size() &&
+            target.compare(0, base.size(), base) == 0 &&
+            (target[base.size()] == '\\' || target[base.size()] == '/')) {
+            return root.path;
+        }
+    }
+    return {};
+}
+
+void FileTreePanel::on_begin_drag(wxTreeEvent& event)
+{
+    drag_source_.clear();
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(event.GetItem()));
+    // Files only.  A folder drag is refused by simply not allowing the event,
+    // so the cursor never suggests a drop that would not happen.
+    if (data == nullptr || !data->is_file()) {
+        return;
+    }
+    drag_source_ = data->path();
+    event.Allow();
+}
+
+void FileTreePanel::on_end_drag(wxTreeEvent& event)
+{
+    const std::string source = drag_source_;
+    drag_source_.clear();
+    if (source.empty()) {
+        return;
+    }
+
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(event.GetItem()));
+    if (data == nullptr) {
+        return;   // dropped on empty space, or on the hidden root
+    }
+    // Dropping onto a file means "put it beside this one", which is the
+    // folder it lives in -- landing on a file is far easier to aim at than
+    // the folder row above it.
+    const std::string target_dir =
+        data->is_file()
+            ? path_to_utf8(path_from_utf8(data->path()).parent_path())
+            : data->path();
+    if (target_dir.empty()) {
+        return;
+    }
+    move_document(source, target_dir);
+}
+
+void FileTreePanel::move_document(const std::string& source,
+                                  const std::string& target_dir)
+{
+    const std::filesystem::path from = path_from_utf8(source);
+    const std::filesystem::path to =
+        path_from_utf8(target_dir) / from.filename();
+
+    if (norm_path(path_to_utf8(from.parent_path())) == norm_path(target_dir)) {
+        return;   // dropped back where it already is
+    }
+
+    std::error_code ec;
+    const bool collides = std::filesystem::exists(to, ec);
+    ec.clear();
+    const std::string from_root = owning_root(source);
+    const std::string to_root = owning_root(target_dir);
+    // Both empty (neither under a configured root) counts as not crossing --
+    // there is no boundary to cross.
+    const bool crosses_root = norm_path(from_root) != norm_path(to_root);
+
+    const wxString name = wxString::FromUTF8(path_to_utf8(from.filename()));
+    if (collides) {
+        // Replacing a document is the one outcome nothing can undo, so it is
+        // always asked, and the question says "replace" rather than "move".
+        const int answer = wxMessageBox(
+            "A file with that name is already there.\n\nReplace it?\n\n" +
+                name + L"\n→ " + wxString::FromUTF8(target_dir),
+            "MD Boss", wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, this);
+        if (answer != wxYES) {
+            return;
+        }
+    } else if (crosses_root) {
+        // Between two top-level folders is a bigger move than it looks -- the
+        // document leaves the tree it was filed under -- so it is confirmed
+        // even though nothing is destroyed.
+        const int answer = wxMessageBox(
+            "Move to a different top-level folder?\n\n" + name + L"\n→ " +
+                wxString::FromUTF8(target_dir),
+            "MD Boss", wxYES_NO | wxICON_QUESTION, this);
+        if (answer != wxYES) {
+            return;
+        }
+    }
+
+    std::filesystem::rename(from, to, ec);
+    if (ec) {
+        // rename() cannot cross volumes.  Copy then remove, and only remove
+        // once the copy is known to be there -- the reverse order turns a
+        // failed move into a lost document.
+        std::error_code copy_ec;
+        std::filesystem::copy_file(
+            from, to, std::filesystem::copy_options::overwrite_existing,
+            copy_ec);
+        if (copy_ec || !std::filesystem::exists(to, copy_ec)) {
+            wxMessageBox("Could not move:\n" + name + "\n\n" +
+                             wxString::FromUTF8(ec.message()),
+                         "MD Boss", wxOK | wxICON_ERROR, this);
+            return;
+        }
+        std::filesystem::remove(from, copy_ec);
+        if (copy_ec) {
+            wxMessageBox("Copied, but the original could not be removed:\n" +
+                             name,
+                         "MD Boss", wxOK | wxICON_WARNING, this);
+        }
+    }
+
+    // Told before the rescan, so the app can rewrite the favourite, the recent
+    // and the open document's path while the old one is still known.
+    if (on_path_moved_) {
+        on_path_moved_(source, path_to_utf8(to));
+    }
+    refresh();
+    const wxTreeItemId moved = find_item(path_to_utf8(to));
+    if (moved.IsOk()) {
+        tree_->SelectItem(moved);
+        tree_->EnsureVisible(moved);
+        scroll_fully_left();
+    }
+}
+
 void FileTreePanel::rename_path(const std::string& path)
 {
     const std::filesystem::path source = path_from_utf8(path);
@@ -1090,6 +1237,13 @@ void FileTreePanel::rename_path(const std::string& path)
         wxMessageBox("Could not rename:\n" + wxString::FromUTF8(ec.message()),
                      "MD Boss", wxOK | wxICON_ERROR, this);
         return;
+    }
+    // Renaming moves the file too, so it owes the same notification a drag
+    // does.  It did not send one before the drag feature existed, which meant
+    // renaming the OPEN document left the frame holding the old path and
+    // Ctrl+S writing the file back under its previous name.
+    if (on_path_moved_) {
+        on_path_moved_(path, path_to_utf8(target));
     }
     refresh();
 }

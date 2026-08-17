@@ -298,6 +298,25 @@ void Config::set_flat_folder(const std::string& path, bool flat)
     }
 }
 
+void Config::replace_path(const std::string& from, const std::string& to)
+{
+    assert(!from.empty() && !to.empty() && "a move has two real paths");
+    // Compared through norm_path because that is how this app compares paths
+    // everywhere: a favourite stored with a different case or separator than
+    // the tree reports is the same file and must still be rewritten.
+    const std::string target = norm_path(from);
+    for (std::string& entry : favorites_) {   // bounded by kMaxFavorites
+        if (norm_path(entry) == target) {
+            entry = to;
+        }
+    }
+    for (std::string& entry : recents_) {     // bounded by kMaxRecents
+        if (norm_path(entry) == target) {
+            entry = to;
+        }
+    }
+}
+
 bool Config::is_excluded_folder(const std::string& path) const
 {
     for (const std::string& excluded : excluded_folders_) {

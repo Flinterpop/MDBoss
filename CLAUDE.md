@@ -135,6 +135,23 @@ Add a whole workspace folder as a root and the walk can meet far more than it ex
 
 **Roots may nest, and the tree has to cope.** A workspace folder added as a root and one folder inside it added as a second root make the same absolute folder reachable from two roots. `folder_item()`'s node cache was keyed on the path alone, so the second root's documents were hung on the first root's node — the file appeared twice under one root, not at all under the other, and the folder count beside it still read 1. The keys carry the root index now. This only surfaced once the scan reached deep enough to produce the collision, which is a good reminder that a bug fixed upstream can uncover one downstream.
 
+## A file that moves has to tell the app, or three things silently break
+
+Dragging a document in the tree moves it on disk. The move itself is the easy part; what it *invalidates* is not:
+
+- **Favorites and recents store ABSOLUTE paths.** A move that does not rewrite them leaves a favourite showing red and a recent that no longer opens, with nothing on screen explaining why. `Config::replace_path()` rewrites in place rather than remove-then-add, because the latter would promote the file to the top of the recents as though it had just been opened.
+- **The frame holds the open document's path.** Without following the move, **Ctrl+S writes the file back where it used to be** — recreating it there and leaving two copies. This was *already* true of **Rename**, which had no notification at all; the `set_on_path_moved` hook fixes both, and Rename now sends it too.
+- The tree reports rather than reaches: it knows the move happened, the app owns favorites, recents and the open document.
+
+**The confirmation rule is "only when risky"** (user ruling, 2026-08-16): silent within one root, ask when replacing an existing name or crossing to a different top-level folder. Confirming every drag was rejected because a tree is also dragged to scroll; confirming none was rejected because there is no undo.
+
+Two implementation notes:
+
+- **`wxEVT_TREE_BEGIN_DRAG` must be bound and must call `Allow()`**, or no drag happens at all. An unbound handler is inert, not broken — which is how this tree behaved before.
+- **`rename()` cannot cross volumes.** The fallback copies then removes, and only removes once the copy is confirmed present; the reverse order turns a failed move into a lost document.
+
+Files only. A folder drag would relocate a whole subtree on one mis-drop and needs an ancestor check (dropping a folder into its own descendant) that a file move does not.
+
 ## A preview theme changes two stylesheets and a body class — nothing else
 
 `mdrender::Theme` picks between `github-markdown-light.css` + `highlight/github.min.css` and `notes-light.css` + `highlight/xcode.min.css`, and stamps `theme-github` / `theme-notes` on `<body>`. **`render_body()` has no theme parameter at all**, which is the whole design: the generated body HTML is byte-identical either way, so the ~30 golden files cannot be disturbed by adding or changing a theme. A test asserts exactly that, and it is the one to check first if a theme ever seems to break the corpus.

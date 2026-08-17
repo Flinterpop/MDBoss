@@ -233,6 +233,66 @@ TEST_CASE("the inbox is found as a root or inside one", "[inbox]")
 // In-memory only: Config::save() writes the real %APPDATA% profile, and a
 // test has no business touching that.
 
+TEST_CASE("a moved document keeps its place in both lists", "[config][move]")
+{
+    // Favorites and recents store ABSOLUTE paths, so dragging a file to
+    // another folder orphans both unless they are rewritten -- a favourite
+    // goes red and a recent stops opening, with nothing saying why.
+    mdboss::Config config;
+    config.add_favorite("C:\\docs\\a.md");
+    config.add_favorite("C:\\docs\\move-me.md");
+    config.add_favorite("C:\\docs\\b.md");
+    config.push_recent("C:\\docs\\move-me.md");
+    config.push_recent("C:\\docs\\other.md");
+
+    const std::size_t favorites_before = config.favorites().size();
+    const std::vector<std::string> recents_before = config.recents();
+
+    config.replace_path("C:\\docs\\move-me.md", "C:\\docs\\sub\\move-me.md");
+
+    // Rewritten, not removed-and-re-added: the count is unchanged and the
+    // entry is still where it was.  Remove-then-add would promote it to the
+    // front, as though it had just been favourited or opened.
+    //
+    // add_favorite puts NEWEST FIRST, so adding a, move-me, b leaves
+    // [b, move-me, a] -- the moved one is in the middle either way, but the
+    // neighbours are the reverse of insertion order.
+    REQUIRE(config.favorites().size() == favorites_before);
+    CHECK(config.favorites()[1] == "C:\\docs\\sub\\move-me.md");
+    CHECK(config.favorites()[0] == "C:\\docs\\b.md");
+    CHECK(config.favorites()[2] == "C:\\docs\\a.md");
+
+    REQUIRE(config.recents().size() == recents_before.size());
+    // push_recent puts newest first, so the moved one is second.
+    CHECK(config.recents()[1] == "C:\\docs\\sub\\move-me.md");
+    CHECK(config.recents()[0] == recents_before[0]);
+
+    // The old path is gone from both.
+    CHECK_FALSE(config.is_favorite("C:\\docs\\move-me.md"));
+    CHECK(config.is_favorite("C:\\docs\\sub\\move-me.md"));
+}
+
+TEST_CASE("rewriting a path ignores case and separator", "[config][move]")
+{
+    // The tree reports the path the walk produced; a favourite may have been
+    // stored with different case or slashes and is still the same file.
+    mdboss::Config config;
+    config.add_favorite("C:\\Docs\\Note.md");
+    config.replace_path("c:/docs/note.md", "C:\\Docs\\Archive\\Note.md");
+    CHECK(config.is_favorite("C:\\Docs\\Archive\\Note.md"));
+}
+
+TEST_CASE("rewriting a path nobody stored changes nothing", "[config][move]")
+{
+    mdboss::Config config;
+    config.add_favorite("C:\\docs\\keep.md");
+    config.push_recent("C:\\docs\\keep.md");
+    config.replace_path("C:\\docs\\absent.md", "C:\\elsewhere\\absent.md");
+    CHECK(config.favorites().size() == 1);
+    CHECK(config.favorites()[0] == "C:\\docs\\keep.md");
+    CHECK(config.recents()[0] == "C:\\docs\\keep.md");
+}
+
 TEST_CASE("any folder can be flattened, not just a root", "[config][flat]")
 {
     mdboss::Config config;

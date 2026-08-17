@@ -73,6 +73,10 @@ private:
     void on_export_pdf(wxCommandEvent& event);
     // Switch the preview stylesheet (View menu). Persists and re-renders.
     void on_preview_theme(wxCommandEvent& event);
+    // A document moved on disk (dragged in the tree, or renamed): rewrite the
+    // absolute paths held in favorites and recents, and follow it if it is the
+    // document currently open.
+    void on_path_moved(const std::string& from, const std::string& to);
     // Shared tail of the three: append, report a failure, refresh the tree.
     void save_internal_entry(const std::string& filename,
                              const std::string& seed,

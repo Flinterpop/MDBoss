@@ -120,6 +120,13 @@ public:
     void push_recent(const std::string& path);
     void clear_recents() { recents_.clear(); }
 
+    // Rewrite a stored path after the document moved on disk, keeping its
+    // place in each list.  Favorites and recents hold ABSOLUTE paths, so
+    // without this a move silently orphans both -- and remove-then-add would
+    // lose the ordering, promoting a moved file to the top of the recents as
+    // though it had just been opened.
+    void replace_path(const std::string& from, const std::string& to);
+
     bool is_favorite(const std::string& path) const;
     // Newest first, de-duplicated; adding past the cap drops the oldest.
     void add_favorite(const std::string& path);

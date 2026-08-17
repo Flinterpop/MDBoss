@@ -440,6 +440,10 @@ void MainFrame::build_panes()
     files_ = new FileTreePanel(favorites_split_);
     files_->set_on_open([this](const std::string& path) { open_path(path); });
     files_->set_on_import_to_inbox([this] { on_import_to_inbox(); });
+    files_->set_on_path_moved([this](const std::string& from,
+                                     const std::string& to) {
+        on_path_moved(from, to);
+    });
     files_->set_manage_hooks(
         [this] {
             wxCommandEvent unused;
@@ -1227,6 +1231,25 @@ void MainFrame::on_add_diary(wxCommandEvent&)
     }
     save_internal_entry(kDiaryFile, diary_seed(),
                         diary_entry(body, today_stamp()), L"Diary entry");
+}
+
+void MainFrame::on_path_moved(const std::string& from, const std::string& to)
+{
+    // Favorites and recents hold ABSOLUTE paths, so a move that did not
+    // rewrite them would leave a favourite showing red and a recent that no
+    // longer opens -- with nothing on screen explaining why.
+    config_.replace_path(from, to);
+
+    // The open document.  Without this the frame keeps the old path and
+    // Ctrl+S writes the file back where it used to be, recreating it there
+    // and leaving two copies.
+    if (!current_path_.empty() &&
+        norm_path(current_path_) == norm_path(from)) {
+        current_path_ = to;
+        update_title();
+    }
+    config_.save();
+    refresh_lists();
 }
 
 void MainFrame::on_preview_theme(wxCommandEvent& event)

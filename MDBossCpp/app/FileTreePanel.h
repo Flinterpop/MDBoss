@@ -73,6 +73,20 @@ public:
         excluded_list_ = std::move(list);
     }
 
+    // Called after a document has been moved on disk by a drag, with its old
+    // path then its new one.
+    //
+    // The tree reports rather than reaches: favorites and recents are stored
+    // as ABSOLUTE paths and the open document's path lives in the frame, so a
+    // move that did not say so would silently orphan a favourite, break a
+    // recent, and leave Ctrl+S writing the document back to where it used to
+    // be.  The app owns all three; the tree only knows the move happened.
+    void set_on_path_moved(
+        std::function<void(const std::string&, const std::string&)> handler)
+    {
+        on_path_moved_ = std::move(handler);
+    }
+
     // "Import files into MD_Inbox…", which the tree offers wherever the menu
     // is raised -- including empty space, as the Python app does, because the
     // command is about the roots as a whole and not the row under the cursor.
@@ -136,6 +150,18 @@ private:
     void on_expanded(wxTreeEvent& event);
     void on_collapsed(wxTreeEvent& event);
     void on_context_menu(wxTreeEvent& event);
+    // Dragging a document onto a folder moves it on disk.  Files only:
+    // dragging a folder would relocate a whole subtree on one mis-drop, and
+    // needs an ancestor check a file move does not.
+    void on_begin_drag(wxTreeEvent& event);
+    void on_end_drag(wxTreeEvent& event);
+    // Perform the move, asking first only when it is risky -- crossing to a
+    // different root folder, or landing on a name that already exists.  A
+    // plain move within one root is silent, because confirming every drag on a
+    // tree people also drag to scroll is its own kind of wrong.
+    void move_document(const std::string& source, const std::string& target_dir);
+    // The configured root `path` sits under, or empty when it is under none.
+    std::string owning_root(const std::string& path) const;
     // The item currently showing `path`, or an invalid id if it is not on
     // screen.  Rebuilding destroys every item, so putting the user back where
     // they were means finding the row again by path afterwards.
@@ -217,6 +243,11 @@ private:
     std::function<bool(const std::string&)> is_excluded_folder_;
     std::function<void(const std::string&)> on_toggle_excluded_;
     std::function<std::vector<std::string>()> excluded_list_;
+    std::function<void(const std::string&, const std::string&)> on_path_moved_;
+    // The document a drag started on, held between BEGIN_DRAG and END_DRAG.
+    // Empty when no drag is in progress, which is also how a drag that began
+    // on something undraggable is distinguished from one that never began.
+    std::string drag_source_;
     std::function<void()> on_import_to_inbox_;
     std::function<void()> on_manage_templates_;
     std::function<void()> on_manage_folders_;

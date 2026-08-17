@@ -54,6 +54,21 @@ Two things worth knowing while a scan is running:
 
 Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
+## Moving files by dragging
+
+**Drag a document onto a folder in the files tree to move it there on disk.** Dropping it onto another *file* puts it beside that file, in the folder it lives in — usually easier to aim at than the folder row itself.
+
+Folders cannot be dragged. Only documents move.
+
+**Most moves happen without asking**, because a tree you also drag to scroll is a poor place to be interrogated. You are asked in exactly two cases:
+
+- **The name is already taken** in the destination — you are asked whether to *replace* the file there, and the safe answer is the default. Replacing a document cannot be undone.
+- **You are moving between two different top-level folders** — nothing is destroyed, but the document leaves the folder it was filed under, which is worth a moment's confirmation.
+
+A move keeps everything pointing at the file: it stays in **Favorites** and **Recent**, and if it is the document you have open, MD Boss follows it — so **Ctrl+S** still saves to the right place. The same is now true when you **Rename** a file, which previously left the open document pointing at its old name.
+
+There is **no undo**. If you move something by accident, drag it back.
+
 ## Preview style
 
 **View ▸ Preview style** offers two looks, and the choice is remembered:
