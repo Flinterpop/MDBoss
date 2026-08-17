@@ -409,6 +409,59 @@ TEST_CASE("an ordinary list is untouched by the task-list flag",
     CHECK(html.find("<li>") != std::string::npos);
 }
 
+TEST_CASE("a bare URL in a table cell becomes a link", "[mdrender][autolink]")
+{
+    // logins.md keeps its Link column as bare URLs -- a table cell is a poor
+    // place to type [text](url) by hand -- and a URL you cannot click is not a
+    // link, it is a string to retype.
+    const std::string html = mdrender::render_body(
+        "| Name | Link |\n|---|---|\n"
+        "| Example | https://example.com/login |\n",
+        false);
+    CHECK(html.find("<a href=\"https://example.com/login\"") !=
+          std::string::npos);
+}
+
+TEST_CASE("bare URLs, www and email autolink in prose too",
+          "[mdrender][autolink]")
+{
+    // The flag applies to every document, which is the point: any document
+    // listing a URL was rendering it as plain text.
+    CHECK(mdrender::render_body("See http://example.com now\n", false)
+              .find("<a href=\"http://example.com\"") != std::string::npos);
+    CHECK(mdrender::render_body("See www.example.com now\n", false)
+              .find("href=\"http://www.example.com\"") != std::string::npos);
+    CHECK(mdrender::render_body("Mail a@example.com now\n", false)
+              .find("href=\"mailto:a@example.com\"") != std::string::npos);
+
+    // An explicit link is untouched -- the far commoner case must not change.
+    const std::string explicit_link =
+        mdrender::render_body("[text](https://example.com)\n", false);
+    CHECK(explicit_link.find("<a href=\"https://example.com\">text</a>") !=
+          std::string::npos);
+}
+
+TEST_CASE("autolinking cannot mint a dangerous scheme", "[mdrender][autolink]")
+{
+    // The reason this flag is safe to turn on: the permissive rules match only
+    // http/https/ftp and mailto shapes, so no javascript: or file: URL can be
+    // created from prose.  PreviewPane allow-lists the scheme again before
+    // handing anything to ShellExecute, but defence in depth starts here.
+    for (const char* const text : {"javascript:alert(1)\n",
+                                   "file:///C:/Windows/System32/cmd.exe\n",
+                                   "data:text/html,<script>\n",
+                                   "vbscript:msgbox\n"}) {
+        const std::string html = mdrender::render_body(text, false);
+        INFO(text);
+        CHECK(html.find("<a href") == std::string::npos);
+    }
+
+    // A code span is still literal: autolinking inside one would rewrite text
+    // whose whole purpose is to be shown exactly as written.
+    CHECK(mdrender::render_body("`http://example.com`\n", false)
+              .find("<a href") == std::string::npos);
+}
+
 TEST_CASE("the first heading is the title", "[mdrender][title]")
 {
     CHECK(mdrender::document_title("# The Rule\n\nbody\n") == "The Rule");

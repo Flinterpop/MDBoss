@@ -529,8 +529,23 @@ bool render_html(std::string_view md_text,
     // document using GitHub's task-list syntax rendered wrong before, and the
     // whole point of this preview is to look like GitHub.  No golden corpus
     // file uses the syntax, so enabling it changes no frozen expectation.
+    // PERMISSIVEAUTOLINKS turns a bare http://, www. or user@host into a real
+    // link, as GitHub does.  Added because logins.md keeps its Link column as
+    // bare URLs -- a table cell is a poor place to type [text](url) by hand --
+    // and a URL you cannot click is not a link, it is a string to retype.  Not
+    // specific to that file: any document listing a URL was rendering it as
+    // plain text.  Only the corpus's sanitizer case contains one, inside a raw
+    // <iframe> attribute, which is an HTML block and so out of reach of a span
+    // rule -- confirmed by regenerating nothing: the frozen expectation still
+    // matches byte for byte.
+    //
+    // It cannot widen what a click can reach.  The permissive rules match only
+    // http/https/ftp and mailto shapes, so no javascript: URL can be minted
+    // this way, and PreviewPane's handler allow-lists http, https and mailto
+    // before handing anything to ShellExecute.
     parser.flags = MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
-                   MD_FLAG_LATEXMATHSPANS | MD_FLAG_TASKLISTS;
+                   MD_FLAG_LATEXMATHSPANS | MD_FLAG_TASKLISTS |
+                   MD_FLAG_PERMISSIVEAUTOLINKS;
     parser.enter_block = &enter_block;
     parser.leave_block = &leave_block;
     parser.enter_span = &enter_span;

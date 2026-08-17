@@ -106,6 +106,8 @@ The **Lists** menu keeps four standing lists for you. Each command opens a small
 | **Add a Grail Diary entry…** | `GrailDiary.md` | Your Markdown, under a dated heading |
 | **Add a fact…** | `Facts.md` | A row in a table: Date, Fact, Tags, Source |
 
+**A bare URL is a link.** Typing `https://example.com/login` into a Link column — or anywhere in any document — renders as something you can click, without wrapping it in `[text](url)`. Clicking it opens your browser, as every link in the preview does; the preview itself still fetches nothing.
+
 ### Fact records
 
 A **fact record** is one dated fact, entered one at a time the way a diary entry is, but stored as a **table row** rather than a section — because this one is an index you look things up in, not a journal you read forwards. One fact per row is what lets a column of dates and a column of tags be scanned, and what makes the **Contents** search land on the exact fact rather than on a wall of text.
