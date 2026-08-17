@@ -175,6 +175,18 @@ Unclosed front matter counts as none rather than being guessed at, since the hea
 - **A duplicate is reported, not repaired.** The rebuild is the only thing that ever sees every note at once, so it is the only thing that can notice; which of the pair should move is the author's call.
 - **The bare `TNIndex:` form is filled as well as `{{tnindex}}`.** The author's own template — the one per-name seeding deliberately never overwrites — carries the key with an empty value, so supporting only the placeholder would have shipped a feature that did nothing for the person who asked for it. A key that already has a value is left alone. Check `empty_tn_index_span()`'s CRLF handling before touching it: rewriting over the `\r` joins the line to the next one.
 
+### Promoting a document only ever ADDS
+
+"Update as TechNote" (tree context menu, and Lists ▸ Tech Notes) fills the gaps `tech_note_gaps()` reports and nothing else. A GUID, number or keyword already written is kept: the command is "make this a tech note", not "renumber it", and a number that moves breaks whatever cites it. Consequences worth knowing before editing `promote_to_tech_note()`:
+
+- **The block is rebuilt line by line, not spliced at offsets.** Extending the keywords line moves every offset after it, so two edits computed against the original string land wrong. Found by writing it the other way first.
+- **`keywords:` is extended, never repeated.** A second `keywords:` line is one YAML key given twice and which value wins is parser-dependent.
+- **New keys go at the END of the block.** The first line of a Typora-style block is the document's own title line; pushing it down changes what every other reader shows as the title.
+- **Line endings follow the file.** A CRLF document must not come back with one LF line in its front matter — it renders identically, which is exactly what makes it survivable and worth a test.
+- **`trimmed()` does not strip `\n`.** Every other caller hands it an already-split line; this one holds the newline, and forgetting that produced `keywords: Draft, Radar\n, TechNote`.
+- **The year comes from the document where it has one** — a `date:`, `created:` or `updated:` value led by four digits, bounded to 1970..this year so a version number cannot invent a whole year of notes. A note written in 2023 belongs in 2023's sequence.
+- **A promote is refused, not merged, when the target is the open document with unsaved edits.** The watcher keeps the buffer, so the file and the editor would disagree and the next Ctrl+S would undo the promotion.
+
 **A save to a new path now refreshes the tree**, and this feature is why. `document_paths()` is the last completed scan, so a note created, saved and indexed seconds later was absent from its own index — found by driving the built app, not by a test. Only a path the tree does not already know triggers it; rescanning every root on every Ctrl+S would be a real cost for no answer.
 
 ## A clicked link leaves the app; the page still fetches nothing

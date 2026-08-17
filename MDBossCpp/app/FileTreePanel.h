@@ -87,6 +87,19 @@ public:
         on_path_moved_ = std::move(handler);
     }
 
+    // "Update as TechNote" on a document: add the front matter that makes it
+    // one.  Reported rather than done here for the same reason as a move --
+    // the frame owns the open document, so it is the only thing that can tell
+    // whether the file about to be rewritten is being edited right now.  The
+    // predicate greys the item out on a document that is already a tech note.
+    void set_on_promote_tech_note(
+        std::function<void(const std::string&)> handler,
+        std::function<bool(const std::string&)> is_tech_note)
+    {
+        on_promote_ = std::move(handler);
+        is_tech_note_ = std::move(is_tech_note);
+    }
+
     // "Import files into MD_Inbox…", which the tree offers wherever the menu
     // is raised -- including empty space, as the Python app does, because the
     // command is about the roots as a whole and not the row under the cursor.
@@ -253,6 +266,8 @@ private:
     std::function<void(const std::string&)> on_toggle_excluded_;
     std::function<std::vector<std::string>()> excluded_list_;
     std::function<void(const std::string&, const std::string&)> on_path_moved_;
+    std::function<void(const std::string&)> on_promote_;
+    std::function<bool(const std::string&)> is_tech_note_;
     // The document a drag started on, held between BEGIN_DRAG and END_DRAG.
     // Empty when no drag is in progress, which is also how a drag that began
     // on something undraggable is distinguished from one that never began.

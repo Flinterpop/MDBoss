@@ -113,6 +113,38 @@ int next_tn_sequence(const std::vector<TechNote>& existing, int year);
 // paying that for a template with no placeholder in it would be pure waste.
 bool needs_tn_index(const std::string& text);
 
+// ---- Turning an ordinary document into a tech note ------------------------
+
+// What `text` is missing before it would count as a tech note.  All false
+// means it already is one.
+struct TechNoteGaps {
+    bool front_matter = false;   // no closed block at the very top
+    bool guid = false;
+    bool keyword = false;
+    bool tn_index = false;
+};
+TechNoteGaps tech_note_gaps(const std::string& text);
+
+// `text` with `GUID:`, `TNIndex:` and the `TechNote` keyword added where they
+// are missing, and a front-matter block written when there is none.
+//
+// Only ever ADDS.  A GUID, number or keyword already there is left exactly as
+// it is: this is a document the user wrote, and the command was "make this a
+// tech note", not "renumber it".  `title` is used only when a whole block has
+// to be written; pass the document's filename stem.
+//
+// Returns `text` unchanged when nothing is missing.
+std::string promote_to_tech_note(const std::string& text,
+                                 const std::string& guid,
+                                 const std::string& tn_index,
+                                 const std::string& title);
+
+// The year a document belongs to: a four-digit year leading a `date:`,
+// `created:` or `updated:` value in its front matter, or `fallback_year` when
+// there is none.  A note written years ago should be numbered in the year it
+// was written, not the year someone got round to indexing it.
+int tech_note_year(const std::string& text, int fallback_year);
+
 // `text` with the placeholder replaced by the next number for `year`.
 //
 // `assigned`, when given, receives the number that was handed out -- so the

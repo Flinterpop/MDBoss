@@ -126,38 +126,6 @@ std::string formatted(const std::tm& when, const char* format)
     return buffer;
 }
 
-// A fresh random (version 4) UUID, lower-case, 8-4-4-4-12, no braces.
-//
-// Generated here rather than with CoCreateGuid so this file stays free of
-// anything the headless test binary would have to link -- Templates.cpp is
-// compiled straight into it, and adding ole32 for one call is a poor trade.
-// random_device is seeded by the OS; mt19937 only stretches it, so this is a
-// unique identifier and not a cryptographic secret, which is all a note's
-// GUID needs to be.
-std::string new_guid()
-{
-    static std::mt19937 engine{std::random_device{}()};
-    std::uniform_int_distribution<int> nibble(0, 15);
-    static const char* const kHex = "0123456789abcdef";
-
-    std::string out;
-    out.reserve(36);
-    // Bounded (Rule of 10): 32 nibbles plus four separators, never more.
-    for (int i = 0; i < 32; ++i) {
-        if (i == 8 || i == 12 || i == 16 || i == 20) {
-            out += '-';
-        }
-        int value = nibble(engine);
-        if (i == 12) {
-            value = 4;              // version 4
-        } else if (i == 16) {
-            value = (value & 0x3) | 0x8;   // variant 10xx
-        }
-        out += kHex[value];
-    }
-    return out;
-}
-
 std::string lowered(std::string text)
 {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
@@ -217,6 +185,38 @@ bool base64_decode(std::string_view text, std::vector<unsigned char>& out)
 }
 
 }  // namespace
+
+// A fresh random (version 4) UUID, lower-case, 8-4-4-4-12, no braces.
+//
+// Generated here rather than with CoCreateGuid so this file stays free of
+// anything the headless test binary would have to link -- Templates.cpp is
+// compiled straight into it, and adding ole32 for one call is a poor trade.
+// random_device is seeded by the OS; mt19937 only stretches it, so this is a
+// unique identifier and not a cryptographic secret, which is all a note's
+// GUID needs to be.
+std::string new_guid()
+{
+    static std::mt19937 engine{std::random_device{}()};
+    std::uniform_int_distribution<int> nibble(0, 15);
+    static const char* const kHex = "0123456789abcdef";
+
+    std::string out;
+    out.reserve(36);
+    // Bounded (Rule of 10): 32 nibbles plus four separators, never more.
+    for (int i = 0; i < 32; ++i) {
+        if (i == 8 || i == 12 || i == 16 || i == 20) {
+            out += '-';
+        }
+        int value = nibble(engine);
+        if (i == 12) {
+            value = 4;              // version 4
+        } else if (i == 16) {
+            value = (value & 0x3) | 0x8;   // variant 10xx
+        }
+        out += kHex[value];
+    }
+    return out;
+}
 
 std::string templates_dir()
 {

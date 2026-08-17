@@ -229,6 +229,114 @@ TEST_CASE("a bare TNIndex: key is filled too", "[technotes]")
     CHECK_FALSE(mdboss::needs_tn_index("---\nGUID: g\n---\nTNIndex:\n"));
 }
 
+TEST_CASE("promoting a plain document writes a whole block", "[technotes]")
+{
+    const std::string doc = "# Antenna Notes\n\nSome prose.\n";
+    const std::string out =
+        mdboss::promote_to_tech_note(doc, "abc-guid", "2026.05", "antenna");
+
+    CHECK(out.rfind("---\n", 0) == 0);
+    CHECK(out.find("\ntitle: antenna\n") != std::string::npos);
+    CHECK(out.find("\nGUID: abc-guid\n") != std::string::npos);
+    CHECK(out.find("\nTNIndex: 2026.05\n") != std::string::npos);
+    CHECK(out.find("\nkeywords: TechNote\n") != std::string::npos);
+    // The document itself is untouched, below the block.
+    CHECK(out.find(doc) != std::string::npos);
+
+    // And it now parses as one, which is the whole point.
+    mdboss::TechNote note;
+    REQUIRE(mdboss::parse_tech_note(out, &note));
+    CHECK(note.tn_index == "2026.05");
+}
+
+TEST_CASE("promoting adds only what is missing", "[technotes]")
+{
+    // A document the user wrote: keys they chose, in the order they chose.
+    // The command is "make this a tech note", not "rewrite its front matter".
+    const std::string doc = "---\ntitle: Survey\nauthor: B. Graham\n"
+                            "keywords: Draft, Radar\n---\n\n# Survey\n";
+    const std::string out =
+        mdboss::promote_to_tech_note(doc, "g-1", "2026.02", "survey");
+
+    // The existing keywords are extended, NOT replaced, and NOT duplicated
+    // onto a second `keywords:` line -- YAML reads that as one key twice.
+    CHECK(out.find("keywords: Draft, Radar, TechNote") != std::string::npos);
+    CHECK(out.find("keywords: TechNote\n") == std::string::npos);
+    CHECK(out.find("\ntitle: Survey\n") != std::string::npos);
+    CHECK(out.find("\nauthor: B. Graham\n") != std::string::npos);
+    CHECK(out.find("\nGUID: g-1\n") != std::string::npos);
+    CHECK(out.find("\nTNIndex: 2026.02\n") != std::string::npos);
+    // Still one block, still closed.
+    mdboss::TechNote note;
+    REQUIRE(mdboss::parse_tech_note(out, &note));
+    CHECK(note.title == "Survey");
+}
+
+TEST_CASE("promoting never overwrites what is already there", "[technotes]")
+{
+    // A note that already has a number and a GUID is left exactly alone: it
+    // was numbered deliberately, and renumbering it would break a citation.
+    const std::string done = "---\nGUID: mine\nTNIndex: 2020.07\n"
+                             "keywords: TechNote\n---\n\n# x\n";
+    CHECK(mdboss::promote_to_tech_note(done, "new", "2026.09", "x") == done);
+
+    // Half-furnished: only the missing half is added.
+    const std::string half = "---\nGUID: mine\nkeywords: Draft\n---\n\n# x\n";
+    const std::string out =
+        mdboss::promote_to_tech_note(half, "new", "2026.09", "x");
+    CHECK(out.find("GUID: mine") != std::string::npos);
+    CHECK(out.find("GUID: new") == std::string::npos);
+    CHECK(out.find("keywords: Draft, TechNote") != std::string::npos);
+}
+
+TEST_CASE("promoting keeps the file's line endings", "[technotes]")
+{
+    // A CRLF document must not come back with one LF line in its front
+    // matter; nothing renders differently, which is what makes it survivable
+    // and therefore worth pinning.
+    const std::string doc =
+        "---\r\ntitle: X\r\nkeywords: Draft\r\n---\r\n\r\n# X\r\n";
+    const std::string out =
+        mdboss::promote_to_tech_note(doc, "g", "2026.01", "x");
+    CHECK(out.find("\r\nGUID: g\r\n") != std::string::npos);
+    CHECK(out.find("keywords: Draft, TechNote\r\n") != std::string::npos);
+    CHECK(out.find("\nGUID: g\n") == std::string::npos);
+}
+
+TEST_CASE("the year comes from the document when it has one", "[technotes]")
+{
+    // A note written years ago should be numbered in the year it was written.
+    CHECK(mdboss::tech_note_year("---\ndate: 2023-04-11\n---\n", 2026) == 2023);
+    CHECK(mdboss::tech_note_year("---\ncreated: 2021\n---\n", 2026) == 2021);
+    // created wins over updated: the document belongs to the year it started.
+    CHECK(mdboss::tech_note_year("---\nupdated: 2025\ncreated: 2019\n---\n",
+                                 2026) == 2019);
+
+    // Fallbacks.  A value not led by a year, a year in the future, and one
+    // before anything plausible all fall back rather than inventing a year
+    // nobody has notes in.
+    CHECK(mdboss::tech_note_year("---\ndate: 17 Aug 2026\n---\n", 2026) == 2026);
+    CHECK(mdboss::tech_note_year("---\ndate: 2099-01-01\n---\n", 2026) == 2026);
+    CHECK(mdboss::tech_note_year("---\ndate: 1234\n---\n", 2026) == 2026);
+    CHECK(mdboss::tech_note_year("# no front matter\n", 2026) == 2026);
+}
+
+TEST_CASE("the gaps say what a document is missing", "[technotes]")
+{
+    mdboss::TechNoteGaps gaps = mdboss::tech_note_gaps("# plain\n");
+    CHECK(gaps.front_matter);
+    CHECK(gaps.guid);
+    CHECK(gaps.keyword);
+    CHECK(gaps.tn_index);
+
+    gaps = mdboss::tech_note_gaps("---\nGUID: g\nTNIndex: 2026.01\n"
+                                  "keywords: TechNote\n---\n");
+    CHECK_FALSE(gaps.front_matter);
+    CHECK_FALSE(gaps.guid);
+    CHECK_FALSE(gaps.keyword);
+    CHECK_FALSE(gaps.tn_index);
+}
+
 TEST_CASE("the index lists notes and says when it was made", "[technotes]")
 {
     std::vector<mdboss::TechNote> notes;

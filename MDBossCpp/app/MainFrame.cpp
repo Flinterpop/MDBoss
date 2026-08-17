@@ -80,6 +80,7 @@ constexpr int kIdOpenInternal = wxID_HIGHEST + 18;
 constexpr int kIdExportPdf = wxID_HIGHEST + 19;
 constexpr int kIdTogglePreview = wxID_HIGHEST + 22;
 constexpr int kIdTechNotes = wxID_HIGHEST + 23;
+constexpr int kIdPromoteDocument = wxID_HIGHEST + 24;
 // Preview themes.  Radio items, so the menu shows which one is active rather
 // than two tick boxes that can both look off.
 constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
@@ -166,6 +167,25 @@ std::string read_text_file(const std::string& path, bool& ok)
     buffer << stream.rdbuf();
     ok = true;
     return strip_utf8_bom(buffer.str());
+}
+
+// The first `limit` bytes only.  Enough to answer a question about front
+// matter, which is always at the top, without reading a 4 MB document to grey
+// out one menu item.
+std::string read_text_file_head(const std::string& path, std::size_t limit,
+                                bool& ok)
+{
+    assert(limit > 0 && "a head of nothing answers nothing");
+    std::ifstream stream(path_from_utf8(path), std::ios::binary);
+    if (!stream) {
+        ok = false;
+        return {};
+    }
+    std::string head(limit, '\0');
+    stream.read(head.data(), static_cast<std::streamsize>(limit));
+    head.resize(static_cast<std::size_t>(stream.gcount()));
+    ok = true;
+    return strip_utf8_bom(head);
 }
 
 // A file:/// URL for the document's own folder, with the trailing slash
@@ -282,10 +302,14 @@ void MainFrame::build_menu()
     lists->Append(kIdAddTodo, L"Add a &to-do…\tCtrl+T");
     lists->Append(kIdAddDiary, L"Add a Grail &Diary entry…");
     lists->AppendSeparator();
-    // "tech-note" cannot take T: "Add a &to-do" already has it in this menu,
-    // and a duplicate mnemonic cycles between the two instead of invoking
-    // either.
-    lists->Append(kIdTechNotes, L"Rebuild the tech-&note index…");
+    // Named for the thing, not the verb: "Rebuild the tech-note index"
+    // describes what the command does to a file, which is no help to someone
+    // looking for their tech notes.  "T" is taken by "Add a &to-do" in this
+    // menu, and a duplicate mnemonic cycles instead of invoking.
+    auto* tech = new wxMenu();
+    tech->Append(kIdTechNotes, L"&Show the list");
+    tech->Append(kIdPromoteDocument, L"&Update this document as a tech note");
+    lists->AppendSubMenu(tech, L"Tech &Notes");
     lists->AppendSeparator();
     // Without this the three files are only reachable by hunting for the
     // folder in the tree, which is a poor way to read a list you just added to.
@@ -456,6 +480,21 @@ void MainFrame::build_panes()
                                      const std::string& to) {
         on_path_moved(from, to);
     });
+    files_->set_on_promote_tech_note(
+        [this](const std::string& path) { promote_tech_note(path); },
+        [](const std::string& path) {
+            // Only the head is read, and only to grey the menu item out.  The
+            // command itself re-reads and re-checks: the file may have changed
+            // between the menu opening and the item being clicked.
+            bool ok = false;
+            const std::string head = read_text_file_head(path, 4096, ok);
+            if (!ok) {
+                return false;
+            }
+            const TechNoteGaps gaps = tech_note_gaps(head);
+            return !gaps.front_matter && !gaps.guid && !gaps.keyword &&
+                   !gaps.tn_index;
+        });
     files_->set_manage_hooks(
         [this] {
             wxCommandEvent unused;
@@ -637,6 +676,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
          kIdOpenInternal);
     Bind(wxEVT_MENU, &MainFrame::on_tech_notes, this, kIdTechNotes);
+    Bind(wxEVT_MENU, &MainFrame::on_promote_document, this, kIdPromoteDocument);
     Bind(wxEVT_MENU, &MainFrame::on_export_pdf, this, kIdExportPdf);
     Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeGitHub);
     Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeNotes);
@@ -1416,6 +1456,108 @@ void MainFrame::on_tech_notes(wxCommandEvent&)
     // user to find the file in the tree would be answering a different one.
     open_path(path_to_utf8(path_from_utf8(folder) /
                            path_from_utf8(kTechNotesFile)));
+}
+
+void MainFrame::promote_tech_note(const std::string& path)
+{
+    assert(!path.empty() && "nothing to promote");
+
+    // The file is about to be rewritten underneath the editor.  Unsaved edits
+    // would be silently outranked -- the watcher keeps them, so the buffer and
+    // the file would then disagree and the next Ctrl+S would put the front
+    // matter straight back.  Refused, not merged: the user can save in one
+    // keystroke and try again.
+    if (norm_path(path) == norm_path(current_path_) && dirty_) {
+        wxMessageBox(L"Save this document first — updating it as a tech note "
+                     L"rewrites the file, and there are unsaved edits.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    bool ok = false;
+    const std::string text = read_text_file(path, ok);
+    if (!ok) {
+        wxMessageBox("Could not read that document.", "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    const TechNoteGaps gaps = tech_note_gaps(text);
+    if (!gaps.front_matter && !gaps.guid && !gaps.keyword && !gaps.tn_index) {
+        wxMessageBox("That document is already a tech note.", "MD Boss",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    std::tm when{};
+    const std::time_t now = std::time(nullptr);
+    if (localtime_s(&when, &now) != 0) {
+        wxMessageBox("Could not read the clock to number the note.", "MD Boss",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+    // A document that says when it was written is numbered in THAT year: a
+    // note from 2023 indexed today belongs to 2023's sequence, not to this
+    // year's.  Only the number is derived from it; nothing else is guessed.
+    const int year = tech_note_year(text, when.tm_year + 1900);
+
+    std::string number;
+    if (gaps.tn_index) {
+        std::vector<TechNote> existing =
+            scan_tech_notes(files_->document_paths());
+        for (const std::string& issued : issued_tn_indices_) {
+            TechNote reserved;
+            reserved.tn_index = issued;
+            existing.push_back(reserved);
+        }
+        number = format_tn_index(year, next_tn_sequence(existing, year));
+    }
+
+    const std::string title = path_to_utf8(path_from_utf8(path).stem());
+    const std::string updated =
+        promote_to_tech_note(text, new_guid(), number, title);
+    if (updated == text) {
+        return;   // nothing to do; the gaps check above should have caught it
+    }
+
+    const std::string failed = write_text_file_checked(path, updated);
+    if (!failed.empty()) {
+        wxMessageBox(wxString::FromUTF8(failed) + "\n\n" +
+                         wxString::FromUTF8(path),
+                     "MD Boss", wxOK | wxICON_ERROR, this);
+        return;
+    }
+    if (!number.empty() && issued_tn_indices_.size() < 1000) {
+        issued_tn_indices_.push_back(number);
+    }
+
+    // The open document has just changed on disk.  The watcher would reload it
+    // anyway, but only on its next tick -- doing it here means the editor and
+    // the preview show the new front matter immediately, which is the whole
+    // feedback the user gets that anything happened.
+    if (norm_path(path) == norm_path(current_path_)) {
+        editor_->SetText(wxString::FromUTF8(updated));
+        editor_->EmptyUndoBuffer();
+        dirty_ = false;
+        watcher_.watch(current_path_);
+        update_title();
+        render_preview();
+    }
+
+    SetStatusText(number.empty()
+                      ? wxString(L"Updated as a tech note")
+                      : wxString::Format("Updated as tech note %s",
+                                         wxString::FromUTF8(number)));
+}
+
+void MainFrame::on_promote_document(wxCommandEvent&)
+{
+    if (current_path_.empty()) {
+        wxMessageBox("Save this document first, then update it as a tech note.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    promote_tech_note(current_path_);
 }
 
 void MainFrame::on_open_internal_folder(wxCommandEvent&)

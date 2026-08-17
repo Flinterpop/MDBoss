@@ -71,6 +71,12 @@ private:
     void on_open_internal_folder(wxCommandEvent& event);
     // Rebuild MD_Internal\TechNotes.md from the documents on disk and open it.
     void on_tech_notes(wxCommandEvent& event);
+    // Add the front matter that makes a document a tech note: a GUID, a number
+    // for its year, and the TechNote keyword.  Only ever adds -- see
+    // promote_to_tech_note().  Raised from the Lists menu for the open
+    // document, and from the tree's context menu for any document.
+    void on_promote_document(wxCommandEvent& event);
+    void promote_tech_note(const std::string& path);
     // Export the rendered preview to PDF via WebView2's own print pipeline.
     void on_export_pdf(wxCommandEvent& event);
     // Switch the preview stylesheet (View menu). Persists and re-renders.

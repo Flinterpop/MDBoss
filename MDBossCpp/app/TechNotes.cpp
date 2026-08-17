@@ -323,6 +323,153 @@ std::string fill_tn_index(const std::string& text,
     return out;
 }
 
+TechNoteGaps tech_note_gaps(const std::string& text)
+{
+    TechNoteGaps gaps;
+    const std::string_view block = front_matter(text);
+    if (block.empty()) {
+        // No block at all: everything has to be written, including a number.
+        gaps.front_matter = true;
+        gaps.guid = true;
+        gaps.keyword = true;
+        gaps.tn_index = true;
+        return gaps;
+    }
+    gaps.guid = value_of(block, "GUID").empty();
+    gaps.keyword = !has_technote_keyword(value_of(block, "keywords"));
+    gaps.tn_index = value_of(block, "TNIndex").empty();
+    return gaps;
+}
+
+int tech_note_year(const std::string& text, int fallback_year)
+{
+    assert(fallback_year > 0 && "a fallback year is required");
+    const std::string_view block = front_matter(text);
+    if (block.empty()) {
+        return fallback_year;
+    }
+    // First match wins, in this order: a document carrying both `created` and
+    // `updated` belongs to the year it was created.
+    for (const char* const key : {"date", "created", "updated"}) {
+        const std::string value = value_of(block, key);
+        if (value.size() < 4) {
+            continue;
+        }
+        bool digits = true;
+        for (int i = 0; i < 4; ++i) {   // bounded
+            if (std::isdigit(static_cast<unsigned char>(value[i])) == 0) {
+                digits = false;
+                break;
+            }
+        }
+        if (!digits) {
+            continue;   // "17 Aug 2026" and the like: not led by a year
+        }
+        const int year = std::stoi(value.substr(0, 4));
+        // A plausible year only.  A number that happens to lead the value but
+        // is not a date -- a version, an identifier -- must not silently
+        // create a whole year of tech notes nobody has.
+        if (year >= 1970 && year <= fallback_year) {
+            return year;
+        }
+    }
+    return fallback_year;
+}
+
+std::string promote_to_tech_note(const std::string& text,
+                                 const std::string& guid,
+                                 const std::string& tn_index,
+                                 const std::string& title)
+{
+    const TechNoteGaps gaps = tech_note_gaps(text);
+    if (!gaps.front_matter && !gaps.guid && !gaps.keyword && !gaps.tn_index) {
+        return text;   // already a tech note, fully furnished
+    }
+
+    // No block at all: write one, and leave the document itself untouched
+    // below it.  The title is the filename rather than the first heading --
+    // guessing at a heading means guessing at which heading.
+    if (gaps.front_matter) {
+        const std::string eol =
+            text.find("\r\n") != std::string::npos ? "\r\n" : "\n";
+        std::string out = "---" + eol + "title: " + title + eol +
+                          "GUID: " + guid + eol;
+        if (!tn_index.empty()) {
+            out += "TNIndex: " + tn_index + eol;
+        }
+        out += "keywords: TechNote" + eol + "---" + eol + eol;
+        return out + text;
+    }
+
+    // A block exists.  Rebuild it line by line rather than splicing at
+    // offsets: extending the keywords line moves every offset after it, and
+    // two edits computed against the original string would land wrong.
+    const std::string_view block = front_matter(text);
+    assert(!block.empty() && "gaps said the block was there");
+    const std::size_t begin =
+        static_cast<std::size_t>(block.data() - text.data());
+    const std::size_t end = begin + block.size();
+    // Follow the file, not our own habits: a CRLF document must not come back
+    // with one LF line in the middle of its front matter.
+    const bool crlf = text.find("\r\n") != std::string::npos &&
+                      text.find("\r\n") < end;
+    const std::string eol = crlf ? "\r\n" : "\n";
+
+    std::string rebuilt;
+    bool keyword_done = !gaps.keyword;
+    std::size_t pos = 0;
+    for (int line = 0; line < 200 && pos < block.size(); ++line) {   // bounded
+        std::size_t stop = block.find('\n', pos);
+        if (stop == std::string_view::npos) {
+            stop = block.size();
+        } else {
+            ++stop;   // keep the newline with its line
+        }
+        const std::string_view raw = block.substr(pos, stop - pos);
+        pos = stop;
+
+        // Extend an existing keywords list rather than writing a second
+        // `keywords:` line -- YAML reads that as one key given twice, and
+        // which value wins is parser-dependent.
+        const std::size_t colon = raw.find(':');
+        if (!keyword_done && !raw.empty() && raw.front() != ' ' &&
+            raw.front() != '\t' && colon != std::string_view::npos &&
+            to_lower(std::string(raw.substr(0, colon))) == "keywords") {
+            // The newline has to come off before trimming: trimmed() strips
+            // spaces, tabs and a \r, but not a \n -- every other caller hands
+            // it a line that was already split.
+            std::string_view tail = raw.substr(colon + 1);
+            while (!tail.empty() && tail.back() == '\n') {
+                tail.remove_suffix(1);
+            }
+            const std::string value = trimmed(tail);
+            rebuilt += "keywords: ";
+            rebuilt += value.empty() ? "TechNote" : value + ", TechNote";
+            rebuilt += eol;
+            keyword_done = true;
+            continue;
+        }
+        rebuilt.append(raw);
+    }
+
+    // Anything still missing goes at the END of the block: the first line of a
+    // Typora-style block is the document's own title line, and pushing it down
+    // would change what every other reader shows as the title.
+    if (gaps.guid) {
+        rebuilt += "GUID: " + guid + eol;
+    }
+    if (gaps.tn_index && !tn_index.empty()) {
+        rebuilt += "TNIndex: " + tn_index + eol;
+    }
+    if (!keyword_done) {
+        rebuilt += "keywords: TechNote" + eol;
+    }
+
+    std::string out = text;
+    out.replace(begin, end - begin, rebuilt);
+    return out;
+}
+
 std::vector<TechNote> scan_tech_notes(const std::vector<std::string>& paths)
 {
     std::vector<TechNote> found;

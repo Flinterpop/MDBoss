@@ -39,6 +39,12 @@ std::string apply_template(const std::string& text, const std::string& title,
 // apply_template() with the current local time.
 std::string apply_template(const std::string& text, const std::string& title);
 
+// A fresh v4 UUID, the form {{guid}} is replaced with.
+//
+// Exposed because "update this document as a tech note" needs the same
+// identifier the template gets, and two ways of minting one is one too many.
+std::string new_guid();
+
 // The TechNote starter's raw text, placeholders unsubstituted.
 //
 // Exposed for the test that pins the house front matter down.  It is a string

@@ -107,7 +107,7 @@ The **Lists** menu keeps three standing lists for you. Each command opens a smal
 
 ### The tech-note index
 
-**Lists ▸ Rebuild the tech-note index…** finds every tech note under your folders and writes `MD_Internal\TechNotes.md` — a table of TN index, title, version, subject, GUID and file — then opens it, in number order with any unnumbered notes at the end.
+**Lists ▸ Tech Notes ▸ Show the list** finds every tech note under your folders and writes `MD_Internal\TechNotes.md` — a table of TN index, title, version, subject, GUID and file — then opens it, in number order with any unnumbered notes at the end. It is rebuilt each time you ask for it, so showing the list and refreshing it are the same command.
 
 **A document counts as a tech note only if its front matter has both a `GUID:` and `TechNote` among its `keywords:`.** Both are required: the keyword says what the document is, the GUID says which one. A stray GUID in some other document will not put it on the list, and deleting the keyword takes a note off it. The TechNote template writes both for you, and fills the GUID in per note.
 
@@ -121,6 +121,16 @@ Two things follow from deriving it rather than keeping a counter:
 - **A number claimed by two notes is reported, not silently fixed.** The rebuild is the only thing that ever sees every note at once, so it is the only thing that can notice — it prints a **Duplicate numbers** line under the table. Which of the two should move is your call.
 
 Your own template needs only the key: a line reading `TNIndex:` with nothing after it is filled in on use. A number already written in is left as it is.
+
+### Turning a document you already have into a tech note
+
+**Right-click a document in the tree ▸ Update as TechNote**, or **Lists ▸ Tech Notes ▸ Update this document as a tech note** for the one you have open. Either way MD Boss adds what is missing — a `GUID`, a `TNIndex`, and `TechNote` in the `keywords` — and the document appears in the list from then on. The menu item is greyed out on a document that is already a tech note.
+
+**It only ever adds.** A GUID, number or keyword you have already written is kept exactly as it is; existing keywords are extended (`Draft, Radar` becomes `Draft, Radar, TechNote`) rather than replaced, and the rest of your front matter keeps its order. A document with no front matter at all gets a block written above it, with the filename as the title; the document itself is untouched.
+
+**The number follows the document's own year where it has one.** If the front matter carries a `date:`, `created:` or `updated:` value starting with a year, the note is numbered in *that* year — a note from 2023 becomes `2023.01`, not this year's next number. Otherwise the current year is used.
+
+Save the document first if you have unsaved edits: the command rewrites the file, and MD Boss will ask you to save rather than risk the two disagreeing.
 
 **The index is rebuilt, not accumulated.** It is derived from the documents each time you run the command, so notes you created before this feature existed, or made in another editor, or renamed, moved or deleted, all come out right. That also means it is the one file in `MD_Internal` you should **not** edit — your changes are lost on the next rebuild. It carries the date it was made, so a stale one says so.
 

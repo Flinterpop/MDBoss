@@ -76,6 +76,7 @@ constexpr int kIdManageTemplates = wxID_HIGHEST + 69;
 constexpr int kIdManageFolders = wxID_HIGHEST + 70;
 constexpr int kIdFlatList = wxID_HIGHEST + 71;
 constexpr int kIdExclude = wxID_HIGHEST + 72;
+constexpr int kIdPromoteTechNote = wxID_HIGHEST + 73;
 // Templates take ids from here up.  Bounded (Rule of 10) so a folder full of
 // templates cannot run the range into the next constant.
 constexpr int kIdTemplateBase = wxID_HIGHEST + 80;
@@ -858,6 +859,14 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     wxMenu menu;
     if (is_file) {
         menu.Append(kIdOpen, "&Open");
+        // Offered on any document, and disabled on one that is already a tech
+        // note -- greyed rather than hidden, so it is discoverable on the
+        // documents where it does nothing as well as the ones where it does.
+        if (on_promote_) {
+            wxMenuItem* promote =
+                menu.Append(kIdPromoteTechNote, L"Update as &TechNote");
+            promote->Enable(!is_tech_note_ || !is_tech_note_(path));
+        }
         menu.AppendSeparator();
     }
     // "New file" is a submenu rather than one item so a document can be
@@ -925,6 +934,13 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             on_open_(path);
         }
     }, kIdOpen);
+    // Reported, not done here: the frame owns the open document, so it is the
+    // only thing that can tell whether this file is being edited right now.
+    menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
+        if (on_promote_) {
+            on_promote_(path);
+        }
+    }, kIdPromoteTechNote);
     menu.Bind(wxEVT_MENU, [this, dir](wxCommandEvent&) {
         new_document(dir, std::string());
     }, kIdNewFile);
