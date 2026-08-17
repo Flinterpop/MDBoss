@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <fstream>
 
+#include <shellapi.h>   // ShellExecuteW, to hand a clicked link to the browser
 #include <wrl/event.h>
 
 namespace mdboss {
@@ -146,6 +147,7 @@ HRESULT PreviewPane::on_controller_ready(HRESULT result,
     }
 
     install_network_lock();
+    install_link_handler();
     install_scroll_bridge();
     if (std::getenv("MDBOSS_LAYOUT_LOG") != nullptr) {
         install_viewport_probe();
@@ -300,6 +302,92 @@ void PreviewPane::install_network_lock()
         // Loud on purpose: this is an export-control control, not a nicety.
         wxLogError("Preview: the network lock could not be installed. "
                    "Remote content in documents would not be blocked.");
+    }
+}
+
+void PreviewPane::open_externally(const std::wstring& uri)
+{
+    // Allow-list, not a block-list.  ShellExecute is happy to LAUNCH things:
+    // handed a file: URL to an .exe it runs it, and a document is untrusted
+    // input.  Only the three schemes a link in prose legitimately uses get
+    // through; anything else is dropped silently, the link simply not working
+    // being a far better outcome than the alternative.
+    const bool allowed = uri.rfind(L"https://", 0) == 0 ||
+                         uri.rfind(L"http://", 0) == 0 ||
+                         uri.rfind(L"mailto:", 0) == 0;
+    if (!allowed) {
+        return;
+    }
+    // SW_SHOWNORMAL, and the result deliberately ignored: a machine with no
+    // browser registered is not something this app can fix, and an error box
+    // over a failed click would be worse than nothing happening.
+    ::ShellExecuteW(nullptr, L"open", uri.c_str(), nullptr, nullptr,
+                    SW_SHOWNORMAL);
+}
+
+void PreviewPane::install_link_handler()
+{
+    assert(webview_ && "link handler needs a live WebView2");
+
+    // Two events, because a link can leave the page two different ways and
+    // catching only the first is a common half-fix: an ordinary <a href> is a
+    // navigation, while target="_blank" (which GitHub-flavoured Markdown
+    // produces for bare autolinks in some renderers) asks for a new window
+    // and never raises NavigationStarting at all.
+    EventRegistrationToken nav_token{};
+    const HRESULT nav = webview_->add_NavigationStarting(
+        Callback<ICoreWebView2NavigationStartingEventHandler>(
+            [this](ICoreWebView2*,
+                   ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                if (args == nullptr) {
+                    return S_OK;
+                }
+                LPWSTR raw = nullptr;
+                if (FAILED(args->get_Uri(&raw)) || raw == nullptr) {
+                    return S_OK;
+                }
+                const std::wstring uri(raw);
+                CoTaskMemFree(raw);
+                if (is_local_scheme(uri)) {
+                    return S_OK;   // the document itself, loaded from disk
+                }
+                // Cancel first, then hand over: leaving the navigation to run
+                // would have the lock answer it with an empty 403 and blank
+                // the preview, which is what clicking a link used to do.
+                args->put_Cancel(TRUE);
+                open_externally(uri);
+                return S_OK;
+            })
+            .Get(),
+        &nav_token);
+
+    EventRegistrationToken win_token{};
+    const HRESULT win = webview_->add_NewWindowRequested(
+        Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+            [this](ICoreWebView2*,
+                   ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                if (args == nullptr) {
+                    return S_OK;
+                }
+                LPWSTR raw = nullptr;
+                if (FAILED(args->get_Uri(&raw)) || raw == nullptr) {
+                    return S_OK;
+                }
+                const std::wstring uri(raw);
+                CoTaskMemFree(raw);
+                // Handled either way: an unhandled request opens a second
+                // WebView2 window with no lock installed on it, which would
+                // be a hole straight through the whole arrangement.
+                args->put_Handled(TRUE);
+                open_externally(uri);
+                return S_OK;
+            })
+            .Get(),
+        &win_token);
+
+    if (FAILED(nav) || FAILED(win)) {
+        wxLogError("Preview: link handling could not be installed. "
+                   "Clicking a link in a document will do nothing.");
     }
 }
 

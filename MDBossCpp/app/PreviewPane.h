@@ -80,6 +80,19 @@ private:
     HRESULT on_controller_ready(HRESULT result,
                                 ICoreWebView2Controller* controller);
     void install_network_lock();
+    // Clicking a link to somewhere outside the machine hands the URL to the
+    // default browser instead of loading it here.
+    //
+    // This does NOT weaken the network lock, and is worth being precise about:
+    // the lock stops the PAGE fetching remote content -- a tracking pixel, a
+    // remote script -- which happens with no one's consent.  Following a link
+    // is a deliberate click, and it is answered by leaving the app entirely.
+    // The preview still never loads a remote byte.
+    void install_link_handler();
+    // Send `uri` to the shell.  Only http/https/mailto: anything else clicked
+    // in a document is refused rather than handed to ShellExecute, which
+    // would happily run a local executable given a file: URL.
+    void open_externally(const std::wstring& uri);
     void install_scroll_bridge();
     void install_viewport_probe();
     void report_viewport(const std::wstring& json);

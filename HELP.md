@@ -68,6 +68,14 @@ A move keeps everything pointing at the file: it stays in **Favorites** and **Re
 
 There is **no undo**. If you move something by accident, drag it back.
 
+## Links in the preview
+
+**Click a link and it opens in your browser.** `http`, `https` and `mailto:` links all work; the preview itself stays where it is, showing the document you were reading.
+
+The link is handed to Windows to open, which is why it leaves MD Boss entirely. The preview never loads anything from the network itself — a remote image or script in a document is still blocked, exactly as before. Following a link is a click you made; fetching a tracking pixel is not, and that distinction is the whole point.
+
+A link to anything other than those three kinds is ignored rather than opened.
+
 ## Preview style
 
 **View ▸ Preview style** offers two looks, and the choice is remembered:

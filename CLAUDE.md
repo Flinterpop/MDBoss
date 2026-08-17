@@ -152,6 +152,18 @@ Two implementation notes:
 
 Files only. A folder drag would relocate a whole subtree on one mis-drop and needs an ancestor check (dropping a folder into its own descendant) that a file move does not.
 
+## A clicked link leaves the app; the page still fetches nothing
+
+`PreviewPane::install_link_handler()` cancels any navigation to a non-local scheme and hands the URL to `ShellExecuteW`. **This does not weaken the network lock, and the distinction is worth stating precisely:** the lock stops the *page* fetching remote content — a tracking pixel, a remote script — which happens with nobody's consent. Following a link is a deliberate click, and it is answered by leaving the app. The preview still never loads a remote byte.
+
+Three things that are not optional:
+
+- **Both `NavigationStarting` and `NewWindowRequested`.** An ordinary `<a href>` is a navigation; `target="_blank"` never raises `NavigationStarting` at all and instead asks for a new window. Handling only the first is the common half-fix, and an unhandled new-window request opens a second WebView2 **with no lock installed on it**.
+- **Cancel before handing over.** Letting the navigation run means the lock answers it with an empty 403 and blanks the preview — which is what clicking a link used to do.
+- **An allow-list of `http`, `https`, `mailto`, not a block-list.** `ShellExecute` *launches* things: given a `file:` URL to an `.exe` it runs it, and a document is untrusted input.
+
+Verified with a loopback HTTP listener rather than by inference, because "did the browser get it?" cannot be read off a window title. Clicking a link produced `GET /clicked-from-mdboss` from the browser; a document with a remote `<img>` and `<script>` aimed at the same live listener produced **no request at all**. Re-run both halves if this code is touched — the second is the export-control one.
+
 ## The preview's reading column, and why tables escape it
 
 The width cap is MD Boss's own, in `assets/template-webview2.html`'s inline `<style>` — **not** the vendored GitHub sheet, which only sets `max-width: 100%` on images and tables. `.markdown-body` is `max-width: 980px; margin: 0 auto; padding: 28px 40px`, so the text column is at most 900px and a wider pane only adds gutters. The Notes theme narrows it to 820px.
