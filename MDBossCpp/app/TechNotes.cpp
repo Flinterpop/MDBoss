@@ -114,6 +114,25 @@ bool has_technote_keyword(const std::string& keywords)
     return false;
 }
 
+// Every number that more than one note claims, each named once, in order.
+std::vector<std::string> duplicate_indices(const std::vector<TechNote>& notes)
+{
+    std::vector<std::string> seen;
+    std::vector<std::string> twice;
+    for (const TechNote& note : notes) {   // bounded by kMaxNotesListed
+        if (note.tn_index.empty()) {
+            continue;   // unnumbered notes do not collide with each other
+        }
+        if (std::find(seen.begin(), seen.end(), note.tn_index) == seen.end()) {
+            seen.push_back(note.tn_index);
+        } else if (std::find(twice.begin(), twice.end(), note.tn_index) ==
+                   twice.end()) {
+            twice.push_back(note.tn_index);
+        }
+    }
+    return twice;
+}
+
 std::string escape_cell(const std::string& text)
 {
     // Same hazard as the logins table: an unescaped pipe ends the cell early
@@ -141,7 +160,167 @@ bool parse_tech_note(std::string_view text, TechNote* out)
     out->guid = guid;
     out->version = value_of(block, "version");
     out->subject = value_of(block, "subject");
+    out->tn_index = value_of(block, "TNIndex");
     return true;
+}
+
+std::string format_tn_index(int year, int sequence)
+{
+    assert(year > 0 && "a tech-note number needs a real year");
+    assert(sequence >= 1 && sequence <= kMaxTnSequence &&
+           "sequence outside the allocatable range");
+    std::ostringstream out;
+    // Two digits is a floor, not a field width: 2026.100 must not become
+    // 2026.00, which would collide with a number already handed out.
+    out << year << '.' << (sequence < 10 ? "0" : "") << sequence;
+    return out.str();
+}
+
+bool parse_tn_index(const std::string& text, int* year, int* sequence)
+{
+    assert(year != nullptr && sequence != nullptr && "parse needs outputs");
+    const std::string value = trimmed(text);
+    const std::size_t dot = value.find('.');
+    if (dot != 4 || value.size() <= dot + 1 || value.size() > dot + 5) {
+        return false;
+    }
+    for (std::size_t i = 0; i < value.size(); ++i) {   // bounded by the above
+        if (i == dot) {
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(value[i])) == 0) {
+            return false;
+        }
+    }
+    const int parsed_year = std::stoi(value.substr(0, dot));
+    const int parsed_sequence = std::stoi(value.substr(dot + 1));
+    if (parsed_year <= 0 || parsed_sequence < 1 ||
+        parsed_sequence > kMaxTnSequence) {
+        return false;
+    }
+    *year = parsed_year;
+    *sequence = parsed_sequence;
+    return true;
+}
+
+int next_tn_sequence(const std::vector<TechNote>& existing, int year)
+{
+    assert(year > 0 && "a tech-note number needs a real year");
+    int highest = 0;
+    // One past the HIGHEST, not one past the count: a note deleted from the
+    // middle of a year must not cause the next one to reuse its number, since
+    // the deleted note may well still exist in someone else's copy or in a
+    // document that cites it.
+    for (const TechNote& note : existing) {   // bounded by kMaxNotesListed
+        int found_year = 0;
+        int found_sequence = 0;
+        if (!parse_tn_index(note.tn_index, &found_year, &found_sequence)) {
+            continue;
+        }
+        if (found_year == year && found_sequence > highest) {
+            highest = found_sequence;
+        }
+    }
+    if (highest >= kMaxTnSequence) {
+        return kMaxTnSequence;   // clamped rather than wrapped; see the header
+    }
+    return highest + 1;
+}
+
+namespace {
+
+// The span of an empty top-level `TNIndex:` value in the front matter, as
+// [begin, end) offsets into `text`.  False when there is no such line.
+//
+// A template does not have to use the placeholder: a hand-maintained one that
+// simply carries `TNIndex:` with nothing after it is asking the same question,
+// and filling it is what makes this work on templates that predate the token.
+// A line that already has a value is left alone -- that number was chosen.
+bool empty_tn_index_span(const std::string& text, std::size_t* begin,
+                         std::size_t* end)
+{
+    assert(begin != nullptr && end != nullptr && "span needs outputs");
+    if (text.compare(0, 4, "---\n") != 0 && text.compare(0, 5, "---\r\n") != 0) {
+        return false;
+    }
+    std::size_t pos = text.find('\n');
+    if (pos == std::string::npos) {
+        return false;
+    }
+    ++pos;
+    for (int line = 0; line < 200 && pos < text.size(); ++line) {   // bounded
+        std::size_t stop = text.find('\n', pos);
+        if (stop == std::string::npos) {
+            stop = text.size();
+        }
+        const std::string_view raw(text.data() + pos, stop - pos);
+        const std::string content = trimmed(raw);
+        if (content == "---" || content == "...") {
+            return false;   // closed without one
+        }
+        if (!raw.empty() && raw.front() != ' ' && raw.front() != '\t') {
+            const std::size_t colon = raw.find(':');
+            if (colon != std::string_view::npos &&
+                to_lower(std::string(raw.substr(0, colon))) == "tnindex" &&
+                trimmed(raw.substr(colon + 1)).empty()) {
+                *begin = pos + colon + 1;
+                *end = stop;
+                // Not the \r of a CRLF file: rewriting over it would join the
+                // line to the next one in every editor that respects CRLF.
+                while (*end > *begin && text[*end - 1] == '\r') {
+                    --*end;
+                }
+                return true;
+            }
+        }
+        pos = stop + 1;
+    }
+    return false;
+}
+
+}  // namespace
+
+bool needs_tn_index(const std::string& text)
+{
+    if (text.find(kTnIndexPlaceholder) != std::string::npos) {
+        return true;
+    }
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    return empty_tn_index_span(text, &begin, &end);
+}
+
+std::string fill_tn_index(const std::string& text,
+                          const std::vector<TechNote>& existing, int year,
+                          std::string* assigned)
+{
+    if (!needs_tn_index(text)) {
+        return text;
+    }
+    const std::string number =
+        format_tn_index(year, next_tn_sequence(existing, year));
+    if (assigned != nullptr) {
+        *assigned = number;
+    }
+
+    std::string out = text;
+    const std::string placeholder = kTnIndexPlaceholder;
+    std::size_t pos = out.find(placeholder);
+    // Every occurrence gets the SAME number -- one document, one number, even
+    // if a template names it in the front matter and again in the banner line.
+    for (int guard = 0; guard < 100 && pos != std::string::npos; ++guard) {
+        out.replace(pos, placeholder.size(), number);
+        pos = out.find(placeholder, pos + number.size());
+    }
+
+    // The placeholder wins where a template has both; this fills the bare
+    // `TNIndex:` form, which is all a hand-written template needs to carry.
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    if (empty_tn_index_span(out, &begin, &end)) {
+        out.replace(begin, end - begin, " " + number);
+    }
+    return out;
 }
 
 std::vector<TechNote> scan_tech_notes(const std::vector<std::string>& paths)
@@ -180,6 +359,23 @@ std::vector<TechNote> scan_tech_notes(const std::vector<std::string>& paths)
 
     std::sort(found.begin(), found.end(),
               [](const TechNote& a, const TechNote& b) {
+                  // By number first: it leads the row, and a numbered series
+                  // read in any other order looks like it has gaps.  Notes
+                  // with no number sort after every numbered one rather than
+                  // before -- they are the ones that predate the numbering.
+                  int a_year = 0;
+                  int a_seq = 0;
+                  int b_year = 0;
+                  int b_seq = 0;
+                  const bool a_num = parse_tn_index(a.tn_index, &a_year, &a_seq);
+                  const bool b_num = parse_tn_index(b.tn_index, &b_year, &b_seq);
+                  if (a_num != b_num) {
+                      return a_num;
+                  }
+                  if (a_num && (a_year != b_year || a_seq != b_seq)) {
+                      return a_year != b_year ? a_year < b_year : a_seq < b_seq;
+                  }
+
                   const std::string left = to_lower(a.title);
                   const std::string right = to_lower(b.title);
                   if (left != right) {
@@ -216,8 +412,8 @@ std::string tech_notes_index(const std::vector<TechNote>& notes,
         return out.str();
     }
 
-    out << "| Title | Version | Subject | GUID | File |\n"
-        << "|---|---|---|---|---|\n";
+    out << "| TN Index | Title | Version | Subject | GUID | File |\n"
+        << "|---|---|---|---|---|---|\n";
     for (const TechNote& note : notes) {   // bounded by kMaxNotesListed
         // Shown relative to whichever root holds it: an absolute path is
         // mostly drive letters and repeated prefix, and the point of the
@@ -235,7 +431,8 @@ std::string tech_notes_index(const std::vector<TechNote>& notes,
                 break;
             }
         }
-        out << "| " << escape_cell(note.title)
+        out << "| " << escape_cell(note.tn_index)
+            << " | " << escape_cell(note.title)
             << " | " << escape_cell(note.version)
             << " | " << escape_cell(note.subject)
             << " | " << escape_cell(note.guid)
@@ -245,6 +442,20 @@ std::string tech_notes_index(const std::vector<TechNote>& notes,
 
     out << "\n" << notes.size() << " tech note"
         << (notes.size() == 1 ? "" : "s") << ".\n";
+
+    // A number claimed twice is the one failure a numbered series actually
+    // suffers from, and the rebuild is the only thing that ever sees every
+    // note at once -- so it is the only thing that can notice.  Reported
+    // rather than repaired: which of the two should move is the author's call.
+    const std::vector<std::string> clashes = duplicate_indices(notes);
+    if (!clashes.empty()) {
+        out << "\n> **Duplicate numbers:** ";
+        for (std::size_t i = 0; i < clashes.size(); ++i) {
+            out << (i == 0 ? "" : ", ") << '`' << clashes[i] << '`';
+        }
+        out << ". Two notes cannot share one number -- renumber one of each "
+               "pair, then rebuild.\n";
+    }
     return out.str();
 }
 

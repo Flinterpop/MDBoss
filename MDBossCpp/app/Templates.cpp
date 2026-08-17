@@ -35,8 +35,9 @@ struct Starter {
 // Templates.h for why, and localize_embedded_logo() for what replaces it.
 //
 // The front matter used to open with a bare title line -- the shape Typora
-// exports -- and now uses an explicit `title:` key, with `GUID:` filled in per
-// note (user ruling, 2026-08-17).  Only a NEW note gets the new shape:
+// exports -- and now uses an explicit `title:` key, with `GUID:` and `TNIndex:`
+// filled in per note (user rulings, 2026-08-17).  Only a NEW note gets the new
+// shape:
 // starters are seeded per name and never rewrite a file the user already has,
 // so an existing templates folder keeps the TechNote it was given.  Editing
 // that copy, or deleting it so this one is offered again, is the way to move.
@@ -49,6 +50,7 @@ std::string technote_body()
            "creator: \n"
            "subject: \n"
            "GUID: {{guid}}\n"
+           "TNIndex: {{tnindex}}\n"
            "keywords: TechNote\n"
            "---\n"
            "<img src=\"" +

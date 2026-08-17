@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "LogoAsset.h"
+#include "TechNotes.h"
 #include "Templates.h"
 
 namespace {
@@ -141,11 +142,19 @@ TEST_CASE("the tech-note starter carries the house front matter",
     CHECK(note.find("\nauthor: B. Graham\n") != std::string::npos);
     CHECK(note.find("\nversion: 0.1\n") != std::string::npos);
     CHECK(note.find("\nkeywords: TechNote\n") != std::string::npos);
-    // Filled, not left as the token.
-    CHECK(note.find("{{") == std::string::npos);
     const std::size_t guid = note.find("\nGUID: ");
     REQUIRE(guid != std::string::npos);
     CHECK(note.substr(guid + 7, 36).find('-') != std::string::npos);
+
+    // The number is the one placeholder apply_template does NOT fill: it is
+    // not a function of the clock or the title, but of which notes already
+    // exist, which only the caller knows.  So it is still a token here...
+    CHECK(note.find("\nTNIndex: {{tnindex}}\n") != std::string::npos);
+    // ...and the two stages together must leave nothing behind.  This is the
+    // canary for a placeholder added to the starter and nowhere else.
+    const std::string filled = mdboss::fill_tn_index(note, {}, 2026);
+    CHECK(filled.find("\nTNIndex: 2026.01\n") != std::string::npos);
+    CHECK(filled.find("{{") == std::string::npos);
 }
 
 TEST_CASE("{{year}} fills the tech-note number", "[templates]")

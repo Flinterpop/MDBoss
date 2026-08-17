@@ -1082,6 +1082,20 @@ std::vector<std::string> FileTreePanel::document_paths() const
     return paths;
 }
 
+bool FileTreePanel::knows_document(const std::string& path) const
+{
+    const std::string target = norm_path(path);
+    if (target.empty()) {
+        return false;
+    }
+    for (const DocEntry& entry : entries_) {   // bounded by the scan's own cap
+        if (norm_path(entry.path) == target) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string FileTreePanel::owning_root(const std::string& path) const
 {
     const std::string target = norm_path(path);

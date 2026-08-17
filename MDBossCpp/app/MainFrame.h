@@ -166,6 +166,11 @@ private:
     DocumentWatcher watcher_;
 
     std::string current_path_;
+    // Tech-note numbers handed out this session.  A new note's number is
+    // derived from the notes on disk, and a note that has not been saved yet
+    // is not on disk -- so without this, two notes created back to back and
+    // saved afterwards would both claim the same number.
+    std::vector<std::string> issued_tn_indices_;
     bool dirty_ = false;
     // Set once the installer has been handed the job, so the close that
     // follows does not ask about unsaved work a second time.

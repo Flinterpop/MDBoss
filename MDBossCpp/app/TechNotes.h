@@ -39,12 +39,32 @@ inline constexpr std::size_t kMaxHeadBytes = 4096;
 inline constexpr std::size_t kMaxNotesExamined = 20000;
 inline constexpr std::size_t kMaxNotesListed = 5000;
 
+// A tech note's number: the year, a dot, and a sequence that restarts each
+// year -- 2026.01.  Two digits is the minimum rather than the maximum, so a
+// year that runs past 99 notes gets 2026.100 instead of a number that collides
+// with an earlier one.
+//
+// The number is allocated by DERIVING it, exactly as the index is: the highest
+// sequence already in use for that year, plus one.  A counter kept in config
+// would be one number, in one profile, that nothing could correct -- it would
+// drift the first time a note was written elsewhere, deleted, or restored from
+// a backup, and the drift would show up as two notes claiming one number.
+inline constexpr const char* kTnIndexPlaceholder = "{{tnindex}}";
+
+// Ceiling on the sequence (Rule of 10).  Far beyond any real year's output; it
+// exists so a corrupt or hostile number cannot make the next one run away.
+inline constexpr int kMaxTnSequence = 9999;
+
 struct TechNote {
     std::string path;      // absolute, UTF-8
     std::string title;
     std::string guid;
     std::string version;
     std::string subject;
+    // Added after the fact, so it goes last: notes written before this
+    // existed have none, and an aggregate initializer that predates it still
+    // compiles.
+    std::string tn_index;
 };
 
 // Parse the head of a document.  Returns false when it is not a tech note --
@@ -55,9 +75,11 @@ struct TechNote {
 // been closed within that is treated as absent rather than guessed at.
 bool parse_tech_note(std::string_view text, TechNote* out);
 
-// Every tech note among `paths`, sorted by title (case-insensitively, then by
-// path so the order is total and stable).  Unreadable files are skipped
-// silently: one of them is not worth interrupting a rebuild for.
+// Every tech note among `paths`, in number order -- numbered notes by year
+// then sequence, then the unnumbered ones, each group by title
+// (case-insensitively, then by path so the order is total and stable).
+// Unreadable files are skipped silently: one of them is not worth interrupting
+// a rebuild for.
 std::vector<TechNote> scan_tech_notes(const std::vector<std::string>& paths);
 
 // The index document.  `generated` is a date stamp shown in the text, since a
@@ -67,6 +89,38 @@ std::vector<TechNote> scan_tech_notes(const std::vector<std::string>& paths);
 std::string tech_notes_index(const std::vector<TechNote>& notes,
                              const std::vector<std::string>& roots,
                              const std::string& generated);
+
+// ---- Numbering a new note -------------------------------------------------
+
+// `year`.`sequence`, zero-padded to two digits.  Asserts on a sequence outside
+// 1..kMaxTnSequence, which no caller here can produce.
+std::string format_tn_index(int year, int sequence);
+
+// Split a number back apart.  False for anything that is not exactly four
+// digits, a dot, and one to four digits -- a note whose TNIndex was hand-typed
+// into something else is simply not part of the numbered series, which is
+// safer than guessing a sequence out of it and colliding with a real one.
+bool parse_tn_index(const std::string& text, int* year, int* sequence);
+
+// The next free sequence for `year`: one past the highest already in use.
+// Notes from other years are ignored, so each year starts again at 1.
+int next_tn_sequence(const std::vector<TechNote>& existing, int year);
+
+// True when `text` carries the placeholder, i.e. this template wants a number.
+//
+// Checked before scanning, so that creating a document from any other template
+// stays free: the scan reads the head of every document under every root, and
+// paying that for a template with no placeholder in it would be pure waste.
+bool needs_tn_index(const std::string& text);
+
+// `text` with the placeholder replaced by the next number for `year`.
+//
+// `assigned`, when given, receives the number that was handed out -- so the
+// caller can treat it as taken before the note holding it has been saved.  It
+// is left untouched when there was no placeholder to fill.
+std::string fill_tn_index(const std::string& text,
+                          const std::vector<TechNote>& existing, int year,
+                          std::string* assigned = nullptr);
 
 }  // namespace mdboss
 

@@ -165,6 +165,18 @@ Consequences that are deliberate:
 
 Unclosed front matter counts as none rather than being guessed at, since the head we were handed may simply have stopped early — and an indented `GUID:` belongs to some nested mapping, not to the document.
 
+### The number is derived too, which is the same argument one step further
+
+`TNIndex: 2026.04` — the year and a per-year sequence — is allocated by reading the notes that exist and taking one past the highest for that year (user ruling, 2026-08-17). A counter in `config.json` would be one number, in one profile, that nothing could correct: it would drift the first time a note was written elsewhere, deleted, or restored from a backup, and the drift shows up as two notes claiming one number. Same reasoning as the index itself, so the two stay consistent.
+
+- **One past the highest, not one past the count.** A note deleted from the middle of a year must not have its number reused — the deleted note may still exist in a copy, or be cited by another document.
+- **Two digits is a floor, not a field width.** `format_tn_index(2026, 100)` is `2026.100`; truncating to two digits would hand out a number an earlier note already has.
+- **A number handed out this session counts as taken** (`MainFrame::issued_tn_indices_`). The scan sees files, and a new note has not been saved yet, so creating two notes before saving either would otherwise give both the same number. That is the realistic collision, not the one across sessions.
+- **A duplicate is reported, not repaired.** The rebuild is the only thing that ever sees every note at once, so it is the only thing that can notice; which of the pair should move is the author's call.
+- **The bare `TNIndex:` form is filled as well as `{{tnindex}}`.** The author's own template — the one per-name seeding deliberately never overwrites — carries the key with an empty value, so supporting only the placeholder would have shipped a feature that did nothing for the person who asked for it. A key that already has a value is left alone. Check `empty_tn_index_span()`'s CRLF handling before touching it: rewriting over the `\r` joins the line to the next one.
+
+**A save to a new path now refreshes the tree**, and this feature is why. `document_paths()` is the last completed scan, so a note created, saved and indexed seconds later was absent from its own index — found by driving the built app, not by a test. Only a path the tree does not already know triggers it; rescanning every root on every Ctrl+S would be a real cost for no answer.
+
 ## A clicked link leaves the app; the page still fetches nothing
 
 `PreviewPane::install_link_handler()` cancels any navigation to a non-local scheme and hands the URL to `ShellExecuteW`. **This does not weaken the network lock, and the distinction is worth stating precisely:** the lock stops the *page* fetching remote content — a tracking pixel, a remote script — which happens with nobody's consent. Following a link is a deliberate click, and it is answered by leaving the app. The preview still never loads a remote byte.

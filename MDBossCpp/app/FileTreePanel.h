@@ -114,6 +114,10 @@ public:
     // can use this instead of walking the disk a second time.
     std::vector<std::string> document_paths() const;
 
+    // True when the last completed scan found this exact document.  Compared
+    // the way the scan stores paths, so case and separators do not matter.
+    bool knows_document(const std::string& path) const;
+
     // The folders the user has open, as normalised paths, and re-applying a
     // set saved earlier.  Together these let the frame persist the tree's
     // shape across a restart instead of reopening collapsed every launch.

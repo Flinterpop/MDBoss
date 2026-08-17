@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cassert>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -281,7 +282,10 @@ void MainFrame::build_menu()
     lists->Append(kIdAddTodo, L"Add a &to-do…\tCtrl+T");
     lists->Append(kIdAddDiary, L"Add a Grail &Diary entry…");
     lists->AppendSeparator();
-    lists->Append(kIdTechNotes, L"Rebuild the &tech-note index…");
+    // "tech-note" cannot take T: "Add a &to-do" already has it in this menu,
+    // and a duplicate mnemonic cycles between the two instead of invoking
+    // either.
+    lists->Append(kIdTechNotes, L"Rebuild the tech-&note index…");
     lists->AppendSeparator();
     // Without this the three files are only reachable by hunting for the
     // folder in the tree, which is a poor way to read a list you just added to.
@@ -793,12 +797,25 @@ bool MainFrame::save_to(const std::string& path)
             editor_->SetFirstVisibleLine(top);
         }
     }
+    // Whether this path is one the tree already knows has to be asked BEFORE
+    // the write, since afterwards the file exists either way.
+    const bool is_new = !files_->knows_document(path);
+
     const std::string error = write_text_file_checked(path, text);
     if (!error.empty()) {
         wxMessageBox(wxString::FromUTF8(error) + "\n\n" +
                          wxString::FromUTF8(path),
                      "MD Boss", wxOK | wxICON_ERROR, this);
         return false;
+    }
+    // A document saved somewhere new is missing from the tree, from the folder
+    // counts, and from everything built off the scan -- which is how a tech
+    // note created and saved could be absent from the index rebuilt seconds
+    // later.  Only for a new path: re-saving an open document changes nothing
+    // the scan reports, and rescanning every root on every Ctrl+S would be a
+    // real cost for no answer.
+    if (is_new) {
+        files_->refresh();
     }
     return true;
 }
@@ -1151,12 +1168,46 @@ void MainFrame::on_new_from_template(wxCommandEvent&)
     }
 
     bool ok = false;
-    const std::string body =
+    std::string body =
         read_text_file(templates[static_cast<std::size_t>(choice)].second, ok);
     if (!ok) {
         wxMessageBox("Could not read that template.", "MD Boss",
                      wxOK | wxICON_ERROR, this);
         return;
+    }
+
+    // A tech note is numbered year.sequence, and the next sequence is DERIVED
+    // from the notes that exist -- the same rule as the index itself, and for
+    // the same reason: a counter kept in config would be one number in one
+    // profile that nothing could correct.  Guarded on the placeholder so that
+    // every other template stays free of this scan.
+    if (needs_tn_index(body)) {
+        SetStatusText(L"Numbering the new tech note…");
+        std::tm when{};
+        const std::time_t now = std::time(nullptr);
+        const bool have_year = localtime_s(&when, &now) == 0;
+        assert(have_year && "the clock must be readable to number a note");
+        if (have_year) {
+            std::vector<TechNote> existing =
+                scan_tech_notes(files_->document_paths());
+            // A number handed out in this session counts as taken even though
+            // the note holding it has not been saved yet -- the scan can only
+            // see files.  Without this, creating two notes and saving them
+            // afterwards gives both the same number, which is the easiest way
+            // to hit the one failure a numbered series has.
+            for (const std::string& issued : issued_tn_indices_) {
+                TechNote reserved;
+                reserved.tn_index = issued;
+                existing.push_back(reserved);
+            }
+            std::string assigned;
+            body = fill_tn_index(body, existing, when.tm_year + 1900, &assigned);
+            // Bounded: a session cannot reserve numbers without limit.
+            if (!assigned.empty() && issued_tn_indices_.size() < 1000) {
+                issued_tn_indices_.push_back(assigned);
+            }
+        }
+        SetStatusText(wxEmptyString);
     }
 
     editor_->SetText(wxString::FromUTF8(

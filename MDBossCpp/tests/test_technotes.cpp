@@ -4,6 +4,8 @@
 // keyword, so a stray GUID in an unrelated document does not turn it into a
 // tech note and removing the keyword deliberately takes one off the list.
 
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -12,6 +14,19 @@
 #include "TechNotes.h"
 
 namespace {
+
+namespace fs = std::filesystem;
+
+void write_note(const fs::path& path, const std::string& title,
+                const std::string& index)
+{
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    stream << "---\ntitle: " << title << "\nGUID: g-" << title << "\n";
+    if (!index.empty()) {
+        stream << "TNIndex: " << index << "\n";
+    }
+    stream << "keywords: TechNote\n---\n\n# " << title << "\n";
+}
 
 std::string note(const std::string& guid, const std::string& keywords,
                  const std::string& title = "A Note")
@@ -86,12 +101,140 @@ TEST_CASE("an indented key belongs to something else", "[technotes]")
         "---\nmeta:\n  GUID: abc\n  keywords: TechNote\n---\n", &out));
 }
 
+TEST_CASE("the TN index is read out of the front matter", "[technotes]")
+{
+    mdboss::TechNote out;
+    REQUIRE(mdboss::parse_tech_note(
+        "---\nGUID: g\nTNIndex: 2026.07\nkeywords: TechNote\n---\n", &out));
+    CHECK(out.tn_index == "2026.07");
+
+    // A note that predates the numbering is still a tech note; it simply has
+    // no number.  Requiring one would silently drop every existing note.
+    REQUIRE(mdboss::parse_tech_note("---\nGUID: g\nkeywords: TechNote\n---\n",
+                                    &out));
+    CHECK(out.tn_index.empty());
+}
+
+TEST_CASE("a TN index is the year, a dot, and two digits", "[technotes]")
+{
+    CHECK(mdboss::format_tn_index(2026, 1) == "2026.01");
+    CHECK(mdboss::format_tn_index(2026, 9) == "2026.09");
+    CHECK(mdboss::format_tn_index(2026, 42) == "2026.42");
+    // Two digits is a floor, not a width: truncating here would hand out a
+    // number an earlier note already has.
+    CHECK(mdboss::format_tn_index(2026, 100) == "2026.100");
+}
+
+TEST_CASE("only a well-formed number parses", "[technotes]")
+{
+    int year = 0;
+    int sequence = 0;
+    REQUIRE(mdboss::parse_tn_index("2026.01", &year, &sequence));
+    CHECK(year == 2026);
+    CHECK(sequence == 1);
+    CHECK(mdboss::parse_tn_index(" 2026.100 ", &year, &sequence));
+    CHECK(sequence == 100);
+
+    // Anything else is simply not part of the series.  Guessing a sequence out
+    // of it would eventually collide with a real one.
+    CHECK_FALSE(mdboss::parse_tn_index("", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("2026", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("2026.", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("2026.00", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("26.01", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("2026-01", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("2026.0a", &year, &sequence));
+    CHECK_FALSE(mdboss::parse_tn_index("2026.12345", &year, &sequence));
+}
+
+TEST_CASE("the next number is one past the highest that year", "[technotes]")
+{
+    std::vector<mdboss::TechNote> notes;
+    // An empty year starts at 1.
+    CHECK(mdboss::next_tn_sequence(notes, 2026) == 1);
+
+    notes.push_back(mdboss::TechNote{"a.md", "A", "g", "", "", "2026.01"});
+    notes.push_back(mdboss::TechNote{"c.md", "C", "g", "", "", "2026.03"});
+    // Deliberately NOT one past the count: 2026.02 may have been deleted here
+    // and still be cited somewhere else, so its number is not reused.
+    CHECK(mdboss::next_tn_sequence(notes, 2026) == 4);
+
+    // Each year counts on its own.
+    CHECK(mdboss::next_tn_sequence(notes, 2027) == 1);
+    notes.push_back(mdboss::TechNote{"o.md", "O", "g", "", "", "2025.99"});
+    CHECK(mdboss::next_tn_sequence(notes, 2026) == 4);
+
+    // Unnumbered and malformed notes are ignored rather than counted.
+    notes.push_back(mdboss::TechNote{"u.md", "U", "g", "", "", ""});
+    notes.push_back(mdboss::TechNote{"m.md", "M", "g", "", "", "TN-2026-09"});
+    CHECK(mdboss::next_tn_sequence(notes, 2026) == 4);
+}
+
+TEST_CASE("the placeholder is filled, and only when present", "[technotes]")
+{
+    std::vector<mdboss::TechNote> notes;
+    notes.push_back(mdboss::TechNote{"a.md", "A", "g", "", "", "2026.06"});
+
+    CHECK(mdboss::needs_tn_index("TNIndex: {{tnindex}}\n"));
+    CHECK_FALSE(mdboss::needs_tn_index("# Meeting Notes\n"));
+
+    CHECK(mdboss::fill_tn_index("TNIndex: {{tnindex}}\n", notes, 2026) ==
+          "TNIndex: 2026.07\n");
+
+    // One document, one number -- even where a template names it twice.
+    CHECK(mdboss::fill_tn_index("{{tnindex}} and {{tnindex}}", notes, 2026) ==
+          "2026.07 and 2026.07");
+
+    // A template with no placeholder comes back untouched, which is what lets
+    // the caller skip the scan entirely.
+    const std::string plain = "# {{title}}\n";
+    CHECK(mdboss::fill_tn_index(plain, notes, 2026) == plain);
+
+    // The number handed out is reported back, so the caller can treat it as
+    // taken before the note holding it has been saved.
+    std::string assigned = "untouched";
+    CHECK(mdboss::fill_tn_index(plain, notes, 2026, &assigned) == plain);
+    CHECK(assigned == "untouched");
+    mdboss::fill_tn_index("{{tnindex}}", notes, 2026, &assigned);
+    CHECK(assigned == "2026.07");
+}
+
+TEST_CASE("a bare TNIndex: key is filled too", "[technotes]")
+{
+    // A hand-maintained template does not carry the placeholder -- it just has
+    // the key with nothing after it, which asks the same question.  Supporting
+    // it is what makes this work on templates that predate the token.
+    std::vector<mdboss::TechNote> notes;
+    notes.push_back(mdboss::TechNote{"a.md", "A", "g", "", "", "2026.04"});
+
+    const std::string tmpl = "---\ntitle: {{title}}\nGUID: {{guid}}\n"
+                             "TNIndex:\nkeywords: TechNote\n---\n\n# x\n";
+    CHECK(mdboss::needs_tn_index(tmpl));
+    CHECK(mdboss::fill_tn_index(tmpl, notes, 2026).find(
+              "\nTNIndex: 2026.05\n") != std::string::npos);
+
+    // CRLF survives: rewriting over the \r would join the line to the next.
+    const std::string crlf = "---\r\nTNIndex:\r\nkeywords: TechNote\r\n---\r\n";
+    CHECK(mdboss::fill_tn_index(crlf, notes, 2026).find(
+              "\r\nTNIndex: 2026.05\r\n") != std::string::npos);
+
+    // A number already chosen is left alone, and so is a nested key.
+    const std::string taken = "---\nTNIndex: 2026.01\n---\n";
+    CHECK_FALSE(mdboss::needs_tn_index(taken));
+    CHECK(mdboss::fill_tn_index(taken, notes, 2026) == taken);
+    CHECK_FALSE(mdboss::needs_tn_index("---\nmeta:\n  TNIndex:\n---\n"));
+
+    // Only inside front matter: a TNIndex: line in the body is prose.
+    CHECK_FALSE(mdboss::needs_tn_index("# x\n\nTNIndex:\n"));
+    CHECK_FALSE(mdboss::needs_tn_index("---\nGUID: g\n---\nTNIndex:\n"));
+}
+
 TEST_CASE("the index lists notes and says when it was made", "[technotes]")
 {
     std::vector<mdboss::TechNote> notes;
     notes.push_back(mdboss::TechNote{"C:\\docs\\b.md", "Beta", "g2", "1.0", ""});
     notes.push_back(mdboss::TechNote{"C:\\docs\\a.md", "Alpha", "g1", "0.1",
-                                     "Survey"});
+                                     "Survey", "2026.01"});
 
     const std::string index =
         mdboss::tech_notes_index(notes, {"C:\\docs"}, "17 Aug 2026");
@@ -107,6 +250,61 @@ TEST_CASE("the index lists notes and says when it was made", "[technotes]")
     CHECK(index.find("C:\\docs\\a.md") == std::string::npos);
 
     CHECK(index.find("2 tech notes") != std::string::npos);
+
+    // The number leads the row: it is what a numbered series is cited by.
+    CHECK(index.find("| TN Index | Title |") != std::string::npos);
+    CHECK(index.find("| 2026.01 | Alpha |") != std::string::npos);
+    // Nothing to report when every number is unique.
+    CHECK(index.find("Duplicate numbers") == std::string::npos);
+}
+
+TEST_CASE("scanned notes come back in number order", "[technotes]")
+{
+    // Written to disk because the ordering lives in scan_tech_notes(), which
+    // is the one function here that reads files.
+    const fs::path dir = fs::temp_directory_path() / "mdboss_tn_order";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+
+    write_note(dir / "z.md", "Zulu", "2026.02");
+    write_note(dir / "a.md", "Alpha", "2027.01");
+    write_note(dir / "m.md", "Mike", "2026.10");
+    write_note(dir / "u.md", "Uniform", "");        // no number: sorts last
+    write_note(dir / "b.md", "Bravo", "");
+
+    std::vector<std::string> paths;
+    for (const char* name : {"z.md", "a.md", "m.md", "u.md", "b.md"}) {
+        paths.push_back((dir / name).string());
+    }
+
+    const std::vector<mdboss::TechNote> notes = mdboss::scan_tech_notes(paths);
+    REQUIRE(notes.size() == 5);
+    // 2026.02, then 2026.10 -- NOT 2026.10 before 2026.02, which is what a
+    // string comparison of the numbers would give.
+    CHECK(notes[0].tn_index == "2026.02");
+    CHECK(notes[1].tn_index == "2026.10");
+    CHECK(notes[2].tn_index == "2027.01");
+    // Unnumbered last, among themselves by title.
+    CHECK(notes[3].title == "Bravo");
+    CHECK(notes[4].title == "Uniform");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("a number claimed twice is reported", "[technotes]")
+{
+    std::vector<mdboss::TechNote> notes;
+    notes.push_back(mdboss::TechNote{"a.md", "A", "g1", "", "", "2026.01"});
+    notes.push_back(mdboss::TechNote{"b.md", "B", "g2", "", "", "2026.01"});
+    notes.push_back(mdboss::TechNote{"c.md", "C", "g3", "", "", "2026.02"});
+    // Two unnumbered notes do not collide with each other.
+    notes.push_back(mdboss::TechNote{"d.md", "D", "g4", "", "", ""});
+    notes.push_back(mdboss::TechNote{"e.md", "E", "g5", "", "", ""});
+
+    const std::string index = mdboss::tech_notes_index(notes, {}, "");
+    CHECK(index.find("Duplicate numbers") != std::string::npos);
+    CHECK(index.find("`2026.01`") != std::string::npos);
+    CHECK(index.find("`2026.02`") == std::string::npos);
 }
 
 TEST_CASE("an empty index says so rather than showing a bare header",
