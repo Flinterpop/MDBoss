@@ -77,6 +77,14 @@ constexpr int kIdManageFolders = wxID_HIGHEST + 70;
 constexpr int kIdFlatList = wxID_HIGHEST + 71;
 constexpr int kIdExclude = wxID_HIGHEST + 72;
 constexpr int kIdPromoteTechNote = wxID_HIGHEST + 73;
+constexpr int kSearchTimerId = wxID_HIGHEST + 74;
+constexpr int kSelectTimerId = wxID_HIGHEST + 75;
+
+// How long a row must stay selected before it is shown.  Long enough that
+// holding an arrow key down scrolls the list rather than opening every file it
+// passes -- each open reads the file and re-renders the preview -- and short
+// enough that stopping on a row feels like it opened straight away.
+constexpr int kSelectDebounceMs = 200;
 // Templates take ids from here up.  Bounded (Rule of 10) so a folder full of
 // templates cannot run the range into the next constant.
 constexpr int kIdTemplateBase = wxID_HIGHEST + 80;
@@ -189,8 +197,15 @@ FileTreePanel::FileTreePanel(wxWindow* parent)
 
     filter_->Bind(wxEVT_TEXT, &FileTreePanel::on_filter, this);
     contents_->Bind(wxEVT_CHECKBOX, &FileTreePanel::on_filter, this);
-    search_timer_.SetOwner(this);
-    Bind(wxEVT_TIMER, &FileTreePanel::on_search_timer, this);
+    // Each timer gets its own id.  A Bind with no id catches EVERY timer on
+    // this window, so adding a second one without ids would have routed its
+    // ticks into the search handler.
+    search_timer_.SetOwner(this, kSearchTimerId);
+    Bind(wxEVT_TIMER, &FileTreePanel::on_search_timer, this, kSearchTimerId);
+    select_timer_.SetOwner(this, kSelectTimerId);
+    Bind(wxEVT_TIMER, &FileTreePanel::on_select_timer, this, kSelectTimerId);
+    tree_->Bind(wxEVT_TREE_SEL_CHANGED, &FileTreePanel::on_selection_changed,
+                this);
     tree_->Bind(wxEVT_TREE_ITEM_EXPANDED, &FileTreePanel::on_expanded, this);
     tree_->Bind(wxEVT_TREE_ITEM_COLLAPSED, &FileTreePanel::on_collapsed, this);
     tree_->Bind(wxEVT_TREE_ITEM_ACTIVATED, &FileTreePanel::on_activated, this);
@@ -676,6 +691,50 @@ std::string FileTreePanel::content_query() const
 void FileTreePanel::on_search_timer(wxTimerEvent&)
 {
     start_content_search();
+}
+
+void FileTreePanel::on_selection_changed(wxTreeEvent& event)
+{
+    event.Skip();
+    // A rebuild selects and deselects rows as it destroys and recreates them.
+    // Acting on those would open a document every time the filter changed --
+    // the same trap as the collapse events that used to empty the remembered
+    // expansion set, and the same guard answers it.
+    if (applying_expansion_ || !on_preview_) {
+        return;
+    }
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(event.GetItem()));
+    if (data == nullptr || !data->is_file()) {
+        select_timer_.Stop();   // a folder shows nothing; stop a pending open
+        return;
+    }
+    pending_preview_ = data->path();
+    // Whether the keyboard was here when the row changed.  Showing a document
+    // takes focus away -- WebView2 claims it on navigation -- and without
+    // giving it back the very next arrow key goes somewhere else, so browsing
+    // moved exactly one row and then appeared to stop working.
+    preview_from_tree_ = wxWindow::FindFocus() == tree_;
+    // Restarted on every change, so holding an arrow key down travels the list
+    // and opens only where it stops.
+    select_timer_.Start(kSelectDebounceMs, wxTIMER_ONE_SHOT);
+}
+
+void FileTreePanel::on_select_timer(wxTimerEvent&)
+{
+    if (pending_preview_.empty() || !on_preview_) {
+        return;
+    }
+    // Copied out before the call: showing the document can rebuild the tree,
+    // which raises selection events and would reassign the member underneath
+    // us.
+    const std::string path = pending_preview_;
+    pending_preview_.clear();
+    on_preview_(path);
+    // Only when the keyboard was in the tree to begin with: a browse triggered
+    // by a click while the caret was in the editor must not yank focus back.
+    if (preview_from_tree_ && tree_ != nullptr) {
+        tree_->SetFocus();
+    }
 }
 
 void FileTreePanel::start_content_search()

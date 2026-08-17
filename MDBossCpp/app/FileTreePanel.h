@@ -87,6 +87,15 @@ public:
         on_path_moved_ = std::move(handler);
     }
 
+    // Called when the selection settles on a document -- arrow keys, or a
+    // single click.  Distinct from set_on_open(), which is Enter and
+    // double-click: browsing must not push every row you pass onto the recents
+    // list, so the frame treats the two differently.
+    void set_on_preview(std::function<void(const std::string&)> handler)
+    {
+        on_preview_ = std::move(handler);
+    }
+
     // "Update as TechNote" on a document: add the front matter that makes it
     // one.  Reported rather than done here for the same reason as a move --
     // the frame owns the open document, so it is the only thing that can tell
@@ -212,6 +221,8 @@ private:
     // a worker, and the worker's results are dropped if the query moved on --
     // the same generation-stamped shape as start_scan().
     void on_search_timer(wxTimerEvent& event);
+    void on_selection_changed(wxTreeEvent& event);
+    void on_select_timer(wxTimerEvent& event);
     void start_content_search();
     // The current query, or empty when content search is off, the box is
     // empty, or the text is too short to be worth searching for.
@@ -252,12 +263,18 @@ private:
     std::string searched_for_;
     bool searching_ = false;
     wxTimer search_timer_;
+    // Debounces "show whatever row is selected" so arrowing through the list
+    // scrolls rather than opening every file it passes.
+    wxTimer select_timer_;
+    std::string pending_preview_;
+    bool preview_from_tree_ = false;
     std::shared_ptr<std::atomic<bool>> alive_;
     unsigned scan_generation_ = 0;
     // Atomic, unlike scan_generation_: the search worker polls this to notice
     // it has been superseded mid-walk, so it is read off the UI thread.
     std::atomic<unsigned> search_generation_{0};
     std::function<void(const std::string&)> on_open_;
+    std::function<void(const std::string&)> on_preview_;
     std::function<void(const std::string&)> on_toggle_favorite_;
     std::function<bool(const std::string&)> is_favorite_;
     std::function<bool(const std::string&)> is_flat_folder_;

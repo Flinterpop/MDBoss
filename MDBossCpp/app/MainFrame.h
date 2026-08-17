@@ -33,7 +33,15 @@ public:
 
     // Open `path`, replacing the current document.  Returns false and leaves
     // the current document intact if the file cannot be read.
-    bool open_path(const std::string& path);
+    // How a document came to be opened, which decides what opening it costs.
+    //
+    // kBrowse is the arrow keys walking the tree: it must not push a row onto
+    // the recents list, must not write config.json, and must not raise a
+    // dialog -- one per keystroke is not a prompt, it is an obstacle.  It
+    // gives up quietly instead, leaving Enter to do the full job.
+    enum class OpenMode { kExplicit, kBrowse };
+    bool open_path(const std::string& path,
+                   OpenMode mode = OpenMode::kExplicit);
 
     // WM_COPYDATA carries a document path from a second launch; see
     // SingleInstance.h for why there is only ever one window.
@@ -73,6 +81,13 @@ private:
     void on_open_internal_folder(wxCommandEvent& event);
     // Rebuild MD_Internal\TechNotes.md from the documents on disk and open it.
     void on_tech_notes(wxCommandEvent& event);
+    // Rebuild it without opening it, and reload it in place when it is the
+    // document already on screen.  Separate from Show because the list is
+    // derived and goes stale as soon as a note is added, renamed or deleted.
+    void on_refresh_tech_notes(wxCommandEvent& event);
+    // The shared half: rebuild and write MD_Internal\TechNotes.md, reporting
+    // where it went.  False when nothing was written, having already said why.
+    bool rebuild_tech_note_index(std::string* index_path);
     // Add the front matter that makes a document a tech note: a GUID, a number
     // for its year, and the TechNote keyword.  Only ever adds -- see
     // promote_to_tech_note().  Raised from the Lists menu for the open

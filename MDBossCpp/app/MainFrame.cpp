@@ -82,6 +82,7 @@ constexpr int kIdTogglePreview = wxID_HIGHEST + 22;
 constexpr int kIdTechNotes = wxID_HIGHEST + 23;
 constexpr int kIdPromoteDocument = wxID_HIGHEST + 24;
 constexpr int kIdAddFact = wxID_HIGHEST + 25;
+constexpr int kIdRefreshTechNotes = wxID_HIGHEST + 26;
 // Preview themes.  Radio items, so the menu shows which one is active rather
 // than two tick boxes that can both look off.
 constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
@@ -310,6 +311,7 @@ void MainFrame::build_menu()
     // menu, and a duplicate mnemonic cycles instead of invoking.
     auto* tech = new wxMenu();
     tech->Append(kIdTechNotes, L"&Show the list");
+    tech->Append(kIdRefreshTechNotes, L"&Refresh the list\tCtrl+Shift+R");
     tech->Append(kIdPromoteDocument, L"&Update this document as a tech note");
     lists->AppendSubMenu(tech, L"Tech &Notes");
     lists->AppendSeparator();
@@ -477,6 +479,9 @@ void MainFrame::build_panes()
 
     files_ = new FileTreePanel(favorites_split_);
     files_->set_on_open([this](const std::string& path) { open_path(path); });
+    files_->set_on_preview([this](const std::string& path) {
+        open_path(path, OpenMode::kBrowse);
+    });
     files_->set_on_import_to_inbox([this] { on_import_to_inbox(); });
     files_->set_on_path_moved([this](const std::string& from,
                                      const std::string& to) {
@@ -679,6 +684,8 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
          kIdOpenInternal);
     Bind(wxEVT_MENU, &MainFrame::on_tech_notes, this, kIdTechNotes);
+    Bind(wxEVT_MENU, &MainFrame::on_refresh_tech_notes, this,
+         kIdRefreshTechNotes);
     Bind(wxEVT_MENU, &MainFrame::on_promote_document, this, kIdPromoteDocument);
     Bind(wxEVT_MENU, &MainFrame::on_export_pdf, this, kIdExportPdf);
     Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeGitHub);
@@ -701,15 +708,29 @@ void MainFrame::bind_events()
     editor_->Bind(wxEVT_STC_UPDATEUI, &MainFrame::on_editor_scrolled, this);
 }
 
-bool MainFrame::open_path(const std::string& path)
+bool MainFrame::open_path(const std::string& path, OpenMode mode)
 {
     assert(!path.empty() && "open_path needs a path");
-    if (!confirm_discard()) {
+    const bool browsing = mode == OpenMode::kBrowse;
+    // Already showing it: arrowing back onto the current row must not re-read
+    // the file and re-render, and must not throw away where you had scrolled.
+    if (browsing && norm_path(path) == norm_path(current_path_)) {
+        return true;
+    }
+    // Unsaved work is never put to the user one keystroke at a time.  Browsing
+    // simply stops while the document is dirty; Enter still asks properly.
+    if (browsing && dirty_) {
+        return false;
+    }
+    if (!browsing && !confirm_discard()) {
         return false;
     }
     bool ok = false;
     std::string text = read_text_file(path, ok);
     if (!ok) {
+        if (browsing) {
+            return false;   // a file that vanished is not worth a dialog here
+        }
         wxMessageBox("Could not read:\n" + wxString::FromUTF8(path),
                      "MD Boss", wxOK | wxICON_ERROR, this);
         return false;
@@ -722,6 +743,11 @@ bool MainFrame::open_path(const std::string& path)
     // one Ctrl+S wiped the document.
     bool needs_conversion = false;
     if (first_invalid_utf8(text) != std::string::npos) {
+        if (browsing) {
+            // Converting is a decision, and a decision needs a prompt, which
+            // browsing may not raise.  Left for Enter.
+            return false;
+        }
         const TextEncoding kind = detect_text_encoding(text);
         bool converted = false;
         std::string utf8;
@@ -762,9 +788,13 @@ bool MainFrame::open_path(const std::string& path)
     watcher_.watch(current_path_);
     // Any warning on show belonged to the document being replaced.
     SetStatusText(wxString());
-    config_.push_recent(path);
-    config_.save();
-    refresh_lists();
+    // Recents are the documents you chose, not the ones you scrolled past.
+    // Recording a browse would also mean a config.json write per keystroke.
+    if (!browsing) {
+        config_.push_recent(path);
+        config_.save();
+        refresh_lists();
+    }
     update_title();
     render_preview();
     return true;
@@ -1440,8 +1470,9 @@ void MainFrame::on_export_pdf(wxCommandEvent&)
     });
 }
 
-void MainFrame::on_tech_notes(wxCommandEvent&)
+bool MainFrame::rebuild_tech_note_index(std::string* index_path)
 {
+    assert(index_path != nullptr && "the caller needs to know what was built");
     // The candidate list comes from the tree's own scan rather than a second
     // walk of the disk: it already knows every Markdown document under every
     // root, and walking twice to learn the same thing would be the expensive
@@ -1451,7 +1482,7 @@ void MainFrame::on_tech_notes(wxCommandEvent&)
         wxMessageBox(L"No documents have been scanned yet. Add a folder, or "
                      L"wait for the scan to finish.",
                      "MD Boss", wxOK | wxICON_INFORMATION, this);
-        return;
+        return false;
     }
 
     SetStatusText(L"Reading documents for tech notes…");
@@ -1468,16 +1499,57 @@ void MainFrame::on_tech_notes(wxCommandEvent&)
         SetStatusText(wxEmptyString);
         wxMessageBox(wxString::FromUTF8(failed), "MD Boss", wxOK | wxICON_ERROR,
                      this);
-        return;
+        return false;
     }
 
     files_->refresh();
     SetStatusText(wxString::Format("Indexed %zu tech note(s) of %zu document(s)",
                                    notes.size(), documents.size()));
+    *index_path =
+        path_to_utf8(path_from_utf8(folder) / path_from_utf8(kTechNotesFile));
+    return true;
+}
+
+void MainFrame::on_tech_notes(wxCommandEvent&)
+{
+    std::string index_path;
+    if (!rebuild_tech_note_index(&index_path)) {
+        return;
+    }
     // Opened straight away: the command is "show me the list", and leaving the
     // user to find the file in the tree would be answering a different one.
-    open_path(path_to_utf8(path_from_utf8(folder) /
-                           path_from_utf8(kTechNotesFile)));
+    open_path(index_path);
+}
+
+void MainFrame::on_refresh_tech_notes(wxCommandEvent&)
+{
+    // Rebuild WITHOUT opening.  The list is derived, so it goes stale the
+    // moment a note is added, renamed or deleted -- and if you are already
+    // reading it, "show me the list" is the wrong command: it would reopen the
+    // document you are looking at and throw away where you had scrolled.
+    std::string index_path;
+    if (!rebuild_tech_note_index(&index_path)) {
+        return;
+    }
+    // Except when it IS the open document, where refreshing has to be visible
+    // or the command appears to have done nothing.  Reloaded rather than
+    // reopened, so an unsaved edit elsewhere is not put at risk -- there can be
+    // none, since this file is rewritten whole, but the guard costs nothing.
+    if (!current_path_.empty() &&
+        norm_path(current_path_) == norm_path(index_path)) {
+        bool ok = false;
+        const std::string text = read_text_file(index_path, ok);
+        if (ok) {
+            const int top = editor_->GetFirstVisibleLine();
+            editor_->SetText(wxString::FromUTF8(text));
+            editor_->EmptyUndoBuffer();
+            editor_->SetFirstVisibleLine(top);
+            dirty_ = false;
+            watcher_.watch(current_path_);
+            update_title();
+            render_preview();
+        }
+    }
 }
 
 void MainFrame::promote_tech_note(const std::string& path)

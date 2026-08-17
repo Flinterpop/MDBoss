@@ -126,6 +126,19 @@ Two traps, both found only by driving the built app — neither shows up in a te
 
 The set is the user's own expanding and collapsing, deliberately not what is on screen: a filter opens everything down to its matches, and saving that would reopen the whole tree next launch.
 
+### Browsing with the arrow keys is not opening, and the difference is the design
+
+Moving the tree's selection shows that document (`set_on_preview`, debounced 200 ms); Enter and double-click still go through `set_on_open`. `MainFrame::OpenMode::kBrowse` is what separates them, and every part of it earns its keep:
+
+- **No recents, no `config.save()`.** Recents are the documents the user chose; recording a browse would also mean a settings write per keystroke.
+- **No dialog, ever.** One prompt per keystroke is an obstacle, not a prompt — so a browse stops while the document is dirty instead of asking to discard, and declines a non-UTF-8 file instead of offering to convert. Enter still does both properly.
+- **Re-selecting the current row is a no-op**, or arrowing back onto it would re-read the file and lose the scroll position.
+- **Selection changes raised by a rebuild are ignored.** `DeleteAllItems()` selects rows as it destroys them; acting on that would open a document every time the filter changed. `applying_expansion_` already guards the collapse events for the same reason and covers this too.
+
+**Showing a document takes focus away — WebView2 claims it on navigation.** Without giving it back, the next arrow key goes somewhere else and browsing moves exactly one row, then appears to be broken. The tree calls `SetFocus()` after a browse, but only when it had focus when the row changed, so a click made while the caret is in the editor does not yank it back. Found by driving the built app and reading the window title after each keypress; no test can see it.
+
+**Two timers on one window need explicit ids.** `Bind(wxEVT_TIMER, handler, this)` with no id catches *every* timer, so adding the select timer without ids routed its ticks into the content-search handler.
+
 ### A bound the walk can hit has to be reportable, and folders have to be skippable
 
 Add a whole workspace folder as a root and the walk can meet far more than it expects: one measured well over a million entries against a bound of 100,000, with the overwhelming majority of them inside a single generated cache folder. The walk stopped partway through the alphabet, every folder after that point was simply absent from the tree, and nothing on screen said so — the count beside the root read like a total. Two things came out of that, and both are load-bearing:
@@ -161,6 +174,7 @@ Consequences that are deliberate:
 - **It is the one file in `MD_Internal` that is NOT hand-editable**, and the generated text says so. Everything else there is appended to and belongs to the user; this one is replaced outright. That is why `write_internal_file()` exists beside `append_to_internal()` rather than being the same function with a flag — the distinction is what stops a future caller replacing `logins.md`.
 - **Both markers are required**: a `GUID:` *and* `TechNote` among `keywords:` (user ruling, 2026-08-17). Either alone is not a tech note. Tests pin both halves, because the natural bug is an `||` where the rule says `&&`.
 - **A command, not part of the scan.** Rebuilding reads the head of every Markdown document under every root. The folder scan deliberately never opens a file — it only stats — and putting this on every refresh would undo that. Only the first 4 KB of each file is read, since front matter is always at the top.
+- **Show and Refresh are two commands over one `rebuild_tech_note_index()`.** Show rebuilds and opens; Refresh rebuilds and, when the list is *already* the open document, reloads it in place keeping the scroll position. Reopening would be the wrong answer to "this is out of date", because the person asking is usually looking at it.
 - **The candidate list comes from `FileTreePanel::document_paths()`**, not a second walk of the disk. The tree already knows every document; walking again to learn the same thing would be the expensive half done twice.
 
 Unclosed front matter counts as none rather than being guessed at, since the head we were handed may simply have stopped early — and an indented `GUID:` belongs to some nested mapping, not to the document.

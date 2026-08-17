@@ -53,6 +53,15 @@ Two things worth knowing while a scan is running:
 
 Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
+### Browsing with the arrow keys
+
+**Move the selection in the tree and that document opens** — arrow keys, or a single click. The keyboard stays in the tree, so you can walk a folder and read each file as you pass it. Holding an arrow key down travels the list and opens only the row you stop on.
+
+Browsing is deliberately lighter than opening:
+
+- It does **not** add to **Recent** — that list is for documents you chose, not ones you scrolled past. Press **Enter** (or double-click) to open properly and record it.
+- It **never interrupts you**. While the open document has unsaved edits, browsing pauses rather than asking to discard them; and a file that is not UTF-8 is skipped rather than offering to convert it. Enter still does both.
+
 ## Moving files by dragging
 
 **Drag a document onto a folder in the files tree to move it there on disk.** Dropping it onto another *file* puts it beside that file, in the folder it lives in — usually easier to aim at than the folder row itself.
@@ -123,6 +132,8 @@ The trade is that a fact has to fit on one line. If it needs a paragraph, it is 
 To find things again, use **Contents** search (see [Searching](#searching)) — `Facts.md` is an ordinary document in an ordinary folder, so it is indexed like any other.
 
 ### The tech-note index
+
+**Lists ▸ Tech Notes ▸ Refresh the list** (`Ctrl+Shift+R`) rebuilds it where it stands — useful while you are reading it, since **Show the list** would reopen the document and lose your place. If the list is the document on screen, it updates in front of you.
 
 **Lists ▸ Tech Notes ▸ Show the list** finds every tech note under your folders and writes `MD_Internal\TechNotes.md` — a table of TN index, title, version, subject, GUID and file — then opens it, in number order with any unnumbered notes at the end. It is rebuilt each time you ask for it, so showing the list and refreshing it are the same command.
 
