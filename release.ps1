@@ -238,7 +238,10 @@ if (-not $SkipInstall) {
                     "not installed (declined UAC?). The release itself is " +
                     "already published.") -ForegroundColor Yellow
     } else {
+        # (x86) is not dead weight: it is where every build up to v1.8.0
+        # installed, and an existing install stays there until it is replaced.
         $exe = @("$env:ProgramFiles\MD Boss Cpp\MDBoss.exe",
+                 "${env:ProgramFiles(x86)}\MD Boss Cpp\MDBoss.exe",
                  "$env:LOCALAPPDATA\Programs\MD Boss Cpp\MDBoss.exe") |
             Where-Object { Test-Path $_ } | Select-Object -First 1
         if ($exe) { Start-Process $exe }

@@ -38,6 +38,12 @@ SolidCompression=yes
 ; install_scope_flag in MDBossCpp\app\Updater.cpp.
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
+; The app is x64.  Without these two, Inno runs in 32-bit mode and {autopf}
+; resolves to Program Files (x86) -- which is where every build up to and
+; including v1.8.0 installed an x64 exe.  x64compatible rather than x64 so an
+; Arm64 machine running x64 under emulation is not locked out.
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
 
 ; A single static exe -- no _internal folder, because nothing is interpreted --
@@ -82,3 +88,57 @@ Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; \
 [UninstallRun]
 Filename: "{app}\{#AppExe}"; Parameters: "--unregister-file-types"; \
     Flags: runhidden waituntilterminated; RunOnceId: "UnregisterFileTypes"
+
+; Every build up to v1.8.0 installed in 32-bit mode, so its uninstall entry is
+; in the 32-bit registry view and this one -- now 64-bit -- cannot see it.
+; Without this, upgrading would leave the old copy in Program Files (x86)
+; complete with its own uninstaller and Start Menu shortcuts, while the new one
+; landed in Program Files: two installs, two update paths, one of them stale.
+[Code]
+const
+  LegacyKey =
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+    '{7C1B4E62-9E3A-4B21-8E37-2D5A9F0C41B8}_is1';
+
+function LegacyUninstaller(var Uninstaller: String): Boolean;
+begin
+  // Per-machine first, then per-user: both were written to the 32-bit view.
+  Result := RegQueryStringValue(HKLM32, LegacyKey, 'UninstallString',
+                                Uninstaller);
+  if not Result then
+    Result := RegQueryStringValue(HKCU32, LegacyKey, 'UninstallString',
+                                  Uninstaller);
+  if Result then
+    Uninstaller := RemoveQuotes(Uninstaller);
+  Result := Result and (Uninstaller <> '') and FileExists(Uninstaller);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Uninstaller: String;
+  ResultCode: Integer;
+  Waited: Integer;
+begin
+  // Best effort, never fatal: returning a message here ABORTS the install, and
+  // failing to tidy up an old copy is not a reason to leave the user with no
+  // new one.
+  Result := '';
+  if not LegacyUninstaller(Uninstaller) then
+    Exit;
+
+  if not Exec(Uninstaller, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES', '',
+              SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Exit;
+
+  // Inno's uninstaller re-launches itself from a temp copy, so the call above
+  // returns before the work is done.  Wait for the entry to actually go, or
+  // the old uninstaller deletes the Start Menu group we are about to fill --
+  // both builds use the same group name.  Bounded: 60 x 500 ms, then give up
+  // and install anyway.
+  Waited := 0;
+  while (Waited < 60) and LegacyUninstaller(Uninstaller) do
+  begin
+    Sleep(500);
+    Waited := Waited + 1;
+  end;
+end;
