@@ -1072,6 +1072,16 @@ void FileTreePanel::new_folder(const std::string& dir)
     refresh();
 }
 
+std::vector<std::string> FileTreePanel::document_paths() const
+{
+    std::vector<std::string> paths;
+    paths.reserve(entries_.size());
+    for (const DocEntry& entry : entries_) {   // bounded by the scan's own cap
+        paths.push_back(entry.path);
+    }
+    return paths;
+}
+
 std::string FileTreePanel::owning_root(const std::string& path) const
 {
     const std::string target = norm_path(path);

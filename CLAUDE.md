@@ -152,6 +152,19 @@ Two implementation notes:
 
 Files only. A folder drag would relocate a whole subtree on one mis-drop and needs an ancestor check (dropping a folder into its own descendant) that a file move does not.
 
+## The tech-note index is derived, and that is the whole design
+
+`TechNotes.md` in `MD_Internal` is rebuilt by reading the documents, never accumulated as notes are created. A registry appended to on save would be cheaper and would start drifting the moment anything happened outside the app — a note made in another editor missing, a deleted one lingering — with nothing able to correct it. Deriving means it is right by construction, and it picks up notes that predate the feature.
+
+Consequences that are deliberate:
+
+- **It is the one file in `MD_Internal` that is NOT hand-editable**, and the generated text says so. Everything else there is appended to and belongs to the user; this one is replaced outright. That is why `write_internal_file()` exists beside `append_to_internal()` rather than being the same function with a flag — the distinction is what stops a future caller replacing `logins.md`.
+- **Both markers are required**: a `GUID:` *and* `TechNote` among `keywords:` (user ruling, 2026-08-17). Either alone is not a tech note. Tests pin both halves, because the natural bug is an `||` where the rule says `&&`.
+- **A command, not part of the scan.** Rebuilding reads the head of every Markdown document under every root. The folder scan deliberately never opens a file — it only stats — and putting this on every refresh would undo that. Only the first 4 KB of each file is read, since front matter is always at the top.
+- **The candidate list comes from `FileTreePanel::document_paths()`**, not a second walk of the disk. The tree already knows every document; walking again to learn the same thing would be the expensive half done twice.
+
+Unclosed front matter counts as none rather than being guessed at, since the head we were handed may simply have stopped early — and an indented `GUID:` belongs to some nested mapping, not to the document.
+
 ## A clicked link leaves the app; the page still fetches nothing
 
 `PreviewPane::install_link_handler()` cancels any navigation to a non-local scheme and hands the URL to `ShellExecuteW`. **This does not weaken the network lock, and the distinction is worth stating precisely:** the lock stops the *page* fetching remote content — a tracking pixel, a remote script — which happens with nobody's consent. Following a link is a deliberate click, and it is answered by leaving the app. The preview still never loads a remote byte.

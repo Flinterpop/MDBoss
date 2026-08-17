@@ -29,6 +29,7 @@
 #include "HelpDialog.h"
 #include "InternalDialogs.h"
 #include "InternalNotes.h"
+#include "TechNotes.h"
 #include "PathUtf8.h"
 #include "SingleInstance.h"
 #include "Templates.h"
@@ -77,6 +78,7 @@ constexpr int kIdAddDiary = wxID_HIGHEST + 17;
 constexpr int kIdOpenInternal = wxID_HIGHEST + 18;
 constexpr int kIdExportPdf = wxID_HIGHEST + 19;
 constexpr int kIdTogglePreview = wxID_HIGHEST + 22;
+constexpr int kIdTechNotes = wxID_HIGHEST + 23;
 // Preview themes.  Radio items, so the menu shows which one is active rather
 // than two tick boxes that can both look off.
 constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
@@ -278,6 +280,8 @@ void MainFrame::build_menu()
     lists->Append(kIdAddLogin, L"Add a &login record…");
     lists->Append(kIdAddTodo, L"Add a &to-do…\tCtrl+T");
     lists->Append(kIdAddDiary, L"Add a Grail &Diary entry…");
+    lists->AppendSeparator();
+    lists->Append(kIdTechNotes, L"Rebuild the &tech-note index…");
     lists->AppendSeparator();
     // Without this the three files are only reachable by hunting for the
     // folder in the tree, which is a poor way to read a list you just added to.
@@ -628,6 +632,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_add_diary, this, kIdAddDiary);
     Bind(wxEVT_MENU, &MainFrame::on_open_internal_folder, this,
          kIdOpenInternal);
+    Bind(wxEVT_MENU, &MainFrame::on_tech_notes, this, kIdTechNotes);
     Bind(wxEVT_MENU, &MainFrame::on_export_pdf, this, kIdExportPdf);
     Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeGitHub);
     Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeNotes);
@@ -1320,6 +1325,46 @@ void MainFrame::on_export_pdf(wxCommandEvent&)
         }
         SetStatusText(wxString::FromUTF8("Exported " + target));
     });
+}
+
+void MainFrame::on_tech_notes(wxCommandEvent&)
+{
+    // The candidate list comes from the tree's own scan rather than a second
+    // walk of the disk: it already knows every Markdown document under every
+    // root, and walking twice to learn the same thing would be the expensive
+    // half of this feature done for nothing.
+    const std::vector<std::string> documents = files_->document_paths();
+    if (documents.empty()) {
+        wxMessageBox(L"No documents have been scanned yet. Add a folder, or "
+                     L"wait for the scan to finish.",
+                     "MD Boss", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+
+    SetStatusText(L"Reading documents for tech notes…");
+    const std::vector<TechNote> notes = scan_tech_notes(documents);
+    const std::string folder = internal_folder(root_paths());
+    const std::string body =
+        tech_notes_index(notes, root_paths(), today_stamp());
+
+    // Written whole rather than appended: this file is derived, and the whole
+    // point is that it matches the documents as they are now.  It is the one
+    // thing in MD_Internal that is NOT hand-editable, which the text says.
+    const std::string failed = write_internal_file(folder, kTechNotesFile, body);
+    if (!failed.empty()) {
+        SetStatusText(wxEmptyString);
+        wxMessageBox(wxString::FromUTF8(failed), "MD Boss", wxOK | wxICON_ERROR,
+                     this);
+        return;
+    }
+
+    files_->refresh();
+    SetStatusText(wxString::Format("Indexed %zu tech note(s) of %zu document(s)",
+                                   notes.size(), documents.size()));
+    // Opened straight away: the command is "show me the list", and leaving the
+    // user to find the file in the tree would be answering a different one.
+    open_path(path_to_utf8(path_from_utf8(folder) /
+                           path_from_utf8(kTechNotesFile)));
 }
 
 void MainFrame::on_open_internal_folder(wxCommandEvent&)

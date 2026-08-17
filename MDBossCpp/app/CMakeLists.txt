@@ -13,6 +13,7 @@ add_executable(MDBoss WIN32
     FoldersDialog.cpp
     HelpDialog.cpp
     InternalNotes.cpp
+    TechNotes.cpp
     InternalDialogs.cpp
     FileAssoc.cpp
     SingleInstance.cpp

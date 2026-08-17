@@ -109,6 +109,11 @@ public:
     // Keeps whatever the user had expanded.
     void refresh();
 
+    // Every document the last completed scan found, absolute paths.  The tree
+    // already holds them, so anything wanting to read the documents in bulk
+    // can use this instead of walking the disk a second time.
+    std::vector<std::string> document_paths() const;
+
     // The folders the user has open, as normalised paths, and re-applying a
     // set saved earlier.  Together these let the frame persist the tree's
     // shape across a restart instead of reopening collapsed every launch.

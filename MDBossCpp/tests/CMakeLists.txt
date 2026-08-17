@@ -14,8 +14,10 @@ add_executable(mdrender_tests
     test_updater.cpp
     test_favorites.cpp
     test_internalnotes.cpp
+    test_technotes.cpp
     ../app/FileScan.cpp
     ../app/InternalNotes.cpp
+    ../app/TechNotes.cpp
     ../app/PathUtf8.cpp
     ../app/FileAssoc.cpp
     ../app/Templates.cpp

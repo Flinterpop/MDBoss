@@ -105,6 +105,16 @@ The **Lists** menu keeps three standing lists for you. Each command opens a smal
 | **Add a to-do…** (`Ctrl+T`) | `ToDoList.md` | A tickable checklist item, dated |
 | **Add a Grail Diary entry…** | `GrailDiary.md` | Your Markdown, under a dated heading |
 
+### The tech-note index
+
+**Lists ▸ Rebuild the tech-note index…** finds every tech note under your folders and writes `MD_Internal\TechNotes.md` — a table of title, version, subject, GUID and file — then opens it.
+
+**A document counts as a tech note only if its front matter has both a `GUID:` and `TechNote` among its `keywords:`.** Both are required: the keyword says what the document is, the GUID says which one. A stray GUID in some other document will not put it on the list, and deleting the keyword takes a note off it. The TechNote template writes both for you, and fills the GUID in per note.
+
+**The index is rebuilt, not accumulated.** It is derived from the documents each time you run the command, so notes you created before this feature existed, or made in another editor, or renamed, moved or deleted, all come out right. That also means it is the one file in `MD_Internal` you should **not** edit — your changes are lost on the next rebuild. It carries the date it was made, so a stale one says so.
+
+Rebuilding reads the beginning of every Markdown file under your folders, which is why it is a command rather than something that happens on every refresh.
+
 **Dates are written as day, month, year** — `16 Aug 2026`. The to-do's date and the diary's heading are filled in for you; the login record's *Last Changed* is filled in too but stays editable, since the password may have been changed on some other day.
 
 **Use of MD_Internal:** the folder and its files are created the first time you add something, and `MD_Internal` shows in the files tree like any other folder — its documents are counted, filtered and searched exactly as the rest of yours are. Nothing in it is hidden or special-cased. **Open MD_Internal folder** on the same menu takes you there in Explorer.

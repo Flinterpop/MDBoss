@@ -197,13 +197,13 @@ std::string today_stamp()
     return stamp.str();
 }
 
-std::string append_to_internal(const std::string& folder,
-                               const std::string& filename,
-                               const std::string& seed,
-                               const std::string& block)
+namespace {
+
+// Make sure the folder exists and is guarded, and say what went wrong if not.
+// Shared by both writers, because the guard must be in place before ANY file
+// is written there -- not just before the first one.
+std::string prepare_internal_folder(const std::string& folder)
 {
-    assert(!filename.empty() && "a note file needs a name");
-    assert(!block.empty() && "appending nothing is a caller bug");
     if (folder.empty()) {
         return "No folder is configured to keep " + std::string(kInternalName) +
                " in. Add a folder with Manage folders first.";
@@ -220,13 +220,11 @@ std::string append_to_internal(const std::string& folder,
     }
     ec.clear();
 
-    // Checked on EVERY append, not only when this call created the folder.
+    // Checked on EVERY write, not only when this call created the folder.
     // Guarding it at creation alone left a real MD_Internal unguarded for over
     // an hour: the folder can arrive by other means -- made by hand, restored
     // from a backup, or synced in from another machine -- and then nothing
     // would ever write the guard, which is precisely when it is needed.
-    // Immediately, too: the window between the folder existing and being
-    // guarded is exactly when a commit would sweep it up.
     const fs::path guard = dir / ".gitignore";
     if (!fs::exists(guard, ec)) {
         ec.clear();
@@ -236,7 +234,38 @@ std::string append_to_internal(const std::string& folder,
             return failed;   // refuse rather than leave it unguarded
         }
     }
-    ec.clear();
+    return {};
+}
+
+}  // namespace
+
+std::string write_internal_file(const std::string& folder,
+                                const std::string& filename,
+                                const std::string& text)
+{
+    assert(!filename.empty() && "a file needs a name");
+    const std::string failed = prepare_internal_folder(folder);
+    if (!failed.empty()) {
+        return failed;
+    }
+    return write_text_file_checked(
+        path_to_utf8(path_from_utf8(folder) / path_from_utf8(filename)), text);
+}
+
+std::string append_to_internal(const std::string& folder,
+                               const std::string& filename,
+                               const std::string& seed,
+                               const std::string& block)
+{
+    assert(!filename.empty() && "a note file needs a name");
+    assert(!block.empty() && "appending nothing is a caller bug");
+    const std::string prepared = prepare_internal_folder(folder);
+    if (!prepared.empty()) {
+        return prepared;
+    }
+
+    const fs::path dir = path_from_utf8(folder);
+    std::error_code ec;
 
     const fs::path file = dir / path_from_utf8(filename);
     std::string text;

@@ -69,6 +69,8 @@ private:
     void on_add_todo(wxCommandEvent& event);
     void on_add_diary(wxCommandEvent& event);
     void on_open_internal_folder(wxCommandEvent& event);
+    // Rebuild MD_Internal\TechNotes.md from the documents on disk and open it.
+    void on_tech_notes(wxCommandEvent& event);
     // Export the rendered preview to PDF via WebView2's own print pipeline.
     void on_export_pdf(wxCommandEvent& event);
     // Switch the preview stylesheet (View menu). Persists and re-renders.

@@ -91,6 +91,18 @@ std::string append_to_internal(const std::string& folder,
                                const std::string& seed,
                                const std::string& block);
 
+// Write `text` as the WHOLE of `folder`/`filename`, creating the folder and
+// its .gitignore as needed.  Same guarantees as append_to_internal(), and the
+// same return convention.
+//
+// Separate from it on purpose: everything else in MD_Internal is appended to
+// and hand-editable, and this replaces a file outright.  Only a DERIVED file
+// may be written this way -- one whose content is rebuilt from somewhere else
+// and so cannot carry anything the user typed.
+std::string write_internal_file(const std::string& folder,
+                                const std::string& filename,
+                                const std::string& text);
+
 // Today as "16 Aug 2026", local time -- day without a leading zero, three
 // letter month, four digit year.  That is this author's documented date
 // format, which rules out ISO and numeric locale forms precisely because
