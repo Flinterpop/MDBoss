@@ -1,6 +1,7 @@
 #include "Templates.h"
 
 #include <algorithm>
+#include <random>
 #include <cassert>
 #include <filesystem>
 #include <fstream>
@@ -29,19 +30,26 @@ struct Starter {
     bool legacy = false;
 };
 
-// The tech-note starter, in the house header form: the bare title as the first
-// front-matter line (the Typora-exported shape), the banner line, the byline,
-// then References first.  The logo is inline here; see Templates.h for why,
-// and localize_embedded_logo() for what replaces it.
+// The tech-note starter, in the house header form: the YAML block, the banner
+// line, the byline, then References first.  The logo is inline here; see
+// Templates.h for why, and localize_embedded_logo() for what replaces it.
+//
+// The front matter used to open with a bare title line -- the shape Typora
+// exports -- and now uses an explicit `title:` key, with `GUID:` filled in per
+// note (user ruling, 2026-08-17).  Only a NEW note gets the new shape:
+// starters are seeded per name and never rewrite a file the user already has,
+// so an existing templates folder keeps the TechNote it was given.  Editing
+// that copy, or deleting it so this one is offered again, is the way to move.
 std::string technote_body()
 {
     return "---\n"
-           "{{title}}\n"
+           "title: {{title}}\n"
            "author: B. Graham\n"
-           "version: 1.0\n"
+           "version: 0.1\n"
            "creator: \n"
-           "subject: Overview\n"
-           "keywords: \n"
+           "subject: \n"
+           "GUID: {{guid}}\n"
+           "keywords: TechNote\n"
            "---\n"
            "<img src=\"" +
            logo_data_uri() +
@@ -114,6 +122,38 @@ std::string formatted(const std::tm& when, const char* format)
         return {};
     }
     return buffer;
+}
+
+// A fresh random (version 4) UUID, lower-case, 8-4-4-4-12, no braces.
+//
+// Generated here rather than with CoCreateGuid so this file stays free of
+// anything the headless test binary would have to link -- Templates.cpp is
+// compiled straight into it, and adding ole32 for one call is a poor trade.
+// random_device is seeded by the OS; mt19937 only stretches it, so this is a
+// unique identifier and not a cryptographic secret, which is all a note's
+// GUID needs to be.
+std::string new_guid()
+{
+    static std::mt19937 engine{std::random_device{}()};
+    std::uniform_int_distribution<int> nibble(0, 15);
+    static const char* const kHex = "0123456789abcdef";
+
+    std::string out;
+    out.reserve(36);
+    // Bounded (Rule of 10): 32 nibbles plus four separators, never more.
+    for (int i = 0; i < 32; ++i) {
+        if (i == 8 || i == 12 || i == 16 || i == 20) {
+            out += '-';
+        }
+        int value = nibble(engine);
+        if (i == 12) {
+            value = 4;              // version 4
+        } else if (i == 16) {
+            value = (value & 0x3) | 0x8;   // variant 10xx
+        }
+        out += kHex[value];
+    }
+    return out;
 }
 
 std::string lowered(std::string text)
@@ -260,6 +300,13 @@ std::string apply_template(const std::string& text, const std::string& title,
     // {{year}} exists for the tech-note number, TN <year>-0X, which would
     // otherwise be a hard-coded year going stale in the template folder.
     out = replace_all(out, "{{year}}", formatted(when, "%Y"));
+    // A FRESH id per call, deliberately -- unlike every other placeholder this
+    // one is not a function of `when`, because two notes created in the same
+    // minute must not share an identifier.  It is substituted even in the
+    // deterministic overload for the same reason: a template's GUID is only
+    // useful if it is unique, and a caller asking for a fixed timestamp is
+    // asking about dates, not about identity.
+    out = replace_all(out, "{{guid}}", new_guid());
     return out;
 }
 
@@ -271,6 +318,11 @@ std::string apply_template(const std::string& text, const std::string& title)
         return replace_all(text, "{{title}}", title);
     }
     return apply_template(text, title, local);
+}
+
+std::string technote_template()
+{
+    return technote_body();
 }
 
 std::string logo_data_uri()

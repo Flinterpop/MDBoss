@@ -46,7 +46,7 @@ the same app lives in the repo but is **deprecated** — see
   newest-first, maintained automatically.
 - Favorites below Recent (both resizable): newest-first, up to ten, with a
   right-click menu and export / import / clear.
-- New-file templates (`%APPDATA%\MDBoss\templates`; `{{title}}`/`{{date}}`/`{{year}}` placeholders), including a **TechNote** starter that carries its banner logo inline so it renders before the document is saved, then drops `background-logo.png` beside the file and switches to the ordinary relative reference on the first save.
+- New-file templates (`%APPDATA%\MDBoss\templates`; `{{title}}`/`{{date}}`/`{{year}}`/`{{guid}}` placeholders), including a **TechNote** starter that carries its banner logo inline so it renders before the document is saved, then drops `background-logo.png` beside the file and switches to the ordinary relative reference on the first save.
 - Works as a plain Markdown viewer too: **Ctrl+O**, drag-and-drop, or a path on
   the command line opens any file on disk, root folder or not. A second launch
   hands its document to the running window instead of starting another copy.

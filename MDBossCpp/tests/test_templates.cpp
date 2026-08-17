@@ -93,6 +93,61 @@ TEST_CASE("an empty title substitutes as empty, not as the token",
     CHECK(mdboss::apply_template("[{{title}}]", "", when) == "[]");
 }
 
+TEST_CASE("{{guid}} becomes a v4 UUID, fresh every time", "[templates][guid]")
+{
+    // A tech note carries a GUID so two notes can be told apart; an identifier
+    // that repeated would be worse than none.  Unlike every other placeholder
+    // this one is NOT a function of the timestamp, so it is checked with the
+    // deterministic overload -- two notes created in the same minute must
+    // still differ.
+    std::tm when{};
+    when.tm_year = 126;   // 2026
+    when.tm_mon = 7;
+    when.tm_mday = 17;
+
+    const std::string a = mdboss::apply_template("{{guid}}", "T", when);
+    const std::string b = mdboss::apply_template("{{guid}}", "T", when);
+
+    REQUIRE(a.size() == 36);
+    CHECK(a != b);
+
+    // 8-4-4-4-12, lower-case hex, with the version and variant nibbles that
+    // make it a well-formed random UUID rather than 32 loose hex digits.
+    CHECK(a[8] == '-');
+    CHECK(a[13] == '-');
+    CHECK(a[18] == '-');
+    CHECK(a[23] == '-');
+    CHECK(a[14] == '4');                       // version 4
+    CHECK(std::string("89ab").find(a[19]) != std::string::npos);   // variant
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            continue;
+        }
+        INFO("index " << i << " char '" << a[i] << "'");
+        CHECK(std::string("0123456789abcdef").find(a[i]) != std::string::npos);
+    }
+}
+
+TEST_CASE("the tech-note starter carries the house front matter",
+          "[templates][technote]")
+{
+    // The header is the thing people notice when it is wrong, and it is
+    // assembled from a string literal that nothing else checks.
+    const std::string note =
+        mdboss::apply_template(mdboss::technote_template(), "My Note");
+
+    CHECK(note.rfind("---\n", 0) == 0);
+    CHECK(note.find("\ntitle: My Note\n") != std::string::npos);
+    CHECK(note.find("\nauthor: B. Graham\n") != std::string::npos);
+    CHECK(note.find("\nversion: 0.1\n") != std::string::npos);
+    CHECK(note.find("\nkeywords: TechNote\n") != std::string::npos);
+    // Filled, not left as the token.
+    CHECK(note.find("{{") == std::string::npos);
+    const std::size_t guid = note.find("\nGUID: ");
+    REQUIRE(guid != std::string::npos);
+    CHECK(note.substr(guid + 7, 36).find('-') != std::string::npos);
+}
+
 TEST_CASE("{{year}} fills the tech-note number", "[templates]")
 {
     const std::tm when = fixed_time();

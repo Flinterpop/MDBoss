@@ -313,10 +313,13 @@ Templates are plain `.md` files in `%APPDATA%\MDBoss\templates`; use **New file 
 | `{{time}}`  | the current time, `HH:MM` |
 | `{{datetime}}` | date and time |
 | `{{year}}`  | the current year, `YYYY` |
+| `{{guid}}`  | a fresh unique identifier, different for every document |
 
 ### The TechNote template
 
-**TechNote** starts a tech note with the standard header: front matter, the banner logo, the `TN {{year}}-0X` number, the byline, and a **References** section.
+**TechNote** starts a tech note with the standard header: front matter, the banner logo, the `TN {{year}}-0X` number, the byline, and a **References** section. Its front matter carries `title`, `author`, `version`, `creator`, `subject`, `GUID` and `keywords`, and **the GUID is filled in for you** — a new one for every note, so two created in the same minute can still be told apart.
+
+**Changing the starter does not change a template you already have.** Starters are written by name and never over an existing file, which is what protects a `TechNote.md` you have edited — if yours carries your own banner line, MD Boss will not overwrite it. To take up a newer starter, edit your copy, or delete it so the starter is offered again on the next launch.
 
 Its banner logo needs no setting up. The template carries the image inline, so the banner renders the moment the document is created — before it has been saved anywhere. When you do save it, MD Boss writes `background-logo.png` into the same folder and points the document at it, leaving you the ordinary relative reference every hand-written tech note uses:
 

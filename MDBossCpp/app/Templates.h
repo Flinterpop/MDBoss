@@ -39,6 +39,13 @@ std::string apply_template(const std::string& text, const std::string& title,
 // apply_template() with the current local time.
 std::string apply_template(const std::string& text, const std::string& title);
 
+// The TechNote starter's raw text, placeholders unsubstituted.
+//
+// Exposed for the test that pins the house front matter down.  It is a string
+// literal nothing else checks, and the header is exactly the thing people
+// notice when it is wrong.
+std::string technote_template();
+
 // ---- The tech-note banner logo -------------------------------------------
 //
 // The TechNote starter carries the logo inline, as a data: URI, because a
