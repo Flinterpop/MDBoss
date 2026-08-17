@@ -106,7 +106,9 @@ The **Lists** menu keeps four standing lists for you. Each command opens a small
 | **Add a Grail Diary entry…** | `GrailDiary.md` | Your Markdown, under a dated heading |
 | **Add a fact…** | `Facts.md` | A row in a table: Date, Fact, Tags, Source |
 
-**A bare URL is a link.** Typing `https://example.com/login` into a Link column — or anywhere in any document — renders as something you can click, without wrapping it in `[text](url)`. Clicking it opens your browser, as every link in the preview does; the preview itself still fetches nothing.
+**A bare URL is a link.** Typing `https://example.com/login` into a Link column — or anywhere in any document — renders as something you can click, without wrapping it in `[text](url)`. This includes addresses with a **port**, such as `https://10.10.10.88:8443/admin` or `http://localhost:3000/`, which are exactly what an internal service is usually listed as. Clicking one opens your browser, as every link in the preview does; the preview itself still fetches nothing.
+
+A URL inside a code span or a fenced block stays literal, and only `http` and `https` become links — `javascript:` or `file:` in a document is never turned into something clickable.
 
 ### Fact records
 

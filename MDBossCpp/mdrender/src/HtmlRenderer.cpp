@@ -53,6 +53,10 @@ struct Renderer {
     // markup, so output is diverted here.
     std::size_t image_depth = 0;
     std::string alt_text;
+    // Open <a> spans.  A URL inside a link's own text must not be linked
+    // again: nested anchors are invalid HTML and the browser unnests them
+    // somewhere you did not choose.
+    std::size_t link_depth = 0;
     // Fence bodies are escaped by mdrender.py's own _render_fence (Python's
     // html.escape, apostrophes included) while inline code spans are escaped
     // by markdown-it (apostrophes left alone), and md4c reports both as
@@ -360,6 +364,105 @@ int leave_block(MD_BLOCKTYPE type, void* detail, void* userdata)
     return 0;
 }
 
+// Escaped text with any bare http:// or https:// run turned into a link.
+//
+// A SUPPLEMENT to MD_FLAG_PERMISSIVEAUTOLINKS, not a replacement for it: md4c
+// consumes the URLs it is willing to handle before we ever see them, so what
+// arrives here as normal text is by definition what it declined.  The shape it
+// declines, measured rather than guessed, is **any URL carrying a port** --
+// `https://host:8443/admin` and `http://10.10.10.88:8443/x` both come through
+// as plain text while the same URLs without `:8443` are linked.  That is not a
+// corner case in this app: logins.md lists internal services by host and port.
+//
+// Only http and https are recognised.  A linkifier that accepted schemes
+// generally would be a way to get `javascript:` or `file:` into an href from
+// document text, which is exactly what the preview must never allow -- and the
+// click handler's allow-list would then be the only thing standing in the way
+// rather than the second of two.
+std::string linkify(std::string_view text, bool inside_link)
+{
+    if (inside_link) {
+        return escape_html(text);   // no nested anchors
+    }
+
+    std::string out;
+    out.reserve(text.size());
+    std::size_t pos = 0;
+    // Bounded by the chunk: every iteration either consumes a URL or advances
+    // past one character.
+    while (pos < text.size()) {
+        const std::size_t http = text.find("http", pos);
+        if (http == std::string_view::npos) {
+            out += escape_html(text.substr(pos));
+            break;
+        }
+        std::string_view rest = text.substr(http);
+        std::size_t scheme = 0;
+        if (rest.compare(0, 8, "https://") == 0) {
+            scheme = 8;
+        } else if (rest.compare(0, 7, "http://") == 0) {
+            scheme = 7;
+        }
+        // A URL must start at a word boundary, or "xhttp://y" inside a token
+        // would be torn in half.
+        const bool boundary =
+            http == 0 || std::isalnum(static_cast<unsigned char>(
+                             text[http - 1])) == 0;
+        if (scheme == 0 || !boundary) {
+            out += escape_html(text.substr(pos, http + 4 - pos));
+            pos = http + 4;
+            continue;
+        }
+
+        // The URL runs to the first space or control character.
+        std::size_t end = scheme;
+        while (end < rest.size() &&
+               static_cast<unsigned char>(rest[end]) > ' ') {
+            ++end;
+        }
+        // Trailing punctuation belongs to the sentence, not the address.  A
+        // closing bracket is kept only when the URL opened one, so
+        // "(see https://x/y)" does not swallow the bracket while
+        // "https://x/a_(b)" keeps it.
+        while (end > scheme) {
+            const char last = rest[end - 1];
+            if (last == '.' || last == ',' || last == ';' || last == ':' ||
+                last == '!' || last == '?' || last == '\'' || last == '"') {
+                --end;
+                continue;
+            }
+            if (last == ')' &&
+                std::count(rest.begin(), rest.begin() + static_cast<long>(end),
+                           '(') <
+                    std::count(rest.begin(),
+                               rest.begin() + static_cast<long>(end), ')')) {
+                --end;
+                continue;
+            }
+            break;
+        }
+        if (end <= scheme) {
+            // "https://" with nothing after it is not an address.
+            out += escape_html(text.substr(pos, http + scheme - pos));
+            pos = http + scheme;
+            continue;
+        }
+
+        out += escape_html(text.substr(pos, http - pos));
+        const std::string_view url = rest.substr(0, end);
+        // The href is quote-escaped, the label plain-escaped: the same string
+        // is going into an attribute and into element content, and only one of
+        // those cares about a double quote.
+        out += "<a href=\"";
+        out += escape_html_quoted(url);
+        out += "\">";
+        out += escape_html(url);
+        out += "</a>";
+        pos = http + end;
+    }
+    return out;
+}
+
 int enter_span(MD_SPANTYPE type, void* detail, void* userdata)
 {
     Renderer& r = *static_cast<Renderer*>(userdata);
@@ -380,6 +483,7 @@ int enter_span(MD_SPANTYPE type, void* detail, void* userdata)
         r.inline_raw("<code>");
         break;
     case MD_SPAN_A: {
+        ++r.link_depth;
         const auto* a = static_cast<MD_SPAN_A_DETAIL*>(detail);
         std::string tag = "<a href=\"";
         if (a != nullptr) {
@@ -429,6 +533,8 @@ int leave_span(MD_SPANTYPE type, void* detail, void* userdata)
         r.inline_raw("</code>");
         break;
     case MD_SPAN_A:
+        assert(r.link_depth > 0 && "link nesting is balanced");
+        --r.link_depth;
         r.inline_raw("</a>");
         break;
     case MD_SPAN_IMG: {
@@ -505,7 +611,7 @@ int on_text(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size,
         break;
     case MD_TEXT_NORMAL:
     default:
-        r.text_out(escape_html(chunk));
+        r.text_out(linkify(chunk, r.link_depth > 0));
         break;
     }
     return 0;

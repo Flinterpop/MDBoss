@@ -441,16 +441,91 @@ TEST_CASE("bare URLs, www and email autolink in prose too",
           std::string::npos);
 }
 
+TEST_CASE("a URL with a port is linked too", "[mdrender][autolink]")
+{
+    // md4c's permissive autolink silently refuses ANY url carrying a port --
+    // measured, not guessed: the same address without ":8443" is linked.  That
+    // is not a corner case here, because logins.md lists internal services by
+    // host and port, and those were the rows that stayed dead text after
+    // MD_FLAG_PERMISSIVEAUTOLINKS was turned on.
+    for (const char* const url : {"https://example.com:8443/admin",
+                                  "http://10.10.10.88:8443/x",
+                                  "http://localhost:3000/"}) {
+        const std::string html = mdrender::render_body(std::string(url) + "\n",
+                                                       false);
+        INFO(url);
+        CHECK(html.find(std::string("<a href=\"") + url + "\"") !=
+              std::string::npos);
+    }
+
+    // In a table cell, which is where they actually live.
+    CHECK(mdrender::render_body("| N | Link |\n|---|---|\n"
+                                "| x | https://example.com:8443/a |\n",
+                                false)
+              .find("<a href=\"https://example.com:8443/a\"") !=
+          std::string::npos);
+}
+
+TEST_CASE("the supplementary linkifier leaves literal text alone",
+          "[mdrender][autolink]")
+{
+    // A code span and a fence are the two places a URL must survive as text --
+    // md4c reports both as MD_TEXT_CODE, so they never reach the linkifier,
+    // and this is the test that says so if that ever changes.
+    CHECK(mdrender::render_body("`https://example.com:8443/x`\n", false)
+              .find("<a href") == std::string::npos);
+    CHECK(mdrender::render_body("```\nhttps://example.com:8443/x\n```\n", false)
+              .find("<a href") == std::string::npos);
+
+    // Nested anchors are invalid HTML and the browser unnests them somewhere
+    // you did not choose, so a URL inside a link's own TEXT stays text.
+    const std::string nested = mdrender::render_body(
+        "[see https://example.com:8443/a](https://other.example/b)\n", false);
+    std::size_t anchors = 0;
+    for (std::size_t p = nested.find("<a href"); p != std::string::npos;
+         p = nested.find("<a href", p + 1)) {
+        ++anchors;
+    }
+    CHECK(anchors == 1);
+    CHECK(nested.find("href=\"https://other.example/b\"") != std::string::npos);
+
+    // Punctuation belongs to the sentence, not the address.
+    CHECK(mdrender::render_body("Go to https://example.com:8443/x.\n", false)
+              .find("<a href=\"https://example.com:8443/x\"") !=
+          std::string::npos);
+    CHECK(mdrender::render_body("(see https://example.com:8443/x)\n", false)
+              .find("<a href=\"https://example.com:8443/x\"") !=
+          std::string::npos);
+    // ...but a bracket the URL opened is part of it.
+    CHECK(mdrender::render_body("https://example.com:8443/a_(b)\n", false)
+              .find("<a href=\"https://example.com:8443/a_(b)\"") !=
+          std::string::npos);
+
+    // A scheme buried inside a word is not a URL starting there.
+    CHECK(mdrender::render_body("xhttps://example.com:8443/x\n", false)
+              .find("<a href") == std::string::npos);
+    // A scheme with nothing after it is not an address.
+    CHECK(mdrender::render_body("https:// and text\n", false)
+              .find("<a href") == std::string::npos);
+}
+
 TEST_CASE("autolinking cannot mint a dangerous scheme", "[mdrender][autolink]")
 {
     // The reason this flag is safe to turn on: the permissive rules match only
     // http/https/ftp and mailto shapes, so no javascript: or file: URL can be
     // created from prose.  PreviewPane allow-lists the scheme again before
     // handing anything to ShellExecute, but defence in depth starts here.
+    // The supplementary linkifier recognises http and https ONLY, for the same
+    // reason: a linkifier that took schemes generally would be a way to get
+    // javascript: or file: into an href straight out of document text, leaving
+    // the click handler's allow-list as the only guard rather than the second
+    // of two.
     for (const char* const text : {"javascript:alert(1)\n",
                                    "file:///C:/Windows/System32/cmd.exe\n",
                                    "data:text/html,<script>\n",
-                                   "vbscript:msgbox\n"}) {
+                                   "vbscript:msgbox\n",
+                                   "ftp://example.com:21/x\n",
+                                   "javascript://example.com:80/x\n"}) {
         const std::string html = mdrender::render_body(text, false);
         INFO(text);
         CHECK(html.find("<a href") == std::string::npos);
