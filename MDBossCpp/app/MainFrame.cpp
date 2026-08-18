@@ -83,6 +83,12 @@ constexpr int kIdTechNotes = wxID_HIGHEST + 23;
 constexpr int kIdPromoteDocument = wxID_HIGHEST + 24;
 constexpr int kIdAddFact = wxID_HIGHEST + 25;
 constexpr int kIdRefreshTechNotes = wxID_HIGHEST + 26;
+constexpr int kIdBack = wxID_HIGHEST + 27;
+
+// How many documents back you can go.  A bound rather than a whole session's
+// worth (Rule of 10): the list is only useful a few steps deep, and it holds
+// paths that a long session would otherwise accumulate without limit.
+constexpr std::size_t kMaxHistory = 100;
 // Preview themes.  Radio items, so the menu shows which one is active rather
 // than two tick boxes that can both look off.
 constexpr int kIdThemeGitHub = wxID_HIGHEST + 20;
@@ -352,6 +358,13 @@ void MainFrame::build_toolbar()
     };
 
     const Tool tools[] = {
+        // First, and on its own: it is about where you have been rather than
+        // about the roots or the open document, and it is the one button
+        // whose position people expect to know without looking.
+        {kIdBack, L"Back", wxART_GO_BACK,
+         L"Return to the document you were reading before this one "
+         L"(Alt+Left)", false, true},
+
         {kIdManageFolders, L"Manage folders…", wxART_FOLDER_OPEN,
          L"Add, remove, or reorder root folders", false, false},
         {kIdRefresh, L"Refresh", wxART_REFRESH, L"Rescan all roots (F5)",
@@ -425,13 +438,20 @@ void MainFrame::build_toolbar()
     bar->ToggleTool(kIdTogglePreview, config_.show_preview());
     bar->ToggleTool(kIdToggleFrontMatter, config_.hide_front_matter());
     bar->Realize();
+    // Nothing to go back to yet, and a button that looks clickable but does
+    // nothing is worse than one that says so.
+    update_back_state();
 
     // Refresh has no menu item, so F5 needs an accelerator of its own.  F1
-    // does not: it rides the Help menu entry.
+    // does not: it rides the Help menu entry.  Back has no menu item either,
+    // and takes the Alt+Left every browser uses.
     const wxAcceleratorEntry accelerators[] = {
         wxAcceleratorEntry(wxACCEL_NORMAL, WXK_F5, kIdRefresh),
+        wxAcceleratorEntry(wxACCEL_ALT, WXK_LEFT, kIdBack),
     };
-    SetAcceleratorTable(wxAcceleratorTable(1, accelerators));
+    SetAcceleratorTable(
+        wxAcceleratorTable(static_cast<int>(std::size(accelerators)),
+                           accelerators));
 }
 
 void MainFrame::build_panes()
@@ -693,6 +713,7 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_tech_notes, this, kIdTechNotes);
     Bind(wxEVT_MENU, &MainFrame::on_refresh_tech_notes, this,
          kIdRefreshTechNotes);
+    Bind(wxEVT_MENU, &MainFrame::on_back, this, kIdBack);
     Bind(wxEVT_MENU, &MainFrame::on_promote_document, this, kIdPromoteDocument);
     Bind(wxEVT_MENU, &MainFrame::on_export_pdf, this, kIdExportPdf);
     Bind(wxEVT_MENU, &MainFrame::on_preview_theme, this, kIdThemeGitHub);
@@ -795,6 +816,12 @@ bool MainFrame::open_path(const std::string& path, OpenMode mode)
     watcher_.watch(current_path_);
     // Any warning on show belonged to the document being replaced.
     SetStatusText(wxString());
+    // History records everything actually SHOWN, browsing included: after
+    // arrowing through a folder, Back meaning "the one I was just looking at"
+    // is the only reading that matches what happened on screen.  Recents are
+    // a different question -- what you chose -- which is why the two diverge
+    // here rather than sharing a list.
+    push_history(path);
     // Recents are the documents you chose, not the ones you scrolled past.
     // Recording a browse would also mean a config.json write per keystroke.
     if (!browsing) {
@@ -805,6 +832,70 @@ bool MainFrame::open_path(const std::string& path, OpenMode mode)
     update_title();
     render_preview();
     return true;
+}
+
+void MainFrame::push_history(const std::string& path)
+{
+    assert(!path.empty() && "history needs a path");
+    // Going back must not itself be recorded, or Back would toggle between two
+    // documents for ever instead of walking backwards.
+    if (going_back_) {
+        return;
+    }
+    // Consecutive duplicates collapse: re-opening the document already shown
+    // (a refresh, a save, a reload after an outside edit) is not a move.
+    if (!history_.empty() && norm_path(history_.back()) == norm_path(path)) {
+        return;
+    }
+    history_.push_back(path);
+    if (history_.size() > kMaxHistory) {
+        history_.erase(history_.begin());
+    }
+    update_back_state();
+}
+
+void MainFrame::update_back_state()
+{
+    // Two entries are needed, not one: the last is where you ARE.
+    wxToolBar* bar = GetToolBar();
+    if (bar != nullptr) {
+        bar->EnableTool(kIdBack, history_.size() > 1);
+    }
+}
+
+void MainFrame::on_back(wxCommandEvent&)
+{
+    // Walk back until something opens.  A document may have been deleted,
+    // moved or renamed since it was visited, and stopping dead on the first
+    // gone file would make Back useless for the rest of the session.  Bounded
+    // by the history itself.
+    while (history_.size() > 1) {
+        // The last entry is where we ARE; the one before it is where Back
+        // goes.  Nothing is removed until the move has actually happened, so
+        // a failed attempt leaves the history exactly as it was.
+        const std::string target = history_[history_.size() - 2];
+
+        going_back_ = true;
+        const bool opened = open_path(target);
+        going_back_ = false;
+
+        if (opened) {
+            history_.pop_back();   // the document we just left
+            update_back_state();
+            return;
+        }
+        // Not opened.  With unsaved work outstanding the likeliest reason is
+        // that the user declined to discard it -- they answered a question,
+        // and the answer was no, so nothing more should happen.
+        if (dirty_) {
+            update_back_state();
+            return;
+        }
+        // Unreachable: deleted, moved or renamed since it was visited.  Drop
+        // that entry -- NOT the current one -- and try the one before it.
+        history_.erase(history_.end() - 2);
+    }
+    update_back_state();
 }
 
 void MainFrame::on_open(wxCommandEvent&)

@@ -93,6 +93,15 @@ private:
     // promote_to_tech_note().  Raised from the Lists menu for the open
     // document, and from the tree's context menu for any document.
     void on_promote_document(wxCommandEvent& event);
+    // Back: return to the document shown before this one.
+    //
+    // A history of what was SHOWN, browsing included -- after arrowing through
+    // a folder, "the one I was just looking at" is the only reading that
+    // matches the screen.  That makes it a different list from recents, which
+    // records what was chosen.
+    void on_back(wxCommandEvent& event);
+    void push_history(const std::string& path);
+    void update_back_state();
     void promote_tech_note(const std::string& path);
     // Export the rendered preview to PDF via WebView2's own print pipeline.
     void on_export_pdf(wxCommandEvent& event);
@@ -194,6 +203,12 @@ private:
     // is not on disk -- so without this, two notes created back to back and
     // saved afterwards would both claim the same number.
     std::vector<std::string> issued_tn_indices_;
+    // Documents shown this session, oldest first; the last is the one on
+    // screen.  Bounded, and consecutive duplicates collapsed.
+    std::vector<std::string> history_;
+    // Set while Back is doing the opening, so the move does not record itself
+    // and leave Back toggling between two documents for ever.
+    bool going_back_ = false;
     bool dirty_ = false;
     // Set once the installer has been handed the job, so the close that
     // follows does not ask about unsaved work a second time.

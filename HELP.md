@@ -53,6 +53,12 @@ Two things worth knowing while a scan is running:
 
 Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
+### Going back
+
+The **←** button on the toolbar (or **Alt+Left**) returns you to the document you were reading before this one, and again for the one before that. It is greyed out when there is nowhere to go.
+
+It follows everything you actually looked at, arrow-key browsing included — so after walking down a folder, Back retraces those steps in turn. A document deleted or moved since you saw it is skipped rather than stopping you.
+
 ### Browsing with the arrow keys
 
 **Move the selection in the tree and that document opens** — arrow keys, or a single click. The keyboard stays in the tree, so you can walk a folder and read each file as you pass it. Holding an arrow key down travels the list and opens only the row you stop on.
