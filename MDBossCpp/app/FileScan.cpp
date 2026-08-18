@@ -340,7 +340,14 @@ RootScan scan_root(const std::string& root,
 
 bool send_to_recycle_bin(const std::string& path)
 {
-    assert(!path.empty() && "deleting an empty path would be a bug");
+    // NOT asserted.  An empty path is a supported outcome here, not a
+    // programming error: the header documents a false return for a refusal,
+    // and a test pins it.  The assert that used to sit above this check said
+    // the opposite, so the two disagreed -- invisibly in Release, where
+    // NDEBUG removes the assert, and as a modal dialog that hung the whole
+    // suite in Debug.  When a runtime check already handles a case, asserting
+    // that the case cannot happen is not defence in depth, it is a
+    // contradiction.
     if (path.empty()) {
         return false;
     }
@@ -685,6 +692,9 @@ std::string ensure_markdown_extension(const std::string& name)
 
 std::string filename_from_title(const std::string& title)
 {
+    // The result is offered as a filename in a Save dialog, so anything
+    // Windows refuses would come back as a failed save the user has to
+    // diagnose.  The postcondition at the end is what says it cannot.
     // Long enough for any real title, short enough that the result plus its
     // folder stays clear of MAX_PATH on a deep tree.
     constexpr std::size_t kMaxStem = 100;
@@ -747,7 +757,15 @@ std::string filename_from_title(const std::string& title)
         }
     }
 
-    return stem + ".md";
+    const std::string out = stem + ".md";
+    // Nothing Windows refuses may reach the Save dialog: a name carrying one
+    // of these comes back as a failed save the user has to work out for
+    // themselves.  Cheap to state, and it covers every path above at once.
+    assert(out.find_first_of("<>:\"/\\|?*") == std::string::npos &&
+           "a suggested filename must contain no reserved character");
+    assert(out.size() > 3 && out.size() <= kMaxStem + 3 &&
+           "a suggested filename must be non-empty and bounded");
+    return out;
 }
 
 std::string markdown_image_link(const std::string& image_path,

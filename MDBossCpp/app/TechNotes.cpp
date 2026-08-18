@@ -346,6 +346,12 @@ std::string fill_tn_index(const std::string& text,
     if (empty_tn_index_span(out, &begin, &end)) {
         out.replace(begin, end - begin, " " + number);
     }
+    // The template must not reach the editor still holding the token: a
+    // document created with a literal {{tnindex}} in its front matter is worse
+    // than one with no number at all, because it looks deliberate.
+    assert(out.find(kTnIndexPlaceholder) == std::string::npos &&
+           "no placeholder may survive filling");
+    assert(!number.empty() && "a filled document must have been given a number");
     return out;
 }
 
@@ -493,6 +499,22 @@ std::string promote_to_tech_note(const std::string& text,
 
     std::string out = text;
     out.replace(begin, end - begin, rebuilt);
+    // Only ever ADDS.  A result shorter than the input means something the
+    // user wrote was dropped, which is the one outcome this function must
+    // never have -- it is editing a document they own.
+    assert(out.size() >= text.size() &&
+           "promoting must not drop anything the user wrote");
+#ifndef NDEBUG
+    // The strongest statement available: the document must now actually BE a
+    // tech note.  Anything less -- a block left unclosed, a keywords line
+    // written twice, an addition landing outside the front matter -- surfaces
+    // here rather than as a note quietly missing from the index later.
+    if (!guid.empty()) {
+        const TechNoteGaps after = tech_note_gaps(out);
+        assert(!after.front_matter && !after.guid && !after.keyword &&
+               "promoting must leave a document that IS a tech note");
+    }
+#endif
     return out;
 }
 
@@ -648,6 +670,15 @@ std::string tech_notes_index(const std::vector<TechNote>& notes,
         out << ". Two notes cannot share one number -- renumber one of each "
                "pair, then rebuild.\n";
     }
+
+    // This string REPLACES a file the user reads, so an empty or truncated
+    // one would silently destroy the index rather than fail loudly.  It always
+    // carries its heading, and it always says how many notes it found -- even
+    // when that is none.
+    assert(out.str().compare(0, 13, "# Tech Notes\n") == 0 &&
+           "the index must always lead with its heading");
+    assert(out.str().size() > 100 &&
+           "an index this short cannot have been generated properly");
     return out.str();
 }
 

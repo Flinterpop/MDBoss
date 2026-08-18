@@ -19,6 +19,7 @@ add_executable(mdrender_tests
     test_internalnotes.cpp
     test_technotes.cpp
     test_linktarget.cpp
+    AssertToStderr.cpp
     ../app/FileScan.cpp
     ../app/InternalNotes.cpp
     ../app/TechNotes.cpp

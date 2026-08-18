@@ -50,7 +50,15 @@ WizardStyle=modern
 ; plus the render assets it loads from beside itself.
 [Files]
 Source: "{#BuildDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+; template.html and pygments-github.css belong to the DEPRECATED Python app and
+; are not shipped: template.html's scroll bridge loads Qt's
+; qrc:///qtwebchannel/qwebchannel.js, which nothing in this build has, and the
+; C++ page never references the Pygments sheet -- test_mdrender.cpp asserts
+; exactly that.  They stay in the tree so mdrender.py still runs for the local
+; archaeology CLAUDE.md keeps it for; they simply stop riding along in every
+; install.  release.ps1 drops the same two from the portable zip.
 Source: "assets\*"; DestDir: "{app}\assets"; \
+    Excludes: "template.html,pygments-github.css"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "HELP.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme

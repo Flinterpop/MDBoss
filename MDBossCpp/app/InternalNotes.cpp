@@ -80,6 +80,21 @@ std::string escape_table_cell(const std::string& text)
             out += ch;
         }
     }
+    // Both hazards are gone, and both render as *something* when they are not
+    // -- which is exactly what makes them easy to ship unnoticed.  An escaped
+    // pipe is a backslash followed by a pipe, so what must not survive is a
+    // pipe with no backslash before it.
+    assert(out.find('\n') == std::string::npos &&
+           out.find('\r') == std::string::npos &&
+           "a newline in a cell ends the row");
+#ifndef NDEBUG
+    // Every pipe must carry a backslash immediately before it.  Bounded by the
+    // string, and only compiled in the configuration that checks assertions.
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        assert((out[i] != '|' || (i > 0 && out[i - 1] == '\\')) &&
+               "a bare pipe in a cell shifts every column after it");
+    }
+#endif
     return out;
 }
 
@@ -105,6 +120,26 @@ std::string normalise_link(const std::string& text)
     return out;
 }
 
+// The separator count a row of `columns` cells must have: one leading, one
+// trailing, and one between each pair.  A row that loses one silently shifts
+// every column after it, and the table still renders -- which is what makes
+// this worth asserting rather than eyeballing.
+#ifndef NDEBUG
+bool has_row_shape(const std::string& row, std::size_t columns)
+{
+    if (row.empty() || row.back() != '\n') {
+        return false;
+    }
+    std::size_t bare = 0;
+    for (std::size_t i = 0; i < row.size(); ++i) {   // bounded by the row
+        if (row[i] == '|' && (i == 0 || row[i - 1] != '\\')) {
+            ++bare;
+        }
+    }
+    return bare == columns + 1;
+}
+#endif
+
 std::string login_table_row(const LoginRecord& record)
 {
     std::ostringstream row;
@@ -115,6 +150,8 @@ std::string login_table_row(const LoginRecord& record)
         << " | " << escape_table_cell(record.last_changed)
         << " | " << escape_table_cell(record.notes)
         << " |\n";
+    assert(has_row_shape(row.str(), 6) &&
+           "a login row is Name | Link | Login | PW | Last Changed | Notes");
     return row.str();
 }
 
@@ -162,6 +199,8 @@ std::string fact_table_row(const FactRecord& record)
         << " | " << escape_table_cell(record.tags)
         << " | " << escape_table_cell(record.source)
         << " |\n";
+    assert(has_row_shape(row.str(), 4) &&
+           "a fact row is Date | Fact | Tags | Source, and ends the line");
     return row.str();
 }
 

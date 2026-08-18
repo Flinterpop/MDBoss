@@ -67,6 +67,21 @@ making the C++ app match Python — the C++ app is the reference now.
    one Ctrl+S from wiping it. Saves are now validated and read back
    (`write_text_file_checked` in `FileScan.cpp`).
 
+## Assertions are only checked in Debug, so Debug has to run
+
+Release defines `NDEBUG`, which removes every `assert`. **Debug is therefore the only configuration in which an assertion is ever checked** — and until 2026-08-17 it could not be run at all: a failed assert popped a modal dialog, `ctest` had nothing to dismiss it, and the suite hung with no output and no exit code. One assertion took the Debug run past five minutes before it was killed by hand, and the only clue was a window titled *Microsoft Visual C++ Runtime Library*. `tests/AssertToStderr.cpp` routes the CRT report to stderr so a failure names its test instead of stopping everything.
+
+**What that hang was hiding is the point.** `send_to_recycle_bin()` carried `assert(!path.empty())` *and* `if (path.empty()) return false;`, while `test_filescan.cpp` pinned the empty case as a supported outcome and the header documented a false return for it. The assert said one thing, the code and the test said the other; Release hid the disagreement and Debug turned it into a hang. **Where a runtime check already handles a case, asserting the case cannot happen is not defence in depth, it is a contradiction** — the assert went.
+
+So: `ctest --test-dir MDBossCpp/build -C Debug` is worth running whenever assertions are touched, and any assertion added is verified against all 180 tests rather than merely written down. The valuable ones state something a reader would otherwise have to derive:
+
+- `linkify()` asserts its loop consumes input on every pass — the property that stops a hostile document hanging the renderer. Checked at the **top** of the body, because the two `continue` paths would skip an assertion at the bottom, and those are the fiddly ones.
+- `markdown_path_from_file_url()` asserts its postcondition: a non-empty result always names a Markdown file. That is the entire safety property, and it is stated once rather than implied by four separate returns a later edit could get wrong.
+- `escape_table_cell()` asserts no bare pipe and no newline survive; `login_table_row()`/`fact_table_row()` assert the row still has the right number of unescaped separators. All three failures render as *something*, which is what makes them shippable.
+- `promote_to_tech_note()` asserts the document it returns actually **is** a tech note — the strongest statement available, and it catches a mangled block that would otherwise show up much later as a note missing from the index.
+
+**Not every function wants two.** The remaining zero-assertion functions are mostly wx widget construction — `build_panes()`, `build_toolbar()`, `on_context_menu()` — where an assertion would be decoration, and which the test binary cannot reach anyway. Chasing the ratio there buys nothing; the count went 155 → 151 deliberately.
+
 ## Before you change anything
 
 **Run the C++ suite:** `ctest --test-dir MDBossCpp/build -C Release`. This is

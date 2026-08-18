@@ -178,6 +178,12 @@ if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 $null = New-Item -ItemType Directory -Force "$stage\MDBoss"
 Copy-Item MDBossCpp\build\app\Release\MDBoss.exe "$stage\MDBoss\"
 Copy-Item -Recurse assets "$stage\MDBoss\assets"
+# Mirror installer-cpp.iss's Excludes.  Both belong to the deprecated Python
+# app, and a zip that carries what the installer drops is not the mirror the
+# comment above claims it is.
+Remove-Item -Force -ErrorAction SilentlyContinue `
+    "$stage\MDBoss\assets\template.html", `
+    "$stage\MDBoss\assets\pygments-github.css"
 Copy-Item HELP.md, README.md "$stage\MDBoss\"
 Compress-Archive -Force -Path "$stage\MDBoss" `
     -DestinationPath installer\MDBoss-Cpp-Portable.zip

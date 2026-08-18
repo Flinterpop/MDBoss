@@ -1,6 +1,7 @@
 #include "LinkTarget.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cctype>
 
 namespace mdboss {
@@ -95,6 +96,16 @@ std::string markdown_path_from_file_url(std::string_view uri)
     if (dot == 0 || path[dot - 1] == '\\') {
         return {};
     }
+
+    // The postcondition is the entire reason this function exists: the caller
+    // OPENS what comes back, so a non-empty result that is not a Markdown file
+    // is the one outcome that must never occur.  Stated here rather than left
+    // implied in the four returns above, any of which a later edit could get
+    // wrong.
+    assert(is_markdown_extension(ext) &&
+           "a non-empty result must always name a Markdown file");
+    assert(path.find('\0') == std::string::npos &&
+           "a path with an embedded NUL must never reach the caller");
     return path;
 }
 

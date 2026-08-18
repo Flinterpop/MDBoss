@@ -389,8 +389,19 @@ std::string linkify(std::string_view text, bool inside_link)
     out.reserve(text.size());
     std::size_t pos = 0;
     // Bounded by the chunk: every iteration either consumes a URL or advances
-    // past one character.
+    // past one character.  That is the property that stops a hostile document
+    // hanging the renderer, and it is ASSERTED rather than argued: every path
+    // below either breaks out or moves `pos` forward, and `advanced` is what
+    // says so if one ever stops doing it.
+    std::size_t previous = std::string_view::npos;
     while (pos < text.size()) {
+        // Checked at the TOP so the `continue` paths are covered too: an
+        // assertion at the bottom of the body would silently miss the two
+        // branches that skip it, which are exactly the fiddly ones.
+        assert((previous == std::string_view::npos || pos > previous) &&
+               "linkify must consume input on every pass, or it never ends");
+        previous = pos;
+
         const std::size_t http = text.find("http", pos);
         if (http == std::string_view::npos) {
             out += escape_html(text.substr(pos));
@@ -460,6 +471,8 @@ std::string linkify(std::string_view text, bool inside_link)
         out += "</a>";
         pos = http + end;
     }
+    assert(out.size() >= text.size() &&
+           "escaping and linking only ever grow the text");
     return out;
 }
 
