@@ -133,6 +133,8 @@ To find things again, use **Contents** search (see [Searching](#searching)) — 
 
 ### The tech-note index
 
+**Click a title in the list to open that tech note.** The titles are links, so the index is a way into your notes rather than just a report of them. Links to other Markdown documents work anywhere in the preview, not only here — they open in MD Boss rather than in your browser. A link to any other kind of file does nothing, deliberately: opening one would mean launching it, and a document is not something to trust that far.
+
 **Lists ▸ Tech Notes ▸ Refresh the list** (`Ctrl+Shift+R`) rebuilds it where it stands — useful while you are reading it, since **Show the list** would reopen the document and lose your place. If the list is the document on screen, it updates in front of you.
 
 **Lists ▸ Tech Notes ▸ Show the list** finds every tech note under your folders and writes `MD_Internal\TechNotes.md` — a table of TN index, title, version, subject, GUID and file — then opens it, in number order with any unnumbered notes at the end. It is rebuilt each time you ask for it, so showing the list and refreshing it are the same command.

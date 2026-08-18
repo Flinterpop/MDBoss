@@ -49,6 +49,20 @@ public:
         on_scrolled_ = std::move(handler);
     }
 
+    // Called when a link to a local MARKDOWN document is clicked, with its
+    // path.  The navigation is cancelled first, so the preview never leaves
+    // the page it is showing.
+    //
+    // Markdown only, and it matters: a file: URL is never handed to
+    // ShellExecute -- that would LAUNCH it, and a document is untrusted input
+    // -- so a link to an .exe or a .bat simply does nothing, exactly as
+    // before.  What this adds is one narrow, safe case: opening another
+    // document in MD Boss, which is what a link between notes means.
+    void set_on_open_document(std::function<void(const std::string&)> handler)
+    {
+        on_open_document_ = std::move(handler);
+    }
+
     // Write the page currently shown to a PDF at `path`.
     //
     // WebView2's own print pipeline does this, which is what makes the export
@@ -108,6 +122,7 @@ private:
     Microsoft::WRL::ComPtr<ICoreWebView2> webview_;
 
     std::function<void(double)> on_scrolled_;
+    std::function<void(const std::string&)> on_open_document_;
     std::string pending_html_;
     // The size the web view was last given, so resizing is idempotent and
     // can safely be re-checked on idle.

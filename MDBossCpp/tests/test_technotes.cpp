@@ -361,9 +361,41 @@ TEST_CASE("the index lists notes and says when it was made", "[technotes]")
 
     // The number leads the row: it is what a numbered series is cited by.
     CHECK(index.find("| TN Index | Title |") != std::string::npos);
-    CHECK(index.find("| 2026.01 | Alpha |") != std::string::npos);
+    // The title is a LINK to the note, so the list is a way in rather than
+    // just a report.  Absolute, because the index sits in MD_Internal under
+    // one root while the notes it lists may be under any of them.
+    CHECK(index.find("| 2026.01 | [Alpha](file:///C:/docs/a.md) |") !=
+          std::string::npos);
     // Nothing to report when every number is unique.
     CHECK(index.find("Duplicate numbers") == std::string::npos);
+}
+
+TEST_CASE("a title that could break its own link is escaped",
+          "[technotes][links]")
+{
+    std::vector<mdboss::TechNote> notes;
+    // A bracket would close the link text early; a space in the path would end
+    // the destination and leave the rest of it as visible text.
+    notes.push_back(mdboss::TechNote{"C:\\my docs\\a [draft].md",
+                                     "Alpha [draft]", "g", "1", "", "2026.01"});
+    const std::string index = mdboss::tech_notes_index(notes, {}, "");
+
+    CHECK(index.find("[Alpha \\[draft\\]]") != std::string::npos);
+    CHECK(index.find("(file:///C:/my%20docs/a%20[draft].md)") !=
+          std::string::npos);
+    // Still six separators, so the columns hold.
+    CHECK(index.find(" | 1 | ") != std::string::npos);
+}
+
+TEST_CASE("a note with no path is not linked", "[technotes][links]")
+{
+    // tech_notes_index() is a pure function over whatever it is handed, and a
+    // link to nowhere is worse than no link.
+    std::vector<mdboss::TechNote> notes;
+    notes.push_back(mdboss::TechNote{"", "Alpha", "g", "1", "", "2026.01"});
+    const std::string index = mdboss::tech_notes_index(notes, {}, "");
+    CHECK(index.find("| 2026.01 | Alpha |") != std::string::npos);
+    CHECK(index.find("file:///") == std::string::npos);
 }
 
 TEST_CASE("scanned notes come back in number order", "[technotes]")

@@ -133,6 +133,32 @@ std::vector<std::string> duplicate_indices(const std::vector<TechNote>& notes)
     return twice;
 }
 
+// An absolute file: URL for `path`, safe to use as a Markdown link
+// destination.
+//
+// ABSOLUTE rather than relative: the index lives in MD_Internal under one
+// root, while the notes it lists may be under any of them, so a relative link
+// would have to climb out of one root and back down another -- and there is no
+// relative path at all between two different drives.
+std::string file_url(const std::string& path)
+{
+    std::string url = "file:///";
+    for (const char ch : path) {   // bounded by the path length
+        if (ch == '\\') {
+            url += '/';
+        } else if (ch == ' ') {
+            // A raw space ends a Markdown link destination, and is not legal
+            // in a URL either.
+            url += "%20";
+        } else if (ch == '<' || ch == '>' || ch == '"' || ch == '`') {
+            continue;   // cannot appear in a Windows path; dropped, not trusted
+        } else {
+            url += ch;
+        }
+    }
+    return url;
+}
+
 std::string escape_cell(const std::string& text)
 {
     // Same hazard as the logins table: an unescaped pipe ends the cell early
@@ -578,8 +604,27 @@ std::string tech_notes_index(const std::vector<TechNote>& notes,
                 break;
             }
         }
+        // The title links to the note.  Clicking it in MD Boss opens that
+        // document; the parentheses around the destination are why file_url()
+        // encodes spaces, since a raw one would end the link early and leave
+        // the rest of the path as text.
+        std::string title = escape_cell(note.title);
+        if (!note.path.empty()) {
+            // A bracket in a title would close the link text early, so the
+            // two characters that can are escaped here rather than in
+            // escape_cell(), which is also used for cells that are not links.
+            std::string label;
+            for (const char ch : title) {   // bounded by the title length
+                if (ch == '[' || ch == ']') {
+                    label += '\\';
+                }
+                label += ch;
+            }
+            title = "[" + label + "](" + file_url(note.path) + ")";
+        }
+
         out << "| " << escape_cell(note.tn_index)
-            << " | " << escape_cell(note.title)
+            << " | " << title
             << " | " << escape_cell(note.version)
             << " | " << escape_cell(note.subject)
             << " | " << escape_cell(note.guid)

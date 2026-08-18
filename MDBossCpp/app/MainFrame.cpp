@@ -573,6 +573,13 @@ void MainFrame::build_panes()
     preview_->set_on_scrolled([this](double ratio) {
         on_preview_scrolled(ratio);
     });
+    // A link to another document opens it here rather than in a browser.  Via
+    // CallAfter because this runs from inside a WebView2 navigation callback,
+    // and open_path() can put up a modal dialog -- doing that while the
+    // browser is mid-navigation is asking for a re-entrancy problem.
+    preview_->set_on_open_document([this](const std::string& path) {
+        CallAfter([this, path] { open_path(path); });
+    });
 
     split_->SplitVertically(editor_, preview_, config_.editor_sash());
     outline_split_->SplitVertically(outline_, split_, config_.outline_sash());

@@ -27,6 +27,54 @@ bool is_local_scheme(const std::wstring& uri)
            uri.rfind(L"about:", 0) == 0 || uri.rfind(L"blob:", 0) == 0;
 }
 
+// A file: URL naming a Markdown document, decoded to a Windows path.  Empty
+// for anything else, which is the whole safety property: a link to an .exe, a
+// .bat or a .pdf yields nothing and is left to behave exactly as before.
+//
+// This is what makes "click a link to another document" possible without ever
+// handing a file: URL to ShellExecute, which would LAUNCH it.
+std::wstring markdown_file_path(const std::wstring& uri)
+{
+    if (uri.rfind(L"file:///", 0) != 0) {
+        return {};
+    }
+    std::wstring path;
+    path.reserve(uri.size());
+    // Percent-decoding, bounded by the string.  Only the two-hex-digit form
+    // exists in a URL WebView2 produces.
+    for (std::size_t i = 8; i < uri.size(); ++i) {
+        if (uri[i] == L'#' || uri[i] == L'?') {
+            break;   // a fragment or query is not part of the file name
+        }
+        if (uri[i] == L'%' && i + 2 < uri.size()) {
+            const std::wstring hex = uri.substr(i + 1, 2);
+            wchar_t* end = nullptr;
+            const long value = std::wcstol(hex.c_str(), &end, 16);
+            if (end != nullptr && *end == L'\0' && value > 0 && value < 256) {
+                path += static_cast<wchar_t>(value);
+                i += 2;
+                continue;
+            }
+        }
+        path += (uri[i] == L'/') ? L'\\' : uri[i];
+    }
+
+    const std::size_t dot = path.find_last_of(L'.');
+    if (dot == std::wstring::npos) {
+        return {};
+    }
+    std::wstring ext = path.substr(dot);
+    for (wchar_t& ch : ext) {   // bounded by the extension
+        ch = static_cast<wchar_t>(::towlower(ch));
+    }
+    // The same list the open dialog offers, kept in step with app.py's
+    // MARKDOWN_EXTS.
+    const bool is_markdown = ext == L".md" || ext == L".markdown" ||
+                             ext == L".mdown" || ext == L".mkd" ||
+                             ext == L".mdwn";
+    return is_markdown ? path : std::wstring();
+}
+
 std::wstring widen(const std::string& text)
 {
     if (text.empty()) {
@@ -41,6 +89,26 @@ std::wstring widen(const std::string& text)
     std::wstring out(static_cast<std::size_t>(size), L'\0');
     MultiByteToWideChar(CP_UTF8, 0, text.c_str(),
                         static_cast<int>(text.size()), out.data(), size);
+    return out;
+}
+
+// UTF-8, because every path this app carries around is UTF-8 -- see PathUtf8.h
+// for why a narrow string here must never be ANSI.
+std::string narrow(const std::wstring& text)
+{
+    if (text.empty()) {
+        return {};
+    }
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text.c_str(),
+                                         static_cast<int>(text.size()),
+                                         nullptr, 0, nullptr, nullptr);
+    if (size <= 0) {
+        return {};
+    }
+    std::string out(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.c_str(),
+                        static_cast<int>(text.size()), out.data(), size,
+                        nullptr, nullptr);
     return out;
 }
 
@@ -348,6 +416,19 @@ void PreviewPane::install_link_handler()
                 }
                 const std::wstring uri(raw);
                 CoTaskMemFree(raw);
+                // A link to another Markdown document opens it IN THE APP.
+                // Note what this is not: the file: URL never reaches
+                // ShellExecute, which would launch it.  Only a markdown
+                // extension qualifies, and the frame re-reads and validates
+                // the file the same way File > Open does.
+                // No need to exclude the page's own load: it is navigated to a
+                // staged .html in the temp folder, never to a .md.
+                const std::wstring document = markdown_file_path(uri);
+                if (!document.empty() && on_open_document_) {
+                    args->put_Cancel(TRUE);
+                    on_open_document_(narrow(document));
+                    return S_OK;
+                }
                 if (is_local_scheme(uri)) {
                     return S_OK;   // the document itself, loaded from disk
                 }
