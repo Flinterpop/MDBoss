@@ -181,6 +181,20 @@ private:
     void on_expanded(wxTreeEvent& event);
     void on_collapsed(wxTreeEvent& event);
     void on_context_menu(wxTreeEvent& event);
+    // The context menu in two halves: what the user is offered, and what each
+    // choice does.  Together they had passed 190 lines, where an item appended
+    // to one half and not wired in the other is easy to miss.  Both take the
+    // same `templates`/`shown`, read once by the caller, because binding an
+    // INDEX into a list rebuilt per menu would read whichever list existed
+    // when the item was clicked.
+    void build_context_menu(
+        wxMenu& menu, const std::string& path, bool is_file, bool is_root_row,
+        const std::vector<std::pair<std::string, std::string>>& templates,
+        std::size_t shown);
+    void bind_context_menu(
+        wxMenu& menu, const std::string& path, const std::string& dir,
+        const std::vector<std::pair<std::string, std::string>>& templates,
+        std::size_t shown);
     // Dragging a document onto a folder moves it on disk.  Files only:
     // dragging a folder would relocate a whole subtree on one mis-drop, and
     // needs an ancestor check a file move does not.

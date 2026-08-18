@@ -890,32 +890,20 @@ wxTreeItemId FileTreePanel::find_item_under(const wxTreeItemId& item,
 
 // -------------------------------------------------------- context menu --
 
-void FileTreePanel::on_context_menu(wxTreeEvent& event)
+// Building the menu and wiring it up are separated because they are two
+// different jobs that happen to share a list of ids: one decides what the
+// user is offered, the other decides what each choice does.  Together they
+// had grown past 190 lines, at which point an item appended in the wrong
+// half is easy to miss -- and both halves grew again the day this was split.
+//
+// `templates` and `shown` are computed once by the caller and passed to both,
+// since binding an INDEX into a list rebuilt on every menu would read
+// whichever list happened to exist when the item was clicked.
+void FileTreePanel::build_context_menu(
+    wxMenu& menu, const std::string& path, bool is_file, bool is_root_row,
+    const std::vector<std::pair<std::string, std::string>>& templates,
+    std::size_t shown)
 {
-    const wxTreeItemId item = event.GetItem();
-    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
-    if (data == nullptr) {
-        return;
-    }
-    tree_->SelectItem(item);
-
-    const std::string path = data->path();
-    const bool is_file = data->is_file();
-    // New items land beside a file, or inside a folder.
-    const std::string dir =
-        is_file ? path_to_utf8(path_from_utf8(path).parent_path()) : path;
-    // A configured root, as opposed to a folder inside one.  Compared by path
-    // rather than by depth, because a root row is the only row whose path is
-    // one of the configured roots.
-    bool is_root_row = false;
-    for (const Root& root : roots_) {   // bounded by the roots list
-        if (norm_path(root.path) == norm_path(path)) {
-            is_root_row = true;
-            break;
-        }
-    }
-
-    wxMenu menu;
     if (is_file) {
         menu.Append(kIdOpen, "&Open");
         // Offered on any document, and disabled on one that is already a tech
@@ -932,12 +920,11 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     // started from a template *in the folder you clicked*.  Reaching the
     // templates only from the File menu means always creating in the default
     // place and moving the file afterwards.
-    const std::vector<std::pair<std::string, std::string>> templates =
-        list_templates();
+    //
+    // `templates` and `shown` come from the caller: the bind half needs the
+    // very same list, and reading it twice could disagree.
     auto* new_menu = new wxMenu();
     new_menu->Append(kIdNewFile, "&Blank");
-    const std::size_t shown =
-        std::min<std::size_t>(templates.size(), kMaxTemplatesShown);
     for (std::size_t i = 0; i < shown; ++i) {   // bounded (Rule of 10)
         new_menu->Append(kIdTemplateBase + static_cast<int>(i),
                          wxString::FromUTF8(templates[i].first));
@@ -987,7 +974,13 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
     if (on_manage_folders_) {
         menu.Append(kIdManageFolders, L"Manage f&olders…");
     }
+}
 
+void FileTreePanel::bind_context_menu(
+    wxMenu& menu, const std::string& path, const std::string& dir,
+    const std::vector<std::pair<std::string, std::string>>& templates,
+    std::size_t shown)
+{
     menu.Bind(wxEVT_MENU, [this, path](wxCommandEvent&) {
         if (on_open_) {
             on_open_(path);
@@ -1079,7 +1072,43 @@ void FileTreePanel::on_context_menu(wxTreeEvent& event)
             on_import_to_inbox_();
         }
     }, kIdImportInbox);
+}
 
+void FileTreePanel::on_context_menu(wxTreeEvent& event)
+{
+    const wxTreeItemId item = event.GetItem();
+    auto* data = dynamic_cast<ItemData*>(tree_->GetItemData(item));
+    if (data == nullptr) {
+        return;
+    }
+    tree_->SelectItem(item);
+
+    const std::string path = data->path();
+    const bool is_file = data->is_file();
+    // New items land beside a file, or inside a folder.
+    const std::string dir =
+        is_file ? path_to_utf8(path_from_utf8(path).parent_path()) : path;
+    // A configured root, as opposed to a folder inside one.  Compared by path
+    // rather than by depth, because a root row is the only row whose path is
+    // one of the configured roots.
+    bool is_root_row = false;
+    for (const Root& root : roots_) {   // bounded by the roots list
+        if (norm_path(root.path) == norm_path(path)) {
+            is_root_row = true;
+            break;
+        }
+    }
+
+    // New items land beside a file, or inside a folder; the template list is
+    // read once here so both halves below agree on it.
+    const std::vector<std::pair<std::string, std::string>> templates =
+        list_templates();
+    const std::size_t shown =
+        std::min<std::size_t>(templates.size(), kMaxTemplatesShown);
+
+    wxMenu menu;
+    build_context_menu(menu, path, is_file, is_root_row, templates, shown);
+    bind_context_menu(menu, path, dir, templates, shown);
     PopupMenu(&menu);
 }
 

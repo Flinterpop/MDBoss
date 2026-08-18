@@ -100,8 +100,11 @@ private:
     // matches the screen.  That makes it a different list from recents, which
     // records what was chosen.
     void on_back(wxCommandEvent& event);
+    void on_forward(wxCommandEvent& event);
+    // Both are one call into this: `step` is -1 for Back, +1 for Forward.
+    void navigate_history(int step);
     void push_history(const std::string& path);
-    void update_back_state();
+    void update_nav_state();
     void promote_tech_note(const std::string& path);
     // Export the rendered preview to PDF via WebView2's own print pipeline.
     void on_export_pdf(wxCommandEvent& event);
@@ -203,12 +206,17 @@ private:
     // is not on disk -- so without this, two notes created back to back and
     // saved afterwards would both claim the same number.
     std::vector<std::string> issued_tn_indices_;
-    // Documents shown this session, oldest first; the last is the one on
-    // screen.  Bounded, and consecutive duplicates collapsed.
+    // Documents shown this session, oldest first, with a CURSOR rather than a
+    // stack top: Forward needs the entries after the current one to survive
+    // going Back, which a stack that popped them could not offer.  Bounded,
+    // and re-showing the current document is not a move.
     std::vector<std::string> history_;
-    // Set while Back is doing the opening, so the move does not record itself
-    // and leave Back toggling between two documents for ever.
-    bool going_back_ = false;
+    // Index into history_ of the document on screen.  Meaningless while
+    // history_ is empty, which is the only time it may equal size().
+    std::size_t history_pos_ = 0;
+    // Set while Back or Forward is doing the opening, so the move does not
+    // record itself and leave the pair shuffling two documents for ever.
+    bool navigating_ = false;
     bool dirty_ = false;
     // Set once the installer has been handed the job, so the close that
     // follows does not ask about unsaved work a second time.

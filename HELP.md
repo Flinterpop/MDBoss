@@ -57,9 +57,11 @@ Press **F5** at any time to rescan and pick up files added or removed outside MD
 
 ### Going back
 
-The **←** button on the toolbar (or **Alt+Left**) returns you to the document you were reading before this one, and again for the one before that. It is greyed out when there is nowhere to go.
+The **←** and **→** buttons on the toolbar (or **Alt+Left** and **Alt+Right**) walk the documents you have read: Back returns to the one before this, Forward returns to the one you came back from. Each is greyed out when there is nowhere to go that way.
 
-It follows everything you actually looked at, arrow-key browsing included — so after walking down a folder, Back retraces those steps in turn. A document deleted or moved since you saw it is skipped rather than stopping you.
+They follow everything you actually looked at, arrow-key browsing included — so after walking down a folder, Back retraces those steps in turn. A document deleted or moved since you saw it is skipped rather than stopping you.
+
+**Opening something new drops the forward trail**, as a browser does: once you go Back and then open a different document, the ones you had gone back past are no longer ahead of you.
 
 ### Browsing with the arrow keys
 
