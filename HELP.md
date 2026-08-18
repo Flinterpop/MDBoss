@@ -260,7 +260,7 @@ when you do want a copy in the inbox.
   `<img src="pics/a.png" style="zoom: 40%;" />`.
 - **Raw HTML**: inline/block HTML in a document is rendered (active content
   such as `<script>` is stripped for safety).
-- **Code**: fenced blocks are syntax-highlighted (Pygments).
+- **Code**: fenced blocks are syntax-highlighted (highlight.js), in GitHub's colours under the GitHub style and an Xcode-like palette under Notes. A fence with no language tag is left unhighlighted.
 - **Alerts**: a blockquote beginning with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
   `[!WARNING]`, or `[!CAUTION]` renders as a coloured GitHub callout box:
 

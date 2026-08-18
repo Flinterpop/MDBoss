@@ -28,10 +28,10 @@ recorded here and not on disk is worse than no record at all.
 
 Recorded from the files themselves, not from memory:
 
-- **highlight.js** states it in its own banner: `Highlight.js v11.11.1`. The
+- **highlight.js** states it in its own banner: `Highlight.js v11.12.0`. The
   theme has no banner and is only meaningful paired with that release, so it
   carries the same number.
-- **KaTeX** embeds `version:"0.17.0"` in the bundle.
+- **KaTeX** embeds `version:"0.18.4"` in the bundle.
 - **mermaid** embeds `{version:"11.16.1"}` next to its own accessor. The other
   version string in that file belongs to DOMPurify; see above.
 
