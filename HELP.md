@@ -1,6 +1,6 @@
 # MD Boss
 
-*Last updated: 16 Aug 2026*
+*Last updated: 17 Aug 2026*
 
 A local Markdown manager, editor, and GitHub-style viewer. Browse Markdown
 files across up to **five root folders**, edit them beside a **live preview**
@@ -53,6 +53,8 @@ Two things worth knowing while a scan is running:
 
 Press **F5** at any time to rescan and pick up files added or removed outside MD Boss.
 
+## Getting around
+
 ### Going back
 
 The **←** button on the toolbar (or **Alt+Left**) returns you to the document you were reading before this one, and again for the one before that. It is greyed out when there is nowhere to go.
@@ -85,11 +87,15 @@ There is **no undo**. If you move something by accident, drag it back.
 
 ## Links in the preview
 
-**Click a link and it opens in your browser.** `http`, `https` and `mailto:` links all work; the preview itself stays where it is, showing the document you were reading.
+**Click a web link and it opens in your browser.** `http`, `https` and `mailto:` links all work; the preview itself stays where it is, showing the document you were reading.
 
 The link is handed to Windows to open, which is why it leaves MD Boss entirely. The preview never loads anything from the network itself — a remote image or script in a document is still blocked, exactly as before. Following a link is a click you made; fetching a tracking pixel is not, and that distinction is the whole point.
 
-A link to anything other than those three kinds is ignored rather than opened.
+**A link to another Markdown document opens it in MD Boss instead.** That is how the tech-note index works, and it works anywhere: a link from one of your documents to another moves you between them without leaving the app.
+
+**A link to any other kind of file does nothing, on purpose.** Opening one would mean launching it, and a document — which may have come from anywhere — is not something to trust that far. So `.md`, `.markdown`, `.mdown`, `.mkd` and `.mdwn` are followed; a `.exe`, a `.bat`, a `.pdf` or anything else is ignored.
+
+**Bare URLs are links too**, without needing `[text](url)` around them: `http://`, `https://`, `www.` and `user@host` are all recognised, as they are on GitHub — **including addresses with a port**, like `https://10.10.10.88:8443/admin`. A URL inside a code span or a fenced block stays literal, and only `http` and `https` are ever made clickable, so a `javascript:` or `file:` URL written into a document never becomes something you can click.
 
 ## Preview style
 

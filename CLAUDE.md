@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-*Last updated: 16 Aug 2026*
+*Last updated: 17 Aug 2026*
 
 Guidance for Claude Code working in this repository.
 

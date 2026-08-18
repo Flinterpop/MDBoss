@@ -5,7 +5,7 @@
 [![Downloads](https://img.shields.io/github/downloads/Flinterpop/MDBoss/total)](https://github.com/Flinterpop/MDBoss/releases)
 [![License: MIT](https://img.shields.io/github/license/Flinterpop/MDBoss)](LICENSE)
 
-*Last updated: 16 Aug 2026*
+*Last updated: 17 Aug 2026*
 
 A local Markdown manager, editor, and GitHub-style viewer for Windows.
 
@@ -33,11 +33,12 @@ the same app lives in the repo but is **deprecated** — see
 
 **Lists**
 - **Four standing lists**, kept as ordinary Markdown in an `MD_Internal` folder beside your `MD_Inbox` and reachable from the **Lists** menu: **login records** (a table of Name / Link / Login / PW / Last Changed / Notes in `logins.md`), **to-dos** (`Ctrl+T`, a dated tickable checklist in `ToDoList.md`), **Grail Diary entries** (free Markdown under a dated heading in `GrailDiary.md`), and **fact records** (a searchable index of dated facts — Date / Fact / Tags / Source in `Facts.md`, where the date is the date the fact is true of, not the day it was typed). Entries are appended, never rewritten, so the files stay perfectly editable by hand — and they appear in the files tree, the counts and the Contents search like any other document.
-- **Tech-note index:** **Lists ▸ Tech Notes ▸ Show the list** finds every document whose front matter carries both a `GUID` and `TechNote` in its `keywords` — the two the TechNote template writes — and generates `MD_Internal\TechNotes.md`, a table of TN index, title, version, subject, GUID and file. Derived from the documents each time rather than accumulated, so notes made outside MD Boss, renamed, moved or deleted all come out right. New notes are **numbered `2026.04`** — the year and a sequence that restarts each January, taken one past the highest already in use; a number two notes both claim is reported under the table. An existing document becomes one with **Update as TechNote** from the tree's right-click menu, which adds only what is missing and numbers it in the document's own year where its front matter names one.
+- **Tech-note index:** **Lists ▸ Tech Notes ▸ Show the list** finds every document whose front matter carries both a `GUID` and `TechNote` in its `keywords` — the two the TechNote template writes — and generates `MD_Internal\TechNotes.md`, a table of TN index, title, version, subject, GUID and file. **Each title is a link — click one to open that note.** **Refresh the list** (`Ctrl+Shift+R`) rebuilds it where it stands, keeping your place if you are reading it. Derived from the documents each time rather than accumulated, so notes made outside MD Boss, renamed, moved or deleted all come out right. New notes are **numbered `2026.04`** — the year and a sequence that restarts each January, taken one past the highest already in use; a number two notes both claim is reported under the table. An existing document becomes one with **Update as TechNote** from the tree's right-click menu, which adds only what is missing and numbers it in the document's own year where its front matter names one.
 - `logins.md` stores passwords **in plain text**, so MD Boss writes a `.gitignore` into `MD_Internal` when it creates the folder — the files cannot be committed to a repository by accident. Anyone who can read the folder can read the passwords, and the Contents search indexes them.
 
 **Browse & manage**
-- Up to five root folders in one combined file tree; each folder shows its recursive Markdown-file count, and folders holding no Markdown are hidden. **A single click opens a file.** The folders you leave open are remembered between runs. Filter box, and full right-click file management (new from template, new folder, rename, delete (to the Recycle Bin), reveal in File Explorer, copy path).
+- Up to five root folders in one combined file tree; each folder shows its recursive Markdown-file count, and folders holding no Markdown are hidden. **A single click opens a file, and the arrow keys browse** — move the selection and that document is shown, so you can walk a folder and read each file as you pass it. Browsing deliberately does not fill up **Recent** and never interrupts you with a prompt; press **Enter** to open properly. The folders you leave open are remembered between runs. Filter box, and full right-click file management (new from template, new folder, rename, delete (to the Recycle Bin), reveal in File Explorer, copy path).
+- **Back** (the **←** toolbar button, or **Alt+Left**) returns to the document you were reading before this one, and again for the one before that — following everything you looked at, browsing included. It is greyed out when there is nowhere to go, and skips a document that has been deleted or moved since you saw it.
 - **Flat-list view:** right-click any folder — a root or a subfolder at any depth — and choose **Show as flat list** to see every Markdown file beneath it in one list instead of a folder tree — handy for a deep structure holding only a few documents. A flattened folder is marked `(flat)` after its count. Each folder is independent, so one subfolder can be flat while its siblings stay trees. The choice is remembered per folder.
 - **Drag to move:** drag a document onto a folder in the tree to move it on disk (dropping onto a file puts it beside that file). Folders are not draggable. Moves are silent within a top-level folder and ask only when it matters — replacing an existing name, or crossing to a different root. A moved file keeps its place in Favorites and Recent, and if it is the open document MD Boss follows it, so Ctrl+S still saves where you expect. No undo: drag it back.
 - **Skip folders when scanning:** right-click any folder inside a root and choose **Skip when scanning** to leave a build tree, a package cache or an application's output directory out of the walk — folders like these routinely hold hundreds of times more files than your documents do. A skipped folder is still listed, marked `(excluded)`, so you can find it and put it back. The scan itself runs in the background and the roots appear straight away; a root large enough to hit the safety limit is marked `(partial — scan limit reached)` rather than quietly showing a short list.
@@ -47,7 +48,7 @@ the same app lives in the repo but is **deprecated** — see
   newest-first, maintained automatically.
 - Favorites below Recent (both resizable): newest-first, up to ten, with a
   right-click menu and export / import / clear.
-- New-file templates (`%APPDATA%\MDBoss\templates`; `{{title}}`/`{{date}}`/`{{year}}`/`{{guid}}` placeholders), including a **TechNote** starter that carries its banner logo inline so it renders before the document is saved, then drops `background-logo.png` beside the file and switches to the ordinary relative reference on the first save.
+- New-file templates (`%APPDATA%\MDBoss\templates`; `{{title}}`/`{{date}}`/`{{year}}`/`{{guid}}`/`{{tnindex}}` placeholders), including a **TechNote** starter that carries its banner logo inline so it renders before the document is saved, then drops `background-logo.png` beside the file and switches to the ordinary relative reference on the first save.
 - Works as a plain Markdown viewer too: **Ctrl+O**, drag-and-drop, or a path on
   the command line opens any file on disk, root folder or not. A second launch
   hands its document to the running window instead of starting another copy.
@@ -82,6 +83,15 @@ the same app lives in the repo but is **deprecated** — see
   (`!!!` / `???` / `???+`).
 - LaTeX math (`$…$`, `$$…$$`) via KaTeX; syntax-highlighted code
   (highlight.js).
+- **Bare URLs are links**, as on GitHub — `http://`, `https://`, `www.` and
+  `user@host`, **including addresses with a port** like
+  `https://10.10.10.88:8443/admin`. A URL in a code span or fence stays
+  literal, and only `http`/`https` are ever made clickable.
+- **Links between your own documents open in MD Boss.** A link to another
+  Markdown file opens it here rather than in a browser; a link to any other
+  kind of file does nothing, because following one would mean launching it.
+  Web links still open in your browser, and the preview itself never fetches
+  a remote byte.
 
 **Distribution**
 - Windows installer + portable zip. **In-app auto-update** downloads and
@@ -96,6 +106,14 @@ Download **MDBoss-Cpp-Setup.exe** or **MDBoss-Cpp-Portable.zip** from the
 installer asks whether to install for all users (Program Files, the default)
 or just for you. The portable zip holds an `MDBoss` folder — extract it
 somewhere and run `MDBoss.exe` from inside it.
+
+> **Upgrading from v1.8.0 or earlier?** Those builds installed into
+> `Program Files (x86)` — the installer was running in 32-bit mode even though
+> the app is 64-bit. Installing v1.9.0 or later **moves** the existing copy to
+> `Program Files` rather than leaving two behind. Your settings live in
+> `%APPDATA%\MDBoss` and are untouched. An empty
+> `Program Files (x86)\MD Boss Cpp` folder may be left over; it holds nothing
+> and can be deleted.
 
 It updates itself from `Help → Check for updates`: an installed copy
 downloads `MDBoss-Cpp-Setup.exe`, a portable copy (no uninstaller beside the
