@@ -1,13 +1,14 @@
 find_package(Catch2 CONFIG REQUIRED)
 
-# FileScan, InternalNotes, TechNotes and LinkTarget are deliberately wx-free
-# so they can be compiled straight into the test binary; everything else in
+# FileScan, TextSearch, InternalNotes, TechNotes and LinkTarget are deliberately
+# wx-free so they can be compiled straight into the test binary; everything else in
 # app/ needs a GUI toolkit.  LinkTarget was lifted out of PreviewPane.cpp for
 # exactly that reason: it parses untrusted URLs and could not be reached from
 # a test while it lived beside a WebView2.
 add_executable(mdrender_tests
     test_mdrender.cpp
     test_filescan.cpp
+    test_textsearch.cpp
     test_fileio.cpp
     test_fileassoc.cpp
     test_templates.cpp
@@ -21,6 +22,7 @@ add_executable(mdrender_tests
     test_linktarget.cpp
     AssertToStderr.cpp
     ../app/FileScan.cpp
+    ../app/TextSearch.cpp
     ../app/InternalNotes.cpp
     ../app/TechNotes.cpp
     ../app/LinkTarget.cpp

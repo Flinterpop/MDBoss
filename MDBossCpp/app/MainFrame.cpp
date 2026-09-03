@@ -25,6 +25,8 @@
 #include "Favorites.h"
 #include "FileAssoc.h"
 #include "FileScan.h"
+#include "FindBar.h"
+#include "FindInFilesDialog.h"
 #include "FoldersDialog.h"
 #include "Version.h"
 #include "HelpDialog.h"
@@ -85,6 +87,18 @@ constexpr int kIdAddFact = wxID_HIGHEST + 25;
 constexpr int kIdRefreshTechNotes = wxID_HIGHEST + 26;
 constexpr int kIdBack = wxID_HIGHEST + 27;
 constexpr int kIdForward = wxID_HIGHEST + 28;
+constexpr int kIdFind = wxID_HIGHEST + 29;
+constexpr int kIdFindNext = wxID_HIGHEST + 30;
+constexpr int kIdFindPrevious = wxID_HIGHEST + 31;
+constexpr int kIdFindInFiles = wxID_HIGHEST + 32;
+
+// Bounds on the Find bar (Rule of 10).  The first caps the counting pass a
+// keystroke triggers -- a document matching on every line must not turn
+// typing into a stall -- and the count says so rather than rounding down
+// silently.  The second stops a whole selected chapter being pasted into a
+// one-line query box.
+constexpr std::size_t kMaxFindHits = 1000;
+constexpr std::size_t kMaxFindSeed = 2000;
 
 // How many documents back you can go.  A bound rather than a whole session's
 // worth (Rule of 10): the list is only useful a few steps deep, and it holds
@@ -292,6 +306,17 @@ void MainFrame::build_menu()
                     : kIdThemeGitHub,
                 true);
 
+    // A menu of its own rather than more entries on View: neither command is
+    // about what is on screen, and the pair is what people go to the menu bar
+    // looking for.
+    auto* search = new wxMenu();
+    search->Append(kIdFind, L"&Find in this document\tCtrl+F");
+    search->Append(kIdFindNext, L"Find &next\tF3");
+    search->Append(kIdFindPrevious, L"Find &previous\tShift+F3");
+    search->AppendSeparator();
+    search->Append(kIdFindInFiles,
+                   L"Find in &all documents…\tCtrl+Shift+F");
+
     auto* snippets = new wxMenu();
     for (std::size_t i = 0; i < std::size(kSnippets); ++i) {   // bounded
         snippets->Append(kIdSnippetBase + static_cast<int>(i),
@@ -337,6 +362,7 @@ void MainFrame::build_menu()
     auto* bar = new wxMenuBar();
     bar->Append(file, "&File");
     bar->Append(view, "&View");
+    bar->Append(search, "&Search");
     bar->Append(snippets, "&Snippets");
     bar->Append(lists, "&Lists");
     bar->Append(help, "&Help");
@@ -615,10 +641,25 @@ void MainFrame::build_panes()
     files_split_->SplitVertically(recent_split_, outline_split_,
                                   config_.files_sash());
 
+    // The Find bar is a second row of the frame's own sizer, below every
+    // pane and hidden until Ctrl+F.  Putting it inside the editor's pane
+    // would have meant wrapping the editor in a panel, and the editor is
+    // Unsplit() by pointer in three places -- see FindBar.h.
+    find_bar_ = new FindBar(this);
+    find_bar_->Hide();
+    find_bar_->set_on_find([this](const FindRequest& request) {
+        find_in_document(request);
+    });
+    // Closing the bar puts the caret back where the user was working; without
+    // it focus is left on a hidden window and the next keystroke goes nowhere
+    // anyone can see.
+    find_bar_->set_on_close([this] { editor_->SetFocus(); });
+
     // The top-level child goes in a sizer: wxFrame will stretch a lone child
     // to fill, but that fallback does not drive a proper layout pass.
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(files_split_, 1, wxEXPAND);
+    sizer->Add(find_bar_, 0, wxEXPAND);
     SetSizer(sizer);
     Layout();
 
@@ -718,6 +759,10 @@ void MainFrame::bind_events()
     Bind(wxEVT_MENU, &MainFrame::on_tech_notes, this, kIdTechNotes);
     Bind(wxEVT_MENU, &MainFrame::on_refresh_tech_notes, this,
          kIdRefreshTechNotes);
+    Bind(wxEVT_MENU, &MainFrame::on_find, this, kIdFind);
+    Bind(wxEVT_MENU, &MainFrame::on_find_next, this, kIdFindNext);
+    Bind(wxEVT_MENU, &MainFrame::on_find_previous, this, kIdFindPrevious);
+    Bind(wxEVT_MENU, &MainFrame::on_find_in_files, this, kIdFindInFiles);
     Bind(wxEVT_MENU, &MainFrame::on_back, this, kIdBack);
     Bind(wxEVT_MENU, &MainFrame::on_forward, this, kIdForward);
     Bind(wxEVT_MENU, &MainFrame::on_promote_document, this, kIdPromoteDocument);
@@ -942,6 +987,175 @@ void MainFrame::on_back(wxCommandEvent&)
 void MainFrame::on_forward(wxCommandEvent&)
 {
     navigate_history(1);
+}
+
+// ---------------------------------------------------------- searching --
+
+void MainFrame::on_find(wxCommandEvent&)
+{
+    // A selection seeds the query, as every editor does -- but only a
+    // single-line one: selecting three paragraphs and pressing Ctrl+F means
+    // "search within these", not "search for all of this".
+    wxString seed;
+    if (editor_ != nullptr && editor_->GetSelectionEnd() >
+                                  editor_->GetSelectionStart()) {
+        const wxString selected = editor_->GetSelectedText();
+        if (selected.find('\n') == wxString::npos &&
+            selected.length() <= kMaxFindSeed) {
+            seed = selected;
+        }
+    }
+    // Where an incremental search starts from, taken now: typing must not
+    // walk forward through the document a keystroke at a time, and deleting
+    // a character has to come back to the same place.
+    find_origin_ = editor_selection_start();
+    find_bar_->open(seed);
+}
+
+void MainFrame::on_find_next(wxCommandEvent& event)
+{
+    step_find(1, event);
+}
+
+void MainFrame::on_find_previous(wxCommandEvent& event)
+{
+    step_find(-1, event);
+}
+
+void MainFrame::step_find(int direction, wxCommandEvent& event)
+{
+    // F3 with nothing to repeat is a request to search, not a no-op: there is
+    // no previous query to step through, so the bar opens instead.
+    if (!find_bar_->IsShown() || find_bar_->needle().empty()) {
+        on_find(event);
+        return;
+    }
+    FindRequest request;
+    request.needle = find_bar_->needle();
+    request.options = find_bar_->options();
+    request.direction = direction;
+    find_in_document(request);
+}
+
+std::size_t MainFrame::editor_selection_start() const
+{
+    const int start = editor_->GetSelectionStart();
+    return (start > 0) ? static_cast<std::size_t>(start) : 0;
+}
+
+void MainFrame::find_in_document(const FindRequest& request)
+{
+    if (request.needle.empty()) {
+        return;
+    }
+    // Scintilla positions are byte offsets into the UTF-8 document, which is
+    // exactly what TextSearch deals in, so a match found here can be selected
+    // without a conversion that could land a character out.
+    const std::string text = editor_->GetText().utf8_string();
+
+    std::size_t from = find_origin_;
+    if (!request.incremental) {
+        // Forward from the end of the current match, back from its start, so
+        // repeating never finds the same one twice.
+        const int end = editor_->GetSelectionEnd();
+        from = (request.direction >= 0)
+                   ? ((end > 0) ? static_cast<std::size_t>(end) : 0)
+                   : editor_selection_start();
+    }
+    const TextMatch match =
+        (request.direction >= 0)
+            ? find_next(text, request.needle, from, request.options)
+            : find_previous(text, request.needle, from, request.options);
+    if (!match.found()) {
+        find_bar_->set_status(L"No matches");
+        return;
+    }
+    editor_->SetSelection(static_cast<int>(match.offset),
+                          static_cast<int>(match.offset + match.length));
+    editor_->EnsureCaretVisible();
+
+    // "3 of 12" rather than a bare "found": the count is what tells you
+    // whether stepping through is worth the trouble.  Bounded, and the bound
+    // is shown when it is reached rather than presented as a total.
+    const std::vector<LineHit> hits =
+        hits_in_text(text, request.needle, request.options, kMaxFindHits);
+    std::size_t index = 0;
+    for (std::size_t i = 0; i < hits.size(); ++i) {   // bounded by kMaxFindHits
+        if (hits[i].offset == match.offset) {
+            index = i + 1;
+            break;
+        }
+    }
+    wxString status;
+    if (index > 0) {
+        status = wxString::Format(L"%ld of %ld", static_cast<long>(index),
+                                  static_cast<long>(hits.size()));
+        if (hits.size() >= kMaxFindHits) {
+            status += L"+";
+        }
+    } else {
+        status = L"Found";
+    }
+    if (match.wrapped) {
+        status += L" (wrapped)";
+    }
+    find_bar_->set_status(status);
+}
+
+void MainFrame::on_find_in_files(wxCommandEvent&)
+{
+    if (find_in_files_ == nullptr) {
+        // Built on first use and kept: closing it hides it, so a result list
+        // survives going away to read one of the documents in it.
+        find_in_files_ = new FindInFilesDialog(this);
+        find_in_files_->set_documents(
+            [this] { return files_->document_paths(); });
+        find_in_files_->set_on_open_match(
+            [this](const DocumentMatch& match, const std::string& needle,
+                   const SearchOptions& options) {
+                open_match(match, needle, options);
+            });
+    }
+    wxString seed;
+    if (editor_ != nullptr && editor_->GetSelectionEnd() >
+                                  editor_->GetSelectionStart()) {
+        const wxString selected = editor_->GetSelectedText();
+        if (selected.length() <= kMaxFindSeed) {
+            // Newlines and all: this is the command for a block of text, and
+            // a selected block is the likeliest thing to be looking for.
+            seed = selected;
+        }
+    }
+    find_in_files_->open(seed);
+}
+
+void MainFrame::open_match(const DocumentMatch& match,
+                           const std::string& needle,
+                           const SearchOptions& options)
+{
+    if (!open_path(match.path)) {
+        return;   // open_path has already said why
+    }
+    const std::string text = editor_->GetText().utf8_string();
+    std::size_t offset = match.offset;
+    std::size_t length = match_length_at(text, needle, offset, options);
+    if (length == 0) {
+        // The file may have been edited between the search and the click, so
+        // the recorded offset is a hint rather than a fact.  Finding the text
+        // again beats selecting whatever now sits at that byte.
+        const TextMatch again = find_forward(text, needle, 0, options);
+        if (!again.found()) {
+            editor_->GotoLine(match.line - 1);
+            editor_->SetFocus();
+            return;
+        }
+        offset = again.offset;
+        length = again.length;
+    }
+    editor_->SetSelection(static_cast<int>(offset),
+                          static_cast<int>(offset + length));
+    editor_->EnsureCaretVisible();
+    editor_->SetFocus();
 }
 
 void MainFrame::on_open(wxCommandEvent&)

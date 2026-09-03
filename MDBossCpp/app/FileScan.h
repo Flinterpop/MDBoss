@@ -15,6 +15,8 @@
 #include <string_view>
 #include <vector>
 
+#include "TextSearch.h"
+
 namespace mdboss {
 
 // Recognised Markdown extensions, matching the Python app's is_markdown().
@@ -149,6 +151,47 @@ inline constexpr std::size_t kMinSearchNeedle = 2;
 std::vector<ContentMatch> search_file_contents(
     const std::string& root, const std::string& needle,
     const std::function<bool()>& stop = {});
+
+// One match of the Find in all documents command.  Every match is reported,
+// not just the first in each file, which is the difference from ContentMatch:
+// the tree's Contents box answers "which documents", the results list answers
+// "where", and a document mentioning a term nine times is nine rows.
+struct DocumentMatch {
+    std::string path;
+    int line = 1;
+    // Byte offset of the match within the file's text, so opening a result can
+    // select the match itself rather than merely the line it sits on.
+    std::size_t offset = 0;
+    std::string text;
+};
+
+// Ceilings for a corpus search (Rule of 10).  The per-document one is not
+// redundant: without it one generated file matching on every line fills the
+// list on its own and the documents after it are never reached.
+inline constexpr std::size_t kMaxHitsPerDocument = 50;
+inline constexpr std::size_t kMaxDocumentHits = 2000;
+
+struct DocumentSearch {
+    std::vector<DocumentMatch> matches;
+    std::size_t documents_matched = 0;
+    std::size_t documents_searched = 0;
+    // A bound was hit, or the caller asked to stop.  Reported for the reason
+    // RootScan::truncated is: a capped list presented as the whole answer is
+    // worse than a slow one.
+    bool truncated = false;
+};
+
+// Every match of `needle` in each of `paths`, in the order given.
+//
+// Takes the documents rather than a root to walk, because the files tree has
+// already found them -- exclusions applied -- and walking the disk again to
+// learn the same thing would be the expensive half done twice.  Never throws:
+// a file that cannot be read is not a match, exactly as above.  `stop` is
+// polled between documents so a superseded search can be abandoned.
+DocumentSearch search_documents(const std::vector<std::string>& paths,
+                                const std::string& needle,
+                                const SearchOptions& options = {},
+                                const std::function<bool()>& stop = {});
 
 // One Markdown file found beneath a root.
 struct DocEntry {

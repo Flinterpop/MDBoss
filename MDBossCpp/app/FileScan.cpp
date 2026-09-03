@@ -106,45 +106,29 @@ bool is_under_any_root(const std::string& path,
 
 namespace {
 
-// The matched line, trimmed and capped, ready to show in the tree.
-std::string excerpt_at(const std::string& text, std::size_t hit)
+// A file's text, or false when it is missing, empty, unreadable, or bigger
+// than a search is willing to read.  Both searches go through here so both
+// stop in the same place: one that quietly read a 200 MB file would stall on
+// a document nobody meant to search.
+//
+// The matching itself, the line numbering and the excerpt all live in
+// TextSearch.h, so the two commands cannot drift apart on what counts as a
+// match.
+bool read_searchable_text(const std::string& path, std::string& text)
 {
-    constexpr std::size_t kMaxExcerpt = 160;
-    std::size_t begin = text.rfind('\n', hit);
-    begin = (begin == std::string::npos) ? 0 : begin + 1;
-    std::size_t end = text.find('\n', hit);
-    if (end == std::string::npos) {
-        end = text.size();
+    std::error_code ec;
+    const auto size = fs::file_size(path_from_utf8(path), ec);
+    if (ec || size == 0 || size > kMaxSearchFileBytes) {
+        return false;
     }
-    while (begin < end && (text[begin] == ' ' || text[begin] == '\t' ||
-                           text[begin] == '\r')) {
-        ++begin;
+    std::ifstream stream(path_from_utf8(path), std::ios::binary);
+    if (!stream) {
+        return false;
     }
-    while (end > begin && (text[end - 1] == ' ' || text[end - 1] == '\t' ||
-                           text[end - 1] == '\r')) {
-        --end;
-    }
-    std::string line = text.substr(begin, end - begin);
-    if (line.size() > kMaxExcerpt) {
-        line.resize(kMaxExcerpt);
-        line += "...";
-    }
-    return line;
-}
-
-// 1-based line number of the byte at `hit`.
-int line_number_at(const std::string& text, std::size_t hit)
-{
-    int line = 1;
-    // Not std::min: <windows.h> is included here and defines a min() macro,
-    // which turns std::min into a syntax error.
-    const std::size_t stop = (hit < text.size()) ? hit : text.size();
-    for (std::size_t i = 0; i < stop; ++i) {   // bounded by the file, capped
-        if (text[i] == '\n') {
-            ++line;
-        }
-    }
-    return line;
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    text = strip_utf8_bom(buffer.str());
+    return true;
 }
 
 }  // namespace
@@ -157,7 +141,6 @@ std::vector<ContentMatch> search_file_contents(
     if (root.empty() || needle.size() < kMinSearchNeedle) {
         return matches;
     }
-    const std::string wanted = to_lower(needle);
 
     // An explicit worklist rather than recursion, and every loop below is
     // bounded: a junction loop or a pathological tree must not be able to
@@ -183,33 +166,90 @@ std::vector<ContentMatch> search_file_contents(
             }
             ++examined;
 
-            std::error_code ec;
-            const auto size = fs::file_size(path_from_utf8(entry.path), ec);
-            if (ec || size == 0 || size > kMaxSearchFileBytes) {
+            std::string text;
+            if (!read_searchable_text(entry.path, text)) {
                 continue;   // unreadable, empty, or too big to be worth it
             }
-            std::ifstream stream(path_from_utf8(entry.path), std::ios::binary);
-            if (!stream) {
-                continue;
-            }
-            std::ostringstream buffer;
-            buffer << stream.rdbuf();
-            const std::string text = strip_utf8_bom(buffer.str());
 
-            // Matched over bytes, lowercased ASCII-only, so a file that is
-            // not valid UTF-8 still searches rather than being skipped.
-            const std::size_t hit = to_lower(text).find(wanted);
-            if (hit == std::string::npos) {
+            // Matched over bytes, folded ASCII-only, so a file that is not
+            // valid UTF-8 still searches rather than being skipped.  One hit:
+            // finding every one costs more than it tells you when the answer
+            // is "open this one".  Find in all documents is the command that
+            // wants them all.
+            const std::vector<LineHit> hits =
+                hits_in_text(text, needle, SearchOptions{}, 1);
+            if (hits.empty()) {
                 continue;
             }
             ContentMatch match;
             match.path = entry.path;
-            match.line = line_number_at(text, hit);
-            match.text = excerpt_at(text, hit);
+            match.line = hits.front().line;
+            match.text = hits.front().text;
             matches.push_back(std::move(match));
         }
     }
     return matches;
+}
+
+DocumentSearch search_documents(const std::vector<std::string>& paths,
+                                const std::string& needle,
+                                const SearchOptions& options,
+                                const std::function<bool()>& stop)
+{
+    DocumentSearch result;
+    if (needle.size() < kMinSearchNeedle) {
+        return result;
+    }
+    // Deliberately given a list rather than a root to walk: the files tree
+    // already knows every document under every root, exclusions applied, and
+    // walking the disk again to learn the same thing would be the expensive
+    // half done twice -- the argument the tech-note index makes as well.
+    for (const std::string& path : paths) {   // bounded by the list
+        if (result.matches.size() >= kMaxDocumentHits ||
+            result.documents_searched >= kMaxSearchFiles) {
+            result.truncated = true;
+            break;
+        }
+        if (stop && stop()) {
+            result.truncated = true;
+            break;
+        }
+        std::string text;
+        if (!read_searchable_text(path, text)) {
+            continue;
+        }
+        ++result.documents_searched;
+
+        // Per document as well as overall: without the first bound, one
+        // generated file matching on every line fills the whole list and the
+        // documents after it are never reached.
+        const std::size_t room = kMaxDocumentHits - result.matches.size();
+        const std::size_t allowance =
+            (room < kMaxHitsPerDocument) ? room : kMaxHitsPerDocument;
+        // One more than will be kept, so "there were more" is known rather
+        // than assumed: a document with exactly the allowance of matches is
+        // complete, and reporting it as partial would be a lie that costs
+        // nothing to avoid.
+        std::vector<LineHit> hits =
+            hits_in_text(text, needle, options, allowance + 1);
+        if (hits.empty()) {
+            continue;
+        }
+        if (hits.size() > allowance) {
+            hits.resize(allowance);
+            result.truncated = true;
+        }
+        ++result.documents_matched;
+        for (const LineHit& hit : hits) {   // bounded by the allowance
+            DocumentMatch match;
+            match.path = path;
+            match.line = hit.line;
+            match.offset = hit.offset;
+            match.text = hit.text;
+            result.matches.push_back(std::move(match));
+        }
+    }
+    return result;
 }
 
 RootScan scan_root(const std::string& root,

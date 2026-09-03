@@ -186,6 +186,23 @@ Two implementation notes:
 
 Files only. A folder drag would relocate a whole subtree on one mis-drop and needs an ancestor check (dropping a folder into its own descendant) that a file move does not.
 
+## Three searches, one matcher
+
+The tree's **Contents** box, **Find in this document** (Ctrl+F, the bar along the bottom) and **Find in all documents** (Ctrl+Shift+F, the results list) are three questions — *which documents mention this*, *where is it in what I am reading*, *where is it in everything* — answered by one matcher in **`app/TextSearch.cpp`**, which is wx-free and free of I/O for the reason `LinkTarget.h` records: a matcher is wrong at its edges, and the edges are exactly what a test can reach and a GUI cannot. `search_file_contents()` was rewritten to go through it, so the three cannot drift apart on what counts as a match.
+
+- **Offsets are BYTE offsets into UTF-8**, and no conversion appears anywhere in the feature — Scintilla positions are byte offsets into the UTF-8 document too, so a match found by the matcher can be handed straight to `SetSelection()`. Case folding is ASCII-only and applied byte by byte for the same reason `search_file_contents()` always did it: a lead or continuation byte is never in `A`..`Z`, so folding cannot corrupt a multi-byte character or make two different ones compare equal.
+- **A needle's `\n` matches `\n` or `\r\n`, and its `\r` is ignored.** That is what makes "find a block of text" work at all: a block pasted out of a CRLF document has to find itself in an LF one. It is also why `TextMatch` carries a **length** rather than the caller assuming the needle's — the same block is a byte longer in a CRLF file, and selecting the assumed span would leave the selection short by one per line.
+- **A wrap is reported, not hidden.** Find next that silently continues from the top looks like a list with no end, so the bar says *(wrapped)*. Note `find_previous()` only calls it a wrap when the match really came from behind: the single match in a document, found again where it already is, has not wrapped.
+- **The bar counts** — *3 of 12* — because the count is what tells you whether stepping through is worth the trouble. Bounded at `kMaxFindHits`, and reaching the bound shows *12+* rather than presenting the cap as a total.
+- **`hits_in_text()` asserts progress at the TOP of its loop**, as `linkify()` does, and takes `max(length, 1)`: a zero-length match would spin, and a hostile document must not be able to hang the app.
+
+**The corpus search is given the documents, not a root to walk.** `search_documents()` takes `FileTreePanel::document_paths()` — the tree already knows every document under every root with exclusions applied, and walking the disk again to learn the same thing is the expensive half done twice. Same argument as the tech-note index below. It runs on a detached worker with the generation counter and `alive_` flag every other bulk read here uses, and its bounds (50 matches per document, 2000 overall) are **reportable**: `DocumentSearch::truncated` says *partial — search limit reached*, for the reason `RootScan::truncated` exists. The per-document cap asks for **one more hit than it will keep**, so a document with exactly 50 matches is reported complete rather than falsely partial.
+
+Two things about the UI that are not decoration:
+
+- **The Find bar is a second row of the FRAME's sizer, not a strip inside the editor pane.** The editor is `Unsplit()` by pointer in three places, so wrapping it in a panel to make room would have meant editing all of them for something the user cannot see.
+- **A result carries the needle back with it, not just an offset.** The file may have been edited between the search and the click, so `open_match()` re-checks the recorded offset with `match_length_at()` and searches again if it no longer matches — an offset alone would select whatever now sits at that byte with nothing to notice.
+
 ## The tech-note index is derived, and that is the whole design
 
 `TechNotes.md` in `MD_Internal` is rebuilt by reading the documents, never accumulated as notes are created. A registry appended to on save would be cheaper and would start drifting the moment anything happened outside the app — a note made in another editor missing, a deleted one lingering — with nothing able to correct it. Deriving means it is right by construction, and it picks up notes that predate the feature.

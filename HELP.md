@@ -344,6 +344,38 @@ even though the source and rendered document differ in height.
 
 ## Searching
 
+Three different things are called searching here, and they answer different questions:
+
+| Command | Answers |
+|---|---|
+| **Search → Find in this document** (Ctrl+F) | where a word is in the document you are reading |
+| **Search → Find in all documents** (Ctrl+Shift+F) | which documents contain a phrase, and every place it appears |
+| The **Contents** tick box above the tree | which documents mention a word, as a filter on the tree |
+
+### Find in this document
+
+**Ctrl+F** opens a bar along the bottom of the window. Type, and the first match is selected as you go; the bar counts what it found — *3 of 12* — so you can see whether stepping through is worth it.
+
+- **Enter** or **Next** goes to the next match, **Shift+Enter** or **Previous** to the one before.
+- **F3** and **Shift+F3** do the same without going back to the bar, and open it if it is not showing.
+- Searching runs off the end and continues from the top; the bar says *(wrapped)* when it has.
+- **Match case** is off by default.
+- **Escape** closes the bar and puts the caret back in the editor.
+
+Ctrl+F with a word selected searches for that word.
+
+### Find in all documents
+
+**Ctrl+Shift+F** opens a window that searches **every document under every root folder** — the same documents the tree shows, so a folder you have excluded is not searched — and lists **every** match it finds, with the document, the line number and the line itself. Double-click a result (or select it and press Enter) to open that document with the match selected.
+
+The box takes a **block of text**, not just a word: paste in several lines and it finds them together. **Enter** starts a new line in the box, and **Ctrl+Enter** or the **Search** button runs the search. Line endings do not matter — a block copied out of one document finds itself in another whichever way each file was saved.
+
+The window stays open while you read a result, so you can work through a list of matches without searching again. Closing it keeps the results for next time; the search runs in the background, so the app stays usable while it works.
+
+The same limits as the Contents search apply — at least two characters, files over 1 MB skipped — plus a ceiling of 50 matches per document and 2000 in total. When a limit is reached the count says *partial — search limit reached* rather than presenting a short list as the whole answer.
+
+### Filtering the tree
+
 The box above the tree filters by **filename** as you type. **Filtering keeps the folder structure**: folders left with no surviving file drop out, the rest stay where they are, and the tree opens itself down to every match — so a result tells you where the document lives, not just what it is called. Clearing the box puts the tree back exactly as you had it.
 
 Tick **Contents** beside it to search the **text inside files** as well, and the tree shows both — files whose name matches and files whose text does, each text match with the line number and the line itself so you can see why it matched without opening it:
@@ -413,6 +445,9 @@ A `background-logo.png` already in that folder is never replaced — the copy yo
 | Ctrl+S   | Save |
 | Ctrl+W   | Close the open document |
 | Ctrl+T   | Add a to-do |
+| Ctrl+F   | Find in this document |
+| F3 / Shift+F3 | Next / previous match |
+| Ctrl+Shift+F | Find in all documents |
 | Ctrl+Y   | Hide/show YAML front matter |
 | F5       | Refresh the tree |
 | F1       | This help |

@@ -20,6 +20,9 @@
 #include "Config.h"
 #include "DocumentWatcher.h"
 #include "Updater.h"
+#include "FileScan.h"
+#include "FindBar.h"
+#include "FindInFilesDialog.h"
 #include "FileTreePanel.h"
 #include "OutlinePanel.h"
 #include "PathListPanel.h"
@@ -93,6 +96,25 @@ private:
     // promote_to_tech_note().  Raised from the Lists menu for the open
     // document, and from the tree's context menu for any document.
     void on_promote_document(wxCommandEvent& event);
+    // Find in this document: the bar along the bottom of the window.  Ctrl+F
+    // opens it, F3 and Shift+F3 step through, and both of those open it when
+    // there is nothing yet to repeat.
+    void on_find(wxCommandEvent& event);
+    void on_find_next(wxCommandEvent& event);
+    void on_find_previous(wxCommandEvent& event);
+    void step_find(int direction, wxCommandEvent& event);
+    // Do what the bar is asking and report the count back to it.  The bar
+    // knows nothing about the editor; this is the only place the two meet.
+    void find_in_document(const FindRequest& request);
+    // Where the caret is, as a byte offset -- Scintilla positions and the
+    // matcher's offsets are the same thing, which is why no conversion
+    // appears anywhere in this feature.
+    std::size_t editor_selection_start() const;
+    // Find in all documents: the modeless results list.
+    void on_find_in_files(wxCommandEvent& event);
+    // Open the document a result names and select the match inside it.
+    void open_match(const DocumentMatch& match, const std::string& needle,
+                    const SearchOptions& options);
     // Back: return to the document shown before this one.
     //
     // A history of what was SHOWN, browsing included -- after arrowing through
@@ -196,6 +218,13 @@ private:
     OutlinePanel* outline_ = nullptr;
     wxStyledTextCtrl* editor_ = nullptr;
     PreviewPane* preview_ = nullptr;
+    FindBar* find_bar_ = nullptr;
+    // Built on first use and then kept, hidden between uses, so a results
+    // list survives going away to read one of the documents in it.
+    FindInFilesDialog* find_in_files_ = nullptr;
+    // Where the current incremental search started, so typing refines the
+    // same search instead of walking forward through the document.
+    std::size_t find_origin_ = 0;
     wxTimer render_timer_;
     wxTimer scroll_echo_timer_;
     DocumentWatcher watcher_;

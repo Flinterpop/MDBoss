@@ -65,7 +65,12 @@ function CheckExit($what) {
 }
 
 # --- Preflight ---------------------------------------------------------------
-$iscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+# Inno Setup was reinstalled to C:\bin\InnoSetup6 on 2026-08-27 and put on
+# PATH, because the workspace rule puts %LOCALAPPDATA% out of reach and every
+# installer build was therefore blocked.  This line used to look there FIRST,
+# and a stale copy may still be sitting in the old location -- so preferring it
+# would quietly run the one binary the rule exists to stop.
+$iscc = "C:\bin\InnoSetup6\ISCC.exe"
 if (-not (Test-Path $iscc)) {
     $cmd = Get-Command iscc -ErrorAction SilentlyContinue
     if ($cmd) { $iscc = $cmd.Source } else { Fail "ISCC.exe not found (Inno Setup 6)" }

@@ -10,7 +10,14 @@
 #
 #   C:\vcpkg\vcpkg.exe install wxwidgets:x64-windows-static ^
 #                              md4c:x64-windows-static catch2:x64-windows-static ^
-#                              nlohmann-json:x64-windows-static
+#                              nlohmann-json:x64-windows-static ^
+#                              webview2:x64-windows-static
+#
+# webview2 is on that line as of 2026-09-03, because it was missing from it:
+# app/CMakeLists.txt links WebView2LoaderStatic.lib straight out of the vcpkg
+# tree, so restoring an emptied C:\vcpkg\installed from the four packages above
+# builds the tests and then fails the app at PreviewPane.h with "Cannot open
+# include file: 'WebView2.h'".
 #
 # That line omits wxwidgets[webview] on purpose: the preview is a WebView2 this
 # app creates and owns, because wxWebView's Edge backend never delivers
