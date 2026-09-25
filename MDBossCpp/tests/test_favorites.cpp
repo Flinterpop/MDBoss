@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -369,4 +370,21 @@ TEST_CASE("the expanded folder list is capped", "[config][expanded]")
     CHECK(config.expanded_folders().size() == 4096);
     // The truncation keeps the front of the list, not a random slice.
     CHECK(config.expanded_folders().front() == "C:\\f0");
+}
+
+TEST_CASE("window geometry is kept, and a failed save keeps the last one",
+          "[config][geometry]")
+{
+    // Position and the maximised flag were never saved before, so a window
+    // reopened at the default spot every launch.
+    mdboss::Config config;
+    CHECK(config.window_geometry().empty());
+    const std::map<std::string, int> placed{
+        {"x", 150}, {"y", 120}, {"w", 1000}, {"h", 700}, {"Maximized", 1}};
+    config.set_window_geometry(placed);
+    CHECK(config.window_geometry() == placed);
+    // SaveGeometry() failing hands over an empty store; forgetting the
+    // placement because of that would be a regression dressed as a save.
+    config.set_window_geometry({});
+    CHECK(config.window_geometry() == placed);
 }

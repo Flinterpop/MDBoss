@@ -570,6 +570,14 @@ void PreviewPane::export_pdf(const std::string& path,
             settings) {
             settings->put_ShouldPrintBackgrounds(TRUE);
             settings->put_ShouldPrintHeaderAndFooter(FALSE);
+            // WebView2's defaults, stated because the preview depends on
+            // them: template-webview2.html caps its column at the printable
+            // width these leave (8.5in less 2 x 0.4in = 7.7in) so the screen
+            // shows what the page will.  Change both together.
+            settings->put_PageWidth(8.5);
+            settings->put_PageHeight(11.0);
+            settings->put_MarginLeft(0.4);
+            settings->put_MarginRight(0.4);
         } else {
             settings.Reset();
         }

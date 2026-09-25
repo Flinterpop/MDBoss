@@ -19,6 +19,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 
 #include "DropTarget.h"
@@ -231,6 +232,46 @@ std::string base_href_for(const std::string& path)
     return "file:///" + text;
 }
 
+// Carries wxTopLevelWindow's geometry fields to and from the config's map.
+// On MSW they come from GetWindowPlacement(), so the size saved while
+// maximised is the NORMAL one -- GetSize() there reports the maximised size,
+// which then came back as an un-maximised window the size of the screen.
+class ConfigGeometryStore : public wxTopLevelWindow::GeometryStore {
+public:
+    explicit ConfigGeometryStore(std::map<std::string, int> values)
+        : values_(std::move(values))
+    {
+    }
+
+    bool SaveValue(const wxString& name, int value) override
+    {
+        assert(!name.empty());
+        values_[std::string(name.ToUTF8())] = value;
+        return true;
+    }
+
+    bool RestoreValue(const wxString& name, int* value) const override
+    {
+        assert(value != nullptr);
+        // Reopening minimised is never what anyone wants: the window would
+        // start on the taskbar with nothing on screen to say it launched.
+        if (name == "Iconized") {
+            return false;
+        }
+        const auto it = values_.find(std::string(name.ToUTF8()));
+        if (it == values_.end()) {
+            return false;
+        }
+        *value = it->second;
+        return true;
+    }
+
+    const std::map<std::string, int>& values() const { return values_; }
+
+private:
+    std::map<std::string, int> values_;
+};
+
 }  // namespace
 
 MainFrame::MainFrame()
@@ -251,8 +292,17 @@ MainFrame::MainFrame()
     if (seed_templates(config_)) {
         config_.save();
     }
-    SetSize(config_.window_width(), config_.window_height());
     SetMinSize(wxSize(640, 400));
+    // Size alone is the fallback for a profile saved before geometry was:
+    // position, and whether the window was maximised, were never recorded.
+    SetSize(config_.window_width(), config_.window_height());
+    if (!config_.window_geometry().empty()) {
+        // Before Show(), so the window appears where it was rather than
+        // jumping there.  SetWindowPlacement pulls a window whose monitor
+        // has gone back onto one that exists.
+        const ConfigGeometryStore store(config_.window_geometry());
+        RestoreToGeometry(store);
+    }
 
     // Load the icon as a RESOURCE, not by reading the exe as an image file.
     // The file form needs an ICO image handler registered and, without one,
@@ -2596,6 +2646,10 @@ void MainFrame::on_close(wxCloseEvent& event)
     }
     const wxSize size = GetSize();
     config_.set_window_size(size.GetWidth(), size.GetHeight());
+    ConfigGeometryStore geometry({});
+    if (SaveGeometry(geometry)) {
+        config_.set_window_geometry(geometry.values());
+    }
     // Save the sash a hidden pane *would* return to, not the meaningless
     // value an unsplit splitter reports.
     if (split_ != nullptr) {

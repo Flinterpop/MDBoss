@@ -22,7 +22,9 @@ body.theme-notes {
 body.theme-notes .markdown-body {
   /* Narrower than GitHub's 980px and with wider side margins, which is what
      gives the reference its page-like feel rather than a web-page feel. */
-  max-width: 820px;
+  /* The PDF's printable width, as the template's inline block explains:
+     the preview shows what the export will be. */
+  max-width: 7.7in;
   padding: 40px 56px 96px;
   margin: 0 auto;
   color: #1a1a1a;
@@ -169,15 +171,12 @@ body.theme-notes .markdown-body pre.mermaid {
 /* Fitting rather than scrolling; the template's inline block explains why and
    restates the same widths, since it has to override the vendored GitHub
    sheet for the other theme. */
-/* Same full-bleed as the GitHub theme -- the template's inline block explains
-   it -- but from a 820px column, so the escape is larger. */
+/* The column's width, as in the GitHub theme, so it matches the PDF. */
 body.theme-notes .markdown-body table {
   display: table;
   table-layout: fixed;
-  width: calc(100vw - 96px);
+  width: 100%;
   margin: 0 0 1em;
-  margin-left: calc(50% - 50vw + 48px);
-  margin-right: calc(50% - 50vw + 48px);
   border-collapse: collapse;
   font-size: .95em;
 }

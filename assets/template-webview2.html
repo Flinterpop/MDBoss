@@ -31,7 +31,13 @@
   .markdown-body {
     box-sizing: border-box;
     min-width: 200px;
-    max-width: 980px;
+    /* The printable width of the exported PDF: an 8.5in page less the two
+     * 0.4in margins export_pdf() asks for (PreviewPane.cpp).  The preview is
+     * meant to show what the PDF will be, and on paper the viewport IS this
+     * column -- so capping the screen at the same width makes line breaks,
+     * table columns and image scaling agree between the two.  Change one
+     * and change the other. */
+    max-width: 7.7in;
     margin: 0 auto;
     padding: 28px 40px 96px;
   }
@@ -63,26 +69,11 @@
   .markdown-body table {
     display: table;
     table-layout: fixed;
-    /* A table is let out of the 980px reading column and may use the whole
-     * pane, while prose stays capped -- long lines of text are hard to read,
-     * a six-column table starved into 150px columns is harder.
-     *
-     * The cap lives on .markdown-body itself, so the escape is the standard
-     * full-bleed: span the viewport, then pull left by the difference between
-     * half the container and half the viewport.  Moving the cap onto the
-     * children instead was tried and does not work -- the vendored sheet sets
-     * SHORTHAND margins on several of them (h1 is `margin: .67em 0`,
-     * blockquote is `margin: 0`) at a higher specificity, which resets the
-     * auto side-margins that approach depends on.
-     *
-     * 96px of inset, not 0: `100vw` counts the vertical scrollbar in
-     * Chromium, so a full-width child overflows by its width and raises a
-     * horizontal scrollbar.  The inset is comfortably wider than any
-     * scrollbar and doubles as the page margin.
-     */
-    width: calc(100vw - 96px);
-    margin-left: calc(50% - 50vw + 48px);
-    margin-right: calc(50% - 50vw + 48px);
+    /* The column's width, not the pane's.  Tables used to be let out of the
+     * reading column full-bleed (100vw less an inset), which on a wide pane
+     * made them far wider than the same table in the exported PDF, where
+     * the viewport is the page.  Inside the column they match the PDF. */
+    width: 100%;
   }
   .markdown-body table th,
   .markdown-body table td { overflow-wrap: anywhere; }

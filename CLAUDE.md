@@ -270,17 +270,14 @@ Verified with a loopback HTTP listener rather than by inference, because "did th
 
 **Do not screenshot the app against the real profile.** Two captures taken while verifying this feature came back holding root names, folder names, document titles and section headings from the author's controlled work, because the window shows the live tree, Recent and Favourites. Point `config.json` at a scratch root and clear `recents`/`favorites` first — and note the second capture grabbed a *different application* entirely, because `CopyFromScreen` takes whatever is frontmost and `SetForegroundWindow` had been silently refused. **Verify the foreground window after attaching, and refuse rather than save** when it is not the one you asked for.
 
-## The preview's reading column, and why tables escape it
+## The preview's reading column is the PDF's page
 
-The width cap is MD Boss's own, in `assets/template-webview2.html`'s inline `<style>` — **not** the vendored GitHub sheet, which only sets `max-width: 100%` on images and tables. `.markdown-body` is `max-width: 980px; margin: 0 auto; padding: 28px 40px`, so the text column is at most 900px and a wider pane only adds gutters. The Notes theme narrows it to 820px.
+The width cap is MD Boss's own, in `assets/template-webview2.html`'s inline `<style>` — **not** the vendored GitHub sheet, which only sets `max-width: 100%` on images and tables. `.markdown-body` is `max-width: 7.7in; margin: 0 auto`, in both themes (`notes-light.css` states the same width). **7.7in is the exported PDF's printable width** — an 8.5in page less the two 0.4in margins `export_pdf()` now sets explicitly — so the preview shows what the PDF will be: line breaks, table columns and image scaling agree. On paper the viewport *is* that column. Change the page setup and the CSS together.
 
-**Tables are let out of that column** and may use the whole pane, because the trade-offs point opposite ways: long prose lines are hard to read, but a six-column table starved into 150px columns is harder. Three things about how, each of which was arrived at by trying the alternative first:
+**Tables stay inside the column** (`width: 100%`), since 25 Sep 2026. They used to escape it full-bleed (`calc(100vw - 96px)`), on the argument that a six-column table starved into narrow columns is worse than long prose lines — but on a wide pane that made every table far wider than the same table in the PDF, and the user ruled that the preview should approximate the export. If the bleed ever comes back, note the two things learned building it: capping the *children* instead of `.markdown-body` does not work (the vendored sheet's shorthand margins reset the auto side-margins), and Chromium counts the vertical scrollbar in `100vw`. What still holds:
 
-- **Full-bleed, not "cap the children".** Moving `max-width` onto `.markdown-body > *` looks tidier and does not work: the vendored sheet sets **shorthand** margins on several children (`h1` is `margin: .67em 0`, `blockquote` is `margin: 0`) at a higher specificity, which resets the auto side-margins that approach depends on.
 - **`table-layout: fixed`, not `auto`.** Auto sizes columns by content, so one 270-character URL takes most of the width and starves `Name`, `Login` and `PW` to about one character per line. Fixed gives equal columns, which is what a logins table wants.
 - **`overflow-wrap: anywhere` on cells is required as well.** Without it a URL with no spaces cannot break at all. The wrap alone changes nothing, because it does not affect `max-content` sizing — which is why the obvious one-line fix does not work.
-
-The bleed insets 48px per side rather than spanning `100vw` exactly: **Chromium counts the vertical scrollbar in `100vw`**, so a truly full-width child overflows by the scrollbar's width and raises a horizontal scrollbar.
 
 ## A preview theme changes two stylesheets and a body class — nothing else
 

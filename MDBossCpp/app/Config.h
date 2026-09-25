@@ -16,6 +16,7 @@
 #define MDBOSS_APP_CONFIG_H
 
 #include <cstddef>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -152,6 +153,15 @@ public:
     void set_show_preview(bool v) { show_preview_ = v; }
     int favorites_sash() const { return favorites_sash_; }
     void set_window_size(int width, int height);
+    // The frame's placement as wxTopLevelWindow::SaveGeometry() reports it
+    // (position, the NORMAL size even while maximised, and the maximised
+    // flag).  Opaque name/value pairs: which names appear is wx's business,
+    // and an empty map means none was ever saved.
+    const std::map<std::string, int>& window_geometry() const
+    {
+        return window_geometry_;
+    }
+    void set_window_geometry(const std::map<std::string, int>& geometry);
     void set_editor_sash(int sash) { editor_sash_ = sash; }
     void set_files_sash(int sash) { files_sash_ = sash; }
     void set_outline_sash(int sash) { outline_sash_ = sash; }
@@ -171,6 +181,7 @@ private:
     bool hide_front_matter_ = false;
     int window_width_ = 1280;
     int window_height_ = 820;
+    std::map<std::string, int> window_geometry_;
     int editor_sash_ = 520;
     int files_sash_ = 260;
     int outline_sash_ = 220;

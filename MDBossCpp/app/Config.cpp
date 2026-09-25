@@ -18,6 +18,10 @@ using json = nlohmann::json;
 
 // The caps now live in Config.h, shared with the favorites import path.
 
+// wx's MSW SaveGeometry() writes six fields (x, y, w, h, Maximized,
+// Iconized); the cap only has to be comfortably above that.
+constexpr std::size_t kMaxGeometryFields = 32;
+
 // getenv() is deprecated under /W4 /WX on MSVC, and the _s variant hands back
 // an allocation the caller owns.
 std::string environment(const char* name)
@@ -152,6 +156,20 @@ void Config::load()
         document["wx_window_height"].is_number_integer()) {
         window_height_ = document["wx_window_height"].get<int>();
     }
+    if (document.contains("wx_window_geometry") &&
+        document["wx_window_geometry"].is_object()) {
+        window_geometry_.clear();
+        for (const auto& [name, value] :
+             document["wx_window_geometry"].items()) {
+            // wx writes six fields; anything past the cap is not ours.
+            if (window_geometry_.size() >= kMaxGeometryFields) {
+                break;
+            }
+            if (value.is_number_integer()) {
+                window_geometry_[name] = value.get<int>();
+            }
+        }
+    }
     if (document.contains("wx_editor_sash") &&
         document["wx_editor_sash"].is_number_integer()) {
         editor_sash_ = document["wx_editor_sash"].get<int>();
@@ -202,6 +220,9 @@ bool Config::save() const
     document["hide_front_matter"] = hide_front_matter_;
     document["wx_window_width"] = window_width_;
     document["wx_window_height"] = window_height_;
+    if (!window_geometry_.empty()) {
+        document["wx_window_geometry"] = window_geometry_;
+    }
     document["wx_editor_sash"] = editor_sash_;
     document["wx_files_sash"] = files_sash_;
     document["wx_outline_sash"] = outline_sash_;
@@ -388,6 +409,16 @@ void Config::set_window_size(int width, int height)
     }
     window_width_ = width;
     window_height_ = height;
+}
+
+void Config::set_window_geometry(const std::map<std::string, int>& geometry)
+{
+    // An empty store means SaveGeometry() failed; keep the last good one.
+    if (geometry.empty() || geometry.size() > kMaxGeometryFields) {
+        return;
+    }
+    window_geometry_ = geometry;
+    assert(!window_geometry_.empty());
 }
 
 }  // namespace mdboss
