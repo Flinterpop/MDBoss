@@ -379,6 +379,7 @@ write them back — that reverses the double-encoding exactly.
   script or link inside a document may load. The port owns its WebView2
   directly because `wxWebView`'s Edge backend never delivers
   `WebResourceRequested` and so cannot enforce it — see `app/PreviewPane.h`.
+- **Window placement goes through `SaveGeometry()` / `RestoreToGeometry()`**, into `wx_window_geometry` (v1.16.0). Never `GetSize()`: on a maximised frame it reports the maximised size, which came back as an ordinary window the size of the screen — and position was never saved at all. On MSW wx reads `GetWindowPlacement`, so the stored size is the *normal* one. `Iconized` is deliberately not restored. The old `wx_window_width`/`height` keys are still written, as the fallback for a profile that predates the geometry key.
 - Vendored asset versions are recorded in `assets/VERSIONS.md`; update it in
   the same commit that replaces an asset.
 - **`app/LogoAsset.h` is generated** — the tech-note banner logo as base64,

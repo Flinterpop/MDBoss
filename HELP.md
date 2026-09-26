@@ -104,13 +104,15 @@ The link is handed to Windows to open, which is why it leaves MD Boss entirely. 
 **View ▸ Preview style** offers two looks, and the choice is remembered:
 
 - **GitHub** — the default: GitHub's own Markdown stylesheet, ruled headings, GitHub's syntax colours. What a document looks like on GitHub.
-- **Notes** — quieter and more page-like: Segoe UI, headings that step up only slightly and carry no rules, tighter line spacing, code in a rounded bordered panel with an Xcode-style palette, and a narrower column.
+- **Notes** — quieter and more page-like: Segoe UI, headings that step up only slightly and carry no rules, tighter line spacing, code in a rounded bordered panel with an Xcode-style palette, and wider side margins.
 
 Only the styling changes — the document is untouched, and switching re-renders in place without disturbing your scroll position or any unsaved edit. **Export as PDF uses whichever style is showing**, so pick the style first if you are exporting.
 
 ## Export as PDF
 
 **File ▸ Export as PDF…** writes the document exactly as the preview shows it — the GitHub styling, the code-block shading and syntax colours, mermaid diagrams, KaTeX maths, tables and task-list boxes. The filename is suggested from the document's own name, in its own folder.
+
+**The preview is laid out at the PDF's page width** — a Letter page less its 0.4 in margins, 7.7 in — in both styles, however wide the pane is. So what you see is what prints: a line that breaks in the preview breaks in the same place in the PDF, and a table's columns come out the same width. A wider pane only adds space either side of the page.
 
 **Hyperlinks stay blue and stay clickable.** They are written as real PDF link annotations, so clicking one in Acrobat, Edge or any other reader opens the URL in your browser.
 
@@ -293,6 +295,8 @@ Ordered to match the columns — **Files**, **Outline**, **Edit**:
 - **Hide YAML** — when on (the default), a leading YAML front-matter block (`--- … ---` at the very top of the file) is not shown in the preview. Also on the **View** menu, as **Ctrl+Y**.
 
 **Every one of these is remembered.** Each toggle is written to your settings the moment you click it — not when MD Boss exits — so the layout you chose survives a crash, a forced shutdown or a power cut just as well as a normal close. Pane widths are still saved on exit, since they are only worth reading once you have stopped dragging them.
+
+**The window itself reopens where you left it** — the same position and size, and maximised if it was maximised (it then keeps the size it had before you maximised it, ready for when you restore it). A window closed while minimised reopens normally. If the monitor it was on is no longer connected, Windows moves it onto one that is.
 
 ## Snippets
 
