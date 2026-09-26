@@ -19,7 +19,7 @@
 #endif
 
 #define AppName "MD Boss"
-#define AppVersion "1.16.0"
+#define AppVersion "1.16.1"
 #define AppExe "MDBoss.exe"
 
 [Setup]
