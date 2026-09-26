@@ -82,6 +82,15 @@ public:
     void export_pdf(const std::string& path,
                     std::function<void(std::string)> on_done);
 
+    // Raised on the UI thread each time a page finishes loading.  The page's
+    // own scripts (mermaid, KaTeX, highlight.js) run on DOMContentLoaded, so
+    // they have started by now but may not have finished.  MD Boss does not
+    // use this; an embedding app that prints a page it has just rendered does.
+    void set_on_page_loaded(std::function<void()> handler)
+    {
+        on_page_loaded_ = std::move(handler);
+    }
+
     // False until the WebView2 is live; the caller can show a placeholder.
     bool ready() const { return webview_ != nullptr; }
 
@@ -94,6 +103,7 @@ private:
     HRESULT on_controller_ready(HRESULT result,
                                 ICoreWebView2Controller* controller);
     void install_network_lock();
+    void install_load_signal();
     // Clicking a link to somewhere outside the machine hands the URL to the
     // default browser instead of loading it here.
     //
@@ -123,6 +133,7 @@ private:
 
     std::function<void(double)> on_scrolled_;
     std::function<void(const std::string&)> on_open_document_;
+    std::function<void()> on_page_loaded_;
     std::string pending_html_;
     // The size the web view was last given, so resizing is idempotent and
     // can safely be re-checked on idle.

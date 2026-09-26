@@ -175,12 +175,33 @@ HRESULT PreviewPane::on_controller_ready(HRESULT result,
     install_network_lock();
     install_link_handler();
     install_scroll_bridge();
+    install_load_signal();
     if (std::getenv("MDBOSS_LAYOUT_LOG") != nullptr) {
         install_viewport_probe();
     }
     resize_webview();
     navigate_to_pending();
     return S_OK;
+}
+
+// Raises on_page_loaded_ each time a navigation finishes.  WebView2 delivers
+// NavigationCompleted on the UI thread, so the handler may touch the GUI.
+// MD Boss sets no handler; DocBoss uses it to print a freshly rendered page
+// only once it has actually loaded (see its MainFrame::publish_document).
+void PreviewPane::install_load_signal()
+{
+    EventRegistrationToken token{};
+    webview_->add_NavigationCompleted(
+        Callback<ICoreWebView2NavigationCompletedEventHandler>(
+            [this](ICoreWebView2*,
+                   ICoreWebView2NavigationCompletedEventArgs*) -> HRESULT {
+                if (on_page_loaded_) {
+                    on_page_loaded_();
+                }
+                return S_OK;
+            })
+            .Get(),
+        &token);
 }
 
 // Diagnostic, off unless MDBOSS_LAYOUT_LOG is set.  Asks the page itself how
