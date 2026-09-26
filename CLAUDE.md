@@ -41,7 +41,7 @@ pushed.
 
 ## This tree is also an upstream: DocBoss compiles parts of it
 
-**DocBoss** (`C:\source\DocBoss`) compiles `mdrender/` and a list of `MDBossCpp/app/` units straight out of this tree by absolute path, pinned by `MDBOSS_EXPECTED_COMMIT` in its `CMakeLists.txt` — the same source pull RadarFusion does from TacPlot. `DocBoss/CLAUDE.md` holds the list. Three consequences here:
+**DocBoss** (`C:\source\DocBoss`) compiles `mdrender/` and a list of `MDBossCpp/app/` units straight out of this tree by absolute path, pinned by `MDBOSS_EXPECTED_COMMIT` in its `cmake/Siblings.cmake`. `DocBoss/CLAUDE.md` holds the list. Three consequences here:
 
 - **A new `#include` in a pulled unit breaks DocBoss at link time**, not here: DocBoss lists the `.cpp` files it compiles, so a pulled file that starts depending on a sibling it does not list leaves undefined symbols. Add the sibling to DocBoss's list in the same breath.
 - **Nothing in a pulled unit may name MD Boss directly.** Profile folder, preview staging folder, ProgID, single-instance mutex, release URLs, asset names and the exe the portable update looks for all come from `app/AppIdentity.h`. MD Boss never calls `set_app_identity()`, and every default there is exactly the literal it replaced, so MD Boss's behaviour is unchanged; DocBoss sets its own at the top of `OnInit`. A literal that crept back would make DocBoss quietly read MD Boss's profile or update itself from MD Boss's releases. `test_appidentity.cpp` pins both halves.
