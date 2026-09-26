@@ -47,7 +47,7 @@ pushed.
 - **Nothing in a pulled unit may name MD Boss directly.** Profile folder, preview staging folder, ProgID, single-instance mutex, release URLs, asset names and the exe the portable update looks for all come from `app/AppIdentity.h`. MD Boss never calls `set_app_identity()`, and every default there is exactly the literal it replaced, so MD Boss's behaviour is unchanged; DocBoss sets its own at the top of `OnInit`. A literal that crept back would make DocBoss quietly read MD Boss's profile or update itself from MD Boss's releases. `test_appidentity.cpp` pins both halves.
 - **`Templates` does not see `Config`.** `seed_templates()` takes a `SeededTemplates` record and the caller stores it, because `Config.h` is exactly the thing an embedding app must not pull.
 
-`scan_root()`'s `companion_exts` (DocBoss asks for `.pdf`) is reported in `RootScan::companions` and deliberately kept out of `entries` and `counts`, so MD Boss, asking for none, sees the scan it always had.
+`scan_root()`'s `companion_exts` (DocBoss asks for `.pdf`) is reported in `RootScan::companions` and deliberately kept out of `entries` and `counts`, so MD Boss, asking for none, sees the scan it always had. `PreviewPane::set_on_page_loaded()` is raised on `NavigationCompleted`; MD Boss sets no handler, and DocBoss uses it to print a page it has just rendered only once it has loaded.
 
 **The tests write their fixtures under `fs::temp_directory_path()`**, which is `%TEMP%` — inside AppData on this machine. Run `ctest` with `TMP`/`TEMP` pointed at `build/claude-scratch/tmp`, and launch the app with `APPDATA`/`TEMP`/`TMP` pointed there too; `user_data_dir()` and the preview both follow the environment, so the real profile is never touched.
 
