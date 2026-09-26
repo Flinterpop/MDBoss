@@ -39,6 +39,18 @@ under separate `wx_*` keys.
 The repo is **public**. Everything here is world-readable the moment it is
 pushed.
 
+## This tree is also an upstream: DocBoss compiles parts of it
+
+**DocBoss** (`C:\source\DocBoss`) compiles `mdrender/` and a list of `MDBossCpp/app/` units straight out of this tree by absolute path, pinned by `MDBOSS_EXPECTED_COMMIT` in its `CMakeLists.txt` — the same source pull RadarFusion does from TacPlot. `DocBoss/CLAUDE.md` holds the list. Three consequences here:
+
+- **A new `#include` in a pulled unit breaks DocBoss at link time**, not here: DocBoss lists the `.cpp` files it compiles, so a pulled file that starts depending on a sibling it does not list leaves undefined symbols. Add the sibling to DocBoss's list in the same breath.
+- **Nothing in a pulled unit may name MD Boss directly.** Profile folder, preview staging folder, ProgID, single-instance mutex, release URLs, asset names and the exe the portable update looks for all come from `app/AppIdentity.h`. MD Boss never calls `set_app_identity()`, and every default there is exactly the literal it replaced, so MD Boss's behaviour is unchanged; DocBoss sets its own at the top of `OnInit`. A literal that crept back would make DocBoss quietly read MD Boss's profile or update itself from MD Boss's releases. `test_appidentity.cpp` pins both halves.
+- **`Templates` does not see `Config`.** `seed_templates()` takes a `SeededTemplates` record and the caller stores it, because `Config.h` is exactly the thing an embedding app must not pull.
+
+`scan_root()`'s `companion_exts` (DocBoss asks for `.pdf`) is reported in `RootScan::companions` and deliberately kept out of `entries` and `counts`, so MD Boss, asking for none, sees the scan it always had.
+
+**The tests write their fixtures under `fs::temp_directory_path()`**, which is `%TEMP%` — inside AppData on this machine. Run `ctest` with `TMP`/`TEMP` pointed at `build/claude-scratch/tmp`, and launch the app with `APPDATA`/`TEMP`/`TMP` pointed there too; `user_data_dir()` and the preview both follow the environment, so the real profile is never touched.
+
 ## Where the C++ app deliberately differs from the legacy Python app
 
 These were the deliberate divergences from the Python app back when it was the

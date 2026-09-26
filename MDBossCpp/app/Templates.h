@@ -1,5 +1,6 @@
-// New-document templates: Markdown files in %APPDATA%\MDBoss\templates,
-// shared with the Python app, with a few placeholders substituted on use.
+// New-document templates: Markdown files in <user_data_dir()>\templates
+// (%APPDATA%\MDBoss\templates for MD Boss, shared with the Python app), with a
+// few placeholders substituted on use.
 
 #ifndef MDBOSS_APP_TEMPLATES_H
 #define MDBOSS_APP_TEMPLATES_H
@@ -11,20 +12,33 @@
 
 namespace mdboss {
 
-class Config;
-
+// <user_data_dir()>\templates.
 std::string templates_dir();
 
+// Which starters this profile has been offered.  A plain record rather than a
+// Config&, so the templates unit does not drag the app's settings file (and
+// with it, the app's profile) into anything that compiles it.  The caller
+// loads it from its settings and writes back what seed_templates() adds.
+struct SeededTemplates {
+    // False until anything has been recorded: "offered nothing yet" is not the
+    // same as "the record predates per-name seeding".
+    bool known = false;
+    std::vector<std::string> names;
+
+    bool has(const std::string& name) const;
+    void mark(const std::string& name);
+};
+
 // Write any starter template the user has not been offered yet, recording
-// each one in `config` so it is offered exactly once.  Returns true if
-// `config` changed and the caller should save it.
+// each one in `seeded` so it is offered exactly once.  Returns true if
+// `seeded` changed and the caller should save it.
 //
 // Per-name rather than per-folder, because a starter added in a later version
 // has to reach a profile whose templates folder already exists.  Deleting a
 // template still means it: a name is marked as seeded whether or not the file
 // was actually written, so it never comes back.  An existing file of the same
 // name is never overwritten.
-bool seed_templates(Config& config);
+bool seed_templates(SeededTemplates& seeded);
 
 // (name, path) for each Markdown template, sorted by name.
 std::vector<std::pair<std::string, std::string>> list_templates();

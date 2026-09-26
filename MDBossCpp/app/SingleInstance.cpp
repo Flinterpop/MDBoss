@@ -1,5 +1,7 @@
 #include "SingleInstance.h"
 
+#include "AppIdentity.h"
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -8,14 +10,14 @@
 namespace mdboss {
 namespace {
 
-const wchar_t* const kInstanceProp = L"MDBossCpp.Instance";
 constexpr ULONG_PTR kCopyDataId = 0x4D44'4243;   // 'MDBC'
 
-// "Local\" scopes the name to the logon session, which is what "one window per
-// user session" means -- two users on the same machine get one window each,
-// not one between them.  The name is deliberately not the Python app's, for
-// the reason given in the header.
-const wchar_t* const kInstanceMutex = L"Local\\MDBossCpp.SingleInstance";
+// The mutex name and window property come from AppIdentity.  MD Boss's
+// mutex is "Local\MDBossCpp.SingleInstance": "Local\" scopes the name to the
+// logon session, which is what "one window per user session" means -- two
+// users on the same machine get one window each, not one between them.  The
+// name is deliberately not the Python app's, for the reason given in the
+// header.
 
 // How long a later launch waits for the first one's window.  Bounded (Rule of
 // 10): the first instance may be slow, may be stuck, or may have died between
@@ -39,7 +41,7 @@ bool claim_slot()
     SetLastError(ERROR_SUCCESS);
     // bInitialOwner FALSE: only the existence of the name is being tested, and
     // taking ownership would drag in abandoned-mutex handling for no gain.
-    g_slot = CreateMutexW(nullptr, FALSE, kInstanceMutex);
+    g_slot = CreateMutexW(nullptr, FALSE, app_identity().instance_mutex.c_str());
     if (g_slot == nullptr) {
         // Cannot claim it at all.  Degrade to the old behaviour and open a
         // window: refusing to start would be far worse than a second one.
@@ -62,7 +64,7 @@ BOOL CALLBACK find_instance(HWND hwnd, LPARAM param)
     if (pid == state->self) {
         return TRUE;
     }
-    if (GetPropW(hwnd, kInstanceProp) != nullptr) {
+    if (GetPropW(hwnd, app_identity().instance_prop.c_str()) != nullptr) {
         state->found = hwnd;
         return FALSE;
     }
@@ -74,7 +76,7 @@ BOOL CALLBACK find_instance(HWND hwnd, LPARAM param)
 void mark_as_instance(void* hwnd)
 {
     if (hwnd != nullptr) {
-        SetPropW(static_cast<HWND>(hwnd), kInstanceProp,
+        SetPropW(static_cast<HWND>(hwnd), app_identity().instance_prop.c_str(),
                  reinterpret_cast<HANDLE>(1));
     }
 }

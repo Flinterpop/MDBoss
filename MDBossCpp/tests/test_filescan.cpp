@@ -145,6 +145,40 @@ TEST_CASE("a scan with no exclusions is unchanged and complete", "[filescan]")
     CHECK_FALSE(scan.truncated);
 }
 
+TEST_CASE("companions are reported apart and change nothing else",
+          "[filescan]")
+{
+    // DocBoss asks for ".pdf" to pair each document with its published PDF.
+    // Asking must not disturb the Markdown half: the same entries, the same
+    // counts, and the companions in a list of their own.
+    const TempTree tree;
+    const mdboss::RootScan plain = mdboss::scan_root(tree.path());
+    const mdboss::RootScan with =
+        mdboss::scan_root(tree.path(), {}, {".TXT"});
+
+    CHECK(plain.companions.empty());
+    CHECK(with.entries.size() == plain.entries.size());
+    CHECK(with.counts == plain.counts);
+    REQUIRE(with.companions.size() == 3);   // notes.txt, readme.txt, more.txt
+    for (const mdboss::DocEntry& companion : with.companions) {
+        CHECK(companion.name.size() > 4);
+        CHECK(companion.name.substr(companion.name.size() - 4) == ".txt");
+        CHECK(companion.modified != 0);
+    }
+}
+
+TEST_CASE("a scan records each document's modification time", "[filescan]")
+{
+    const TempTree tree;
+    const mdboss::RootScan scan = mdboss::scan_root(tree.path());
+    REQUIRE_FALSE(scan.entries.empty());
+    for (const mdboss::DocEntry& doc : scan.entries) {
+        const auto expected =
+            fs::last_write_time(mdboss::path_from_utf8(doc.path));
+        CHECK(doc.modified == expected.time_since_epoch().count());
+    }
+}
+
 TEST_CASE("excluding a folder that is not there changes nothing", "[filescan]")
 {
     // An exclusion outlives the folder it names: the path is stored in the

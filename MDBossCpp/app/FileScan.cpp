@@ -253,7 +253,8 @@ DocumentSearch search_documents(const std::vector<std::string>& paths,
 }
 
 RootScan scan_root(const std::string& root,
-                   const std::vector<std::string>& excluded)
+                   const std::vector<std::string>& excluded,
+                   const std::vector<std::string>& companion_exts)
 {
     RootScan result;
     std::map<std::string, int>& counts = result.counts;
@@ -296,6 +297,30 @@ RootScan scan_root(const std::string& root,
         return text;
     };
 
+    const auto make_entry = [&relative_dir](const fs::directory_entry& entry) {
+        DocEntry doc;
+        doc.path = path_to_utf8(entry.path());
+        doc.name = path_to_utf8(entry.path().filename());
+        doc.relative_dir = relative_dir(entry.path());
+        std::error_code time_ec;
+        const fs::file_time_type when = entry.last_write_time(time_ec);
+        doc.modified = time_ec ? 0 : static_cast<std::int64_t>(
+                                         when.time_since_epoch().count());
+        return doc;
+    };
+
+    // Lower-cased once, like the exclusions.
+    std::set<std::string> companion_set;
+    for (const std::string& ext : companion_exts) {   // bounded by the caller
+        assert(!ext.empty() && ext.front() == '.' &&
+               "a companion extension carries its dot");
+        companion_set.insert(to_lower(ext));
+    }
+    const auto is_companion = [&companion_set](const fs::path& file) {
+        return companion_set.count(to_lower(path_to_utf8(file.extension()))) !=
+               0;
+    };
+
     // Iterate with the error_code-taking increment.  A range-for uses the
     // throwing operator++, which the error_code constructor does NOT make
     // safe: one unreadable directory mid-walk raises filesystem_error, and on
@@ -329,12 +354,12 @@ RootScan scan_root(const std::string& root,
                 ++found->second;
             }
             if (result.entries.size() < kMaxEntriesPerRoot) {
-                DocEntry doc;
-                doc.path = path_to_utf8(entry.path());
-                doc.name = path_to_utf8(entry.path().filename());
-                doc.relative_dir = relative_dir(entry.path());
-                result.entries.push_back(std::move(doc));
+                result.entries.push_back(make_entry(entry));
             }
+        } else if (!companion_exts.empty() &&
+                   result.companions.size() < kMaxEntriesPerRoot &&
+                   is_companion(entry.path())) {
+            result.companions.push_back(make_entry(entry));
         }
         it.increment(ec);
     }
@@ -375,6 +400,9 @@ RootScan scan_root(const std::string& root,
                   }
                   return to_lower(a.name) < to_lower(b.name);
               });
+    assert(result.entries.size() <= kMaxEntriesPerRoot &&
+           result.companions.size() <= kMaxEntriesPerRoot &&
+           "both lists honour the per-root bound");
     return result;
 }
 

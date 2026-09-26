@@ -289,9 +289,7 @@ MainFrame::MainFrame()
     // to reach a profile whose templates folder already exists, and waiting
     // for someone to open that folder means it never appears in the menus
     // where templates are actually picked.
-    if (seed_templates(config_)) {
-        config_.save();
-    }
+    seed_starter_templates();
     SetMinSize(wxSize(640, 400));
     // Size alone is the fallback for a profile saved before geometry was:
     // position, and whether the window was maximised, were never recorded.
@@ -1703,11 +1701,19 @@ void MainFrame::on_new_from_template(wxCommandEvent&)
     render_preview();
 }
 
+void MainFrame::seed_starter_templates()
+{
+    SeededTemplates seeded = config_.seeded_templates();
+    if (seed_templates(seeded)) {
+        // A starter this build added was offered just now.
+        config_.set_seeded_templates(seeded);
+        config_.save();
+    }
+}
+
 void MainFrame::on_open_templates_folder(wxCommandEvent&)
 {
-    if (seed_templates(config_)) {
-        config_.save();   // a starter this build added was written just now
-    }
+    seed_starter_templates();
     const wxString dir = wxString::FromUTF8(templates_dir());
     wxExecute("explorer.exe \"" + dir + "\"", wxEXEC_ASYNC);
 }
@@ -2285,7 +2291,8 @@ void MainFrame::install_update(const ReleaseInfo& info, bool portable)
         path_from_utf8(std::string(wxStandardPaths::Get()
                                        .GetTempDir()
                                        .ToUTF8())) /
-        path_from_utf8(portable ? kPortableAssetName : kSetupAssetName);
+        path_from_utf8(portable ? app_identity().portable_asset
+                                : app_identity().setup_asset);
 
     SetStatusText(L"Downloading the update…");
     download_update(

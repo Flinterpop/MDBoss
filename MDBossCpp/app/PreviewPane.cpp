@@ -1,5 +1,6 @@
 #include "PreviewPane.h"
 
+#include "AppIdentity.h"
 #include "LinkTarget.h"
 
 #include <wx/filefn.h>
@@ -72,8 +73,11 @@ std::string narrow(const std::wstring& text)
 // to load the file:// images a document references.
 wxString preview_dir()
 {
+    const std::string& staging = app_identity().staging_dir;
     const wxString dir =
-        wxFileName::GetTempDir() + wxFileName::GetPathSeparator() + "MDBoss";
+        staging.empty() ? wxFileName::GetTempDir() +
+                              wxFileName::GetPathSeparator() + "MDBoss"
+                        : wxString::FromUTF8(staging);
     if (!wxDirExists(dir)) {
         wxMkdir(dir);
     }

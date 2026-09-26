@@ -13,16 +13,10 @@
 #include <filesystem>
 #include <system_error>
 
+#include "AppIdentity.h"
 #include "PathUtf8.h"
-#include "Version.h"
 
 namespace mdboss {
-namespace {
-
-const char* const kApiUrl =
-    "https://api.github.com/repos/Flinterpop/MDBoss/releases/latest";
-
-}  // namespace
 
 void check_for_update(
     std::function<void(const ReleaseInfo&, const std::string&)> done)
@@ -30,14 +24,15 @@ void check_for_update(
     // wxWebRequest needs an event handler to report to; the app object
     // outlives any window, so it is the safe owner here.
     wxEvtHandler* handler = wxTheApp;
-    wxWebRequest request =
-        wxWebSession::GetDefault().CreateRequest(handler, kApiUrl);
+    // The repository comes from AppIdentity; MD Boss's default is its own.
+    wxWebRequest request = wxWebSession::GetDefault().CreateRequest(
+        handler, app_identity().releases_api_url);
     if (!request.IsOk()) {
         done(ReleaseInfo{}, "Could not start the update check.");
         return;
     }
     // GitHub rejects requests without a User-Agent.
-    request.SetHeader("User-Agent", kAppName);
+    request.SetHeader("User-Agent", app_identity().display_name);
     request.SetHeader("Accept", "application/vnd.github+json");
 
     // Bound to THIS request's id, not to the event generally.  Every request
@@ -88,7 +83,7 @@ void download_update(const std::string& url, const std::string& dest,
         done("Could not start the download.");
         return;
     }
-    request.SetHeader("User-Agent", kAppName);
+    request.SetHeader("User-Agent", app_identity().display_name);
     // Write straight to the file rather than buffering the installer in
     // memory: it is several megabytes and there is no reason to hold it.
     request.SetStorage(wxWebRequest::Storage_File);

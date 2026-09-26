@@ -1,5 +1,6 @@
 #include "InternalNotes.h"
 
+#include "AppIdentity.h"
 #include "FileScan.h"
 #include "PathUtf8.h"
 
@@ -208,7 +209,8 @@ std::string logins_seed()
 {
     return "# Logins\n"
            "\n"
-           "Managed by MD Boss (Lists menu). Rows may also be edited by hand.\n"
+           "Managed by " + app_identity().display_name +
+           " (Lists menu). Rows may also be edited by hand.\n"
            "\n"
            "| Name | Link | Login | PW | Last Changed | Notes |\n"
            "|---|---|---|---|---|---|\n";
@@ -223,7 +225,8 @@ std::string todo_seed()
     // directly under the header separator is exactly right.
     return "# To Do\n"
            "\n"
-           "Managed by MD Boss (Lists menu). Tick a box to mark it done.\n"
+           "Managed by " + app_identity().display_name +
+           " (Lists menu). Tick a box to mark it done.\n"
            "\n";
 }
 
@@ -239,7 +242,8 @@ std::string facts_seed()
     // of is not always the day it was written down.
     return "# Facts\n"
            "\n"
-           "Managed by MD Boss (Lists menu). Rows may also be edited by hand.\n"
+           "Managed by " + app_identity().display_name +
+           " (Lists menu). Rows may also be edited by hand.\n"
            "The date is when the fact is true of, not when it was recorded.\n"
            "\n"
            "| Date | Fact | Tags | Source |\n"
@@ -251,7 +255,7 @@ std::string internal_gitignore()
     // Deny everything, including this file: MD_Internal may sit inside a git
     // repo, logins.md holds plaintext passwords, and `git add -A` is one
     // keystroke.  Written once, when the folder is created.
-    return "# Written by MD Boss.\n"
+    return "# Written by " + app_identity().display_name + ".\n"
            "#\n"
            "# MD_Internal holds app-managed notes, including logins.md, which\n"
            "# stores passwords in plain text. Nothing here should ever be\n"

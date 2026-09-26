@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "AppIdentity.h"
 #include "PathUtf8.h"
 
 
@@ -13,9 +14,6 @@ namespace mdboss {
 namespace {
 
 using json = nlohmann::json;
-
-const char* const kReleasesUrl =
-    "https://github.com/Flinterpop/MDBoss/releases";
 
 // Bounded (Rule of 10): a tag with a hundred components is not a version.
 constexpr std::size_t kMaxVersionParts = 8;
@@ -93,9 +91,6 @@ std::string wait_for_exit_header(unsigned long pid)
 
 }  // namespace
 
-const char* const kSetupAssetName = "MDBoss-Cpp-Setup.exe";
-const char* const kPortableAssetName = "MDBoss-Cpp-Portable.zip";
-
 std::optional<std::vector<int>> parse_version(const std::string& text)
 {
     std::size_t at = 0;
@@ -151,7 +146,7 @@ bool is_newer(const std::vector<int>& candidate,
 ReleaseInfo parse_release(const std::string& json_body)
 {
     ReleaseInfo info;
-    info.html_url = kReleasesUrl;
+    info.html_url = app_identity().releases_page_url;
 
     const json document = json::parse(json_body, nullptr, false);
     if (document.is_discarded() || !document.is_object()) {
@@ -187,9 +182,9 @@ ReleaseInfo parse_release(const std::string& json_body)
             const std::string name = asset["name"].get<std::string>();
             const std::string url =
                 asset["browser_download_url"].get<std::string>();
-            if (name == kSetupAssetName) {
+            if (name == app_identity().setup_asset) {
                 info.setup_url = url;
-            } else if (name == kPortableAssetName) {
+            } else if (name == app_identity().portable_asset) {
                 info.portable_url = url;
             }
         }
@@ -268,7 +263,12 @@ std::string portable_batch(const std::string& zip_path,
 
     const std::string sys32 = "%SystemRoot%\\System32";
 
-    // Extract, check, and only then copy.  A zip with no MDBoss.exe -- at
+    const std::string& exe = app_identity().exe_name;
+    const std::string& folder = app_identity().portable_folder;
+    assert(!exe.empty() && !folder.empty() &&
+           "the zip has to be checked for something");
+
+    // Extract, check, and only then copy.  A zip with no <exe_name> -- at
     // the root or one folder down, the two layouts app.py accepts -- copies
     // nothing, and the relaunch line runs either way: a failed update is a
     // no-op, not a brick.  robocopy copies OVER the install rather than
@@ -279,10 +279,10 @@ std::string portable_batch(const std::string& zip_path,
              staging_dir + "\"\r\n";
     batch += "set \"_src=\"\r\n";
     batch += "if exist \"" + staging_dir +
-             "\\MDBoss.exe\" set \"_src=" + staging_dir + "\"\r\n";
+             "\\" + exe + "\" set \"_src=" + staging_dir + "\"\r\n";
     batch += "if exist \"" + staging_dir +
-             "\\MDBoss\\MDBoss.exe\" set \"_src=" + staging_dir +
-             "\\MDBoss\"\r\n";
+             "\\" + folder + "\\" + exe + "\" set \"_src=" + staging_dir +
+             "\\" + folder + "\"\r\n";
     batch += "if \"%_src%\"==\"\" goto mdrelaunch\r\n";
     batch += "robocopy \"%_src%\" \"" + app_dir +
              "\" /E /IS /IT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP >nul\r\n";

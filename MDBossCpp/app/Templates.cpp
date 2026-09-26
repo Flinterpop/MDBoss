@@ -7,7 +7,7 @@
 #include <fstream>
 #include <string_view>
 
-#include "Config.h"
+#include "AppIdentity.h"
 #include "FileScan.h"
 #include "LogoAsset.h"
 #include "PathUtf8.h"
@@ -223,7 +223,27 @@ std::string templates_dir()
     return path_to_utf8(path_from_utf8(user_data_dir()) / "templates");
 }
 
-bool seed_templates(Config& config)
+bool SeededTemplates::has(const std::string& wanted) const
+{
+    for (const std::string& seeded : names) {   // bounded: names is capped
+        if (seeded == wanted) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SeededTemplates::mark(const std::string& name)
+{
+    assert(!name.empty() && "a seeded template needs a name");
+    known = true;
+    if (!has(name)) {
+        names.push_back(name);
+    }
+    assert(has(name) && "a marked name is recorded");
+}
+
+bool seed_templates(SeededTemplates& config)
 {
     const fs::path dir = path_from_utf8(templates_dir());
     std::error_code ec;
@@ -238,20 +258,20 @@ bool seed_templates(Config& config)
     bool changed = false;
     // A folder that predates the per-name record was seeded by an older build,
     // so adopt its starters as already offered rather than writing them again.
-    if (existed && !config.knows_seeded_templates()) {
+    if (existed && !config.known) {
         for (const Starter& starter : all) {   // bounded: a fixed list
             if (starter.legacy) {
-                config.mark_template_seeded(starter.name);
+                config.mark(starter.name);
                 changed = true;
             }
         }
     }
 
     for (const Starter& starter : all) {   // bounded: a fixed list
-        if (config.is_template_seeded(starter.name)) {
+        if (config.has(starter.name)) {
             continue;
         }
-        config.mark_template_seeded(starter.name);
+        config.mark(starter.name);
         changed = true;
         const fs::path file = dir / (starter.name + ".md");
         if (fs::exists(file, ec)) {

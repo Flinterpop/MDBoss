@@ -20,6 +20,12 @@
 #include <string>
 #include <vector>
 
+// user_data_dir() -- the per-user data folder, %APPDATA%\MDBoss by default,
+// shared with the Python app -- lives there now, so an embedding app can move
+// it without pulling this file.
+#include "AppIdentity.h"
+#include "Templates.h"
+
 namespace mdboss {
 
 // Matching app.py's MAX_RECENTS and MAX_FAVORITES.  Public because the
@@ -33,10 +39,6 @@ struct Root {
     std::string name;
     std::string path;
 };
-
-// The per-user data folder, %APPDATA%\MDBoss, shared with the Python app.
-// Config and templates both live under it.
-std::string user_data_dir();
 
 class Config {
 public:
@@ -105,12 +107,14 @@ public:
     // added in a later version reaches a profile whose templates folder was
     // created by an earlier one -- and so deleting a template still means it.
     //
-    // knows_seeded_templates() distinguishes "offered nothing yet" from "the
+    // SeededTemplates::known distinguishes "offered nothing yet" from "the
     // key predates this mechanism", which is what lets seed_templates() adopt
     // an existing folder's starters instead of writing them a second time.
-    bool knows_seeded_templates() const { return seeded_templates_known_; }
-    bool is_template_seeded(const std::string& name) const;
-    void mark_template_seeded(const std::string& name);
+    SeededTemplates seeded_templates() const
+    {
+        return SeededTemplates{seeded_templates_known_, seeded_templates_};
+    }
+    void set_seeded_templates(const SeededTemplates& seeded);
 
     void set_roots(std::vector<Root> roots) { roots_ = std::move(roots); }
     void set_favorites(std::vector<std::string> f) { favorites_ = std::move(f); }

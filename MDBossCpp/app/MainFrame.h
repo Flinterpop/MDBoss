@@ -75,6 +75,8 @@ private:
     // around it that make Markdown treat it as one.
     void insert_block(const std::string& body);
     void on_open_templates_folder(wxCommandEvent& event);
+    // Offer any starter template this profile has not seen, and save.
+    void seed_starter_templates();
     // The three MD_Internal lists, and a way to reach the folder itself.
     void on_add_login(wxCommandEvent& event);
     void on_add_todo(wxCommandEvent& event);

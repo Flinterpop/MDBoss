@@ -9,20 +9,21 @@
 
 #include <shlobj.h>
 
+#include "AppIdentity.h"
 #include "PathUtf8.h"
 
 namespace mdboss {
 namespace {
 
-// These strings must match app.py exactly or the two builds would fight over
-// the same ProgID with different contents.
-const char* const kProgId = "MDBoss.Markdown";
+// The ProgID, names and description come from AppIdentity.  MD Boss's defaults
+// there must match app.py exactly or the two builds would fight over the same
+// ProgID with different contents; an embedding app supplies its own.
 const char* const kProgIdLabel = "Markdown Document";
-const char* const kDisplayName = "MD Boss";
-const char* const kAppName = "MDBoss";
-const char* const kCapabilities = "Software\\MDBoss\\Capabilities";
-const char* const kDescription =
-    "Local Markdown manager, editor, and offline GitHub-style viewer.";
+
+std::string capabilities_key()
+{
+    return "Software\\" + app_identity().assoc_app_name + "\\Capabilities";
+}
 
 // Must match app.py's MARKDOWN_EXTS exactly; a missing extension here means
 // documents the Python app claims are silently not offered by this one.
@@ -74,7 +75,12 @@ RegPlan registration_plan(const std::string& command, const std::string& icon,
     assert(!icon.empty() && "icon must be non-empty");
     assert(!exe_name.empty() && "exe_name must be non-empty");
 
-    const std::string progid = std::string("Software\\Classes\\") + kProgId;
+    const AppIdentity& identity = app_identity();
+    const std::string& prog_id = identity.prog_id;
+    const std::string& display = identity.assoc_display_name;
+    const std::string& description = identity.assoc_description;
+    const std::string capabilities = capabilities_key();
+    const std::string progid = std::string("Software\\Classes\\") + prog_id;
     const std::string appkey =
         "Software\\Classes\\Applications\\" + exe_name;
 
@@ -83,29 +89,29 @@ RegPlan registration_plan(const std::string& command, const std::string& icon,
         {progid, "", kProgIdLabel},
         {progid, "FriendlyTypeName", kProgIdLabel},
         {progid + "\\DefaultIcon", "", icon},
-        {progid + "\\shell\\open", "FriendlyAppName", kDisplayName},
+        {progid + "\\shell\\open", "FriendlyAppName", display},
         {progid + "\\shell\\open\\command", "", command},
         // Applications\<exe> is what populates the "Open with" list.
         {appkey + "\\shell\\open\\command", "", command},
-        {appkey, "FriendlyAppName", kDisplayName},
+        {appkey, "FriendlyAppName", display},
         // Capabilities + RegisteredApplications list us in Default apps.
-        {kCapabilities, "ApplicationName", kDisplayName},
-        {kCapabilities, "ApplicationDescription", kDescription},
-        {"Software\\RegisteredApplications", kDisplayName, kCapabilities},
+        {capabilities, "ApplicationName", display},
+        {capabilities, "ApplicationDescription", description},
+        {"Software\\RegisteredApplications", display, capabilities},
     };
     plan.shared_values = {
-        {"Software\\RegisteredApplications", kDisplayName},
+        {"Software\\RegisteredApplications", display},
     };
     for (const char* ext : kMarkdownExts) {
         plan.values.push_back(
             {std::string("Software\\Classes\\") + ext + "\\OpenWithProgids",
-             kProgId, ""});
+             prog_id, ""});
         plan.values.push_back({appkey + "\\SupportedTypes", ext, ""});
         plan.values.push_back(
-            {std::string(kCapabilities) + "\\FileAssociations", ext, kProgId});
+            {std::string(capabilities) + "\\FileAssociations", ext, prog_id});
         plan.shared_values.push_back(
             {std::string("Software\\Classes\\") + ext + "\\OpenWithProgids",
-             kProgId});
+             prog_id});
     }
     plan.owned_keys = {
         progid + "\\shell\\open\\command",
@@ -118,9 +124,9 @@ RegPlan registration_plan(const std::string& command, const std::string& icon,
         appkey + "\\shell",
         appkey + "\\SupportedTypes",
         appkey,
-        std::string(kCapabilities) + "\\FileAssociations",
-        kCapabilities,
-        std::string("Software\\") + kAppName,
+        std::string(capabilities) + "\\FileAssociations",
+        capabilities,
+        std::string("Software\\") + identity.assoc_app_name,
     };
     return plan;
 }
@@ -192,8 +198,8 @@ void remove_registration(const RegPlan& plan)
 bool is_registered(const std::string& command)
 {
     assert(!command.empty() && "command must be non-empty");
-    const std::string key =
-        std::string("Software\\Classes\\") + kProgId + "\\shell\\open\\command";
+    const std::string key = std::string("Software\\Classes\\") +
+                            app_identity().prog_id + "\\shell\\open\\command";
 
     HKEY handle = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, widen(key).c_str(), 0, KEY_QUERY_VALUE,

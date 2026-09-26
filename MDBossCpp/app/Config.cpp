@@ -22,30 +22,6 @@ using json = nlohmann::json;
 // Iconized); the cap only has to be comfortably above that.
 constexpr std::size_t kMaxGeometryFields = 32;
 
-// getenv() is deprecated under /W4 /WX on MSVC, and the _s variant hands back
-// an allocation the caller owns.
-std::string environment(const char* name)
-{
-    char* value = nullptr;
-    std::size_t size = 0;
-    if (_dupenv_s(&value, &size, name) != 0 || value == nullptr) {
-        return {};
-    }
-    std::string out(value);
-    std::free(value);
-    return out;
-}
-
-std::string user_data_base()
-{
-    const std::string appdata = environment("APPDATA");
-    if (!appdata.empty()) {
-        return appdata;
-    }
-    const std::string profile = environment("USERPROFILE");
-    return profile.empty() ? std::string(".") : profile;
-}
-
 // Read the whole config file as JSON, or a null json on any failure.
 json read_document()
 {
@@ -86,11 +62,6 @@ std::vector<std::string> string_array(const json& document, const char* key,
 }
 
 }  // namespace
-
-std::string user_data_dir()
-{
-    return path_to_utf8(path_from_utf8(user_data_base()) / "MDBoss");
-}
 
 std::string Config::path()
 {
@@ -379,26 +350,14 @@ void Config::set_expanded_folders(std::vector<std::string> folders)
     expanded_folders_ = std::move(folders);
 }
 
-bool Config::is_template_seeded(const std::string& name) const
+void Config::set_seeded_templates(const SeededTemplates& seeded)
 {
-    for (const std::string& seeded : seeded_templates_) {
-        if (seeded == name) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void Config::mark_template_seeded(const std::string& name)
-{
-    assert(!name.empty() && "a seeded template needs a name");
-    if (is_template_seeded(name)) {
-        return;
-    }
-    seeded_templates_.push_back(name);
+    assert((seeded.known || seeded.names.empty()) &&
+           "a name is only ever recorded through mark(), which sets known");
+    seeded_templates_ = seeded.names;
     // Saving now writes the key, so a later load takes the adopt-existing
     // branch in seed_templates() no further.
-    seeded_templates_known_ = true;
+    seeded_templates_known_ = seeded.known;
 }
 
 void Config::set_window_size(int width, int height)

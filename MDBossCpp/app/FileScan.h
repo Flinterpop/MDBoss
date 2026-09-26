@@ -9,6 +9,7 @@
 #define MDBOSS_APP_FILE_SCAN_H
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
@@ -201,6 +202,10 @@ struct DocEntry {
     // Which configured root this came from.  scan_root() knows nothing about
     // the roots list and always leaves this 0; the caller fills it in.
     std::size_t root_index = 0;
+    // Last write time, as std::filesystem::file_time_type ticks; 0 if it
+    // could not be read.  Free: the walk's directory_entry already holds it
+    // on Windows, so recording it costs no extra stat.
+    std::int64_t modified = 0;
 };
 
 // Ceiling on documents recorded for one root (Rule of 10).  The tree builds an
@@ -236,6 +241,12 @@ struct RootScan {
     // tree looks exactly like one that is empty, and the row is also the only
     // place the user can put it back.
     std::vector<std::string> excluded_folders;
+    // Files matching the caller's `companion_exts`, found by the same walk.
+    // Kept apart from `entries` and left out of `counts`, so a caller that
+    // asks for none (MD Boss) sees exactly the scan it always had.  DocBoss
+    // asks for ".pdf" to pair each document with the PDF published from it.
+    // Bounded by kMaxEntriesPerRoot, like `entries`.
+    std::vector<DocEntry> companions;
 };
 
 // `excluded` folders are pruned: matched on the normalised absolute path, not
@@ -244,8 +255,12 @@ struct RootScan {
 // of a whole workspace quick.  A built-in list of names to skip does not work:
 // the folder that costs the most is as likely to be an app's own output
 // directory, named whatever its author chose, as it is to be "node_modules".
+//
+// `companion_exts` are lower-case extensions with the dot (".pdf"); matching
+// files are reported in RootScan::companions.  Empty means none.
 RootScan scan_root(const std::string& root,
-                   const std::vector<std::string>& excluded = {});
+                   const std::vector<std::string>& excluded = {},
+                   const std::vector<std::string>& companion_exts = {});
 
 // One entry of a directory listing, already ordered the way the tree shows
 // them: directories first, then files, each case-insensitively by name.

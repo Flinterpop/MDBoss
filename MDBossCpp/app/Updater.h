@@ -43,11 +43,10 @@ ReleaseInfo parse_release(const std::string& json_body);
 void check_for_update(
     std::function<void(const ReleaseInfo&, const std::string& error)> done);
 
-// The assets this build would install.  Distinct from the Python build's
-// asset names, so one release can carry both without either app grabbing the
+// The assets this build would install are AppIdentity::setup_asset and
+// ::portable_asset.  MD Boss's are distinct from the Python build's asset
+// names, so one release can carry both without either app grabbing the
 // other's build.
-extern const char* const kSetupAssetName;
-extern const char* const kPortableAssetName;
 
 // True when this looks like a loose portable copy: no Inno uninstaller
 // (unins*.exe) beside the exe.  Mirrors running_portable() in app.py,
