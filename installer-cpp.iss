@@ -13,7 +13,7 @@
 ; ISCC lives at C:\bin\InnoSetup6\ISCC.exe (not on PATH); release.ps1 finds it.
 
 #define AppName "MD Boss (C++)"
-#define AppVersion "1.16.1"
+#define AppVersion "1.17.0"
 #define AppExe "MDBoss.exe"
 #define BuildDir "MDBossCpp\build\app\Release"
 
