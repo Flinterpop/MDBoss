@@ -1,7 +1,6 @@
 #include "Updater.h"
 
 #include <cassert>
-#include <cstdlib>
 #include <filesystem>
 
 #include <nlohmann/json.hpp>
@@ -18,41 +17,57 @@ using json = nlohmann::json;
 // Bounded (Rule of 10): a tag with a hundred components is not a version.
 constexpr std::size_t kMaxVersionParts = 8;
 
-// getenv() is deprecated under /W4 /WX on MSVC; _dupenv_s is the sanctioned
-// form and hands back an allocation the caller owns (same as Config.cpp).
-std::string environment(const char* name)
-{
-    assert(name != nullptr && *name != '\0');
-    char* value = nullptr;
-    std::size_t size = 0;
-    if (::_dupenv_s(&value, &size, name) != 0 || value == nullptr) {
-        return {};
-    }
-    const std::string out(value);
-    std::free(value);
-    return out;
-}
-
 char ascii_lower(char ch)
 {
     return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
 }
 
-// Case-insensitive "path lives inside root" for Windows paths.  ASCII case
-// folding only: the Program Files roots this is fed are ASCII.  The separator
-// check keeps a sibling like "C:\Program FilesX" from matching.
-bool under_root(const std::string& path, const std::string& root)
+// True when `text` is safe to splice into a cmd.exe line unquoted: an Inno
+// uninstall key name such as "{GUID}_is1".  Nothing cmd treats specially.
+bool plain_key_name(const std::string& text)
 {
-    if (root.empty() || path.size() <= root.size()) {
+    if (text.empty() || text.size() > 128) {
         return false;
     }
-    for (std::size_t i = 0; i < root.size(); ++i) {
-        if (ascii_lower(path[i]) != ascii_lower(root[i])) {
+    for (const char ch : text) {
+        const bool ok = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') ||
+                        (ch >= 'a' && ch <= 'z') || ch == '{' || ch == '}' ||
+                        ch == '-' || ch == '_' || ch == '.';
+        if (!ok) {
             return false;
         }
     }
-    const char next = path[root.size()];
-    return next == '\\' || next == '/';
+    return true;
+}
+
+// The relaunch: the machine-wide install the installer just wrote, read from
+// its own uninstall entry, else the copy that started the update.
+//
+// Why not just app_exe: an update from an old PER-USER install now installs
+// into Program Files, and the installer removes the per-user copy -- so
+// app_exe no longer exists, and relaunching it would leave the user with
+// nothing on screen and no word why.  InstallLocation is the folder Inno
+// actually used (a custom folder included), with a trailing backslash.
+// "REG_SZ" guards the header line reg prints, and `if exist` a stale entry.
+// /reg:64 because the installer runs in 64-bit mode.  A failed or declined
+// install leaves no entry (or the old one), so the intact copy relaunches.
+std::string relaunch_lines(const std::string& app_exe,
+                           const std::string& uninstall_key)
+{
+    assert(!app_exe.empty() && "nothing to relaunch");
+    std::string lines = "set \"_app=" + app_exe + "\"\r\n";
+    if (plain_key_name(uninstall_key)) {
+        const std::string& exe = app_identity().exe_name;
+        assert(!exe.empty() && "the install folder has to hold something");
+        lines += "for /f \"tokens=2,*\" %%a in ('%SystemRoot%\\System32\\"
+                 "reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\"
+                 "CurrentVersion\\Uninstall\\" + uninstall_key +
+                 "\" /v InstallLocation /reg:64 2^>nul') do "
+                 "if \"%%a\"==\"REG_SZ\" if exist \"%%b" + exe +
+                 "\" set \"_app=%%b" + exe + "\"\r\n";
+    }
+    lines += "start \"\" \"%_app%\"\r\n";
+    return lines;
 }
 
 // The wait-for-exit header shared by both handoff batches.
@@ -219,32 +234,17 @@ bool portable_install(const std::string& exe_dir_utf8)
     return true;
 }
 
-std::string install_scope_flag(const std::string& app_exe)
-{
-    assert(!app_exe.empty() && "no exe path to classify");
-    // ProgramW6432 covers a 32-bit process on 64-bit Windows; the (x86) root
-    // covers an exe that was installed there anyway.
-    const char* const roots[] = {"ProgramFiles", "ProgramW6432",
-                                 "ProgramFiles(x86)"};
-    for (const char* const name : roots) {
-        if (under_root(app_exe, environment(name))) {
-            return "/ALLUSERS";
-        }
-    }
-    return "/CURRENTUSER";
-}
-
 std::string installer_batch(const std::string& setup_path,
-                            const std::string& app_exe, unsigned long pid)
+                            const std::string& app_exe, unsigned long pid,
+                            const std::string& uninstall_key)
 {
     assert(!setup_path.empty() && "nothing to install");
     assert(!app_exe.empty() && "nothing to relaunch");
 
     std::string batch = wait_for_exit_header(pid);
-    batch += "\"" + setup_path +
-             "\" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES " +
-             install_scope_flag(app_exe) + "\r\n";
-    batch += "start \"\" \"" + app_exe + "\"\r\n";
+    batch += "\"" + setup_path + "\" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES " +
+             kInstallScopeFlag + "\r\n";
+    batch += relaunch_lines(app_exe, uninstall_key);
     batch += "del /q \"" + setup_path + "\"\r\n";
     batch += "del /q \"%~f0\"\r\n";
     return batch;

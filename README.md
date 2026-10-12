@@ -103,9 +103,14 @@ the same app lives in the repo but is **deprecated** — see
 
 Download **MDBoss-Cpp-Setup.exe** or **MDBoss-Cpp-Portable.zip** from the
 [Releases](https://github.com/Flinterpop/MDBoss/releases/latest) page. The
-installer asks whether to install for all users (Program Files, the default)
-or just for you. The portable zip holds an `MDBoss` folder — extract it
-somewhere and run `MDBoss.exe` from inside it.
+installer installs for all users, into Program Files, and asks for
+administrator rights to do so. The portable zip holds an `MDBoss` folder —
+extract it somewhere and run `MDBoss.exe` from inside it.
+
+> **Installed just for yourself by an earlier build?** The next install or
+> update moves MD Boss to Program Files and removes the per-user copy, keeping
+> it as the Markdown handler if it was one. Your settings in `%APPDATA%\MDBoss`
+> are untouched.
 
 > **Upgrading from v1.8.0 or earlier?** Those builds installed into
 > `Program Files (x86)` — the installer was running in 32-bit mode even though
@@ -118,7 +123,9 @@ somewhere and run `MDBoss.exe` from inside it.
 It updates itself from `Help → Check for updates`: an installed copy
 downloads `MDBoss-Cpp-Setup.exe`, a portable copy (no uninstaller beside the
 exe) downloads `MDBoss-Cpp-Portable.zip` and swaps itself in place; either
-way it waits for the app to close, updates, and reopens.
+way it waits for the app to close, updates, and reopens. An installed copy's
+update shows the Windows administrator prompt; declining it leaves the current
+version in place and reopens it.
 
 > **Running an old Python build (Windows or the Linux AppImage)?** It is no
 > longer maintained, and releases no longer carry `MDBoss-Setup.exe`,

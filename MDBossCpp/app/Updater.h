@@ -69,16 +69,36 @@ bool portable_install(const std::string& exe_dir_utf8);
 // Every line runs whether or not the one before it worked, so a failed
 // install still relaunches the intact old version.
 //
-// The install line carries install_scope_flag(app_exe): the installer defaults
-// to per-machine and a /VERYSILENT run takes the default, so a per-user copy
-// updating without /CURRENTUSER would elevate and plant a second install in
-// Program Files instead of updating itself.
+// The install line always carries kInstallScopeFlag.  Installs are machine-
+// level only (house rule, 11 Oct 2026): the installer has no per-user mode,
+// so an update from an old per-user copy moves it to Program Files, and the
+// installer itself removes the per-user copy (installer-cpp.iss [Code]).
+//
+// Elevation: the batch runs unelevated, as the user, and so must the
+// relaunch.  The installer raises its own UAC prompt -- Inno's Setup.exe
+// starts as the invoker and elevates itself, keeping the original process
+// waiting for it -- so the install line blocks until the install is done,
+// and a declined prompt simply fails the line and relaunches the old copy.
+// Elevating the whole batch instead (ShellExecuteEx "runas") would relaunch
+// MD Boss as the administrator.
+//
+// `uninstall_key`, when given, is the installer's uninstall key name
+// ("{AppId}_is1"): the relaunch then prefers the exe in the InstallLocation
+// that key records under HKLM, because after a per-user to machine move the
+// copy at `app_exe` is gone.  Empty relaunches `app_exe`, as before.  Only
+// characters a key name needs are accepted; anything else is ignored.
 std::string installer_batch(const std::string& setup_path,
-                            const std::string& app_exe, unsigned long pid);
+                            const std::string& app_exe, unsigned long pid,
+                            const std::string& uninstall_key = {});
 
-// "/ALLUSERS" when app_exe lives under Program Files, "/CURRENTUSER"
-// otherwise.  Mirrors _install_scope_flag in app.py.
-std::string install_scope_flag(const std::string& app_exe);
+// The scope switch every silent update passes.  Never /CURRENTUSER: there is
+// no per-user install any more.
+inline constexpr const char* kInstallScopeFlag = "/ALLUSERS";
+
+// MD Boss's own uninstall key: installer-cpp.iss's AppId plus Inno's "_is1".
+// test_updater.cpp checks the two agree.
+inline constexpr const char* kMdBossUninstallKey =
+    "{7C1B4E62-9E3A-4B21-8E37-2D5A9F0C41B8}_is1";
 
 // The batch that swaps a portable copy for a downloaded update zip.
 //

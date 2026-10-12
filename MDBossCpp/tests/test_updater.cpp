@@ -6,7 +6,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -190,13 +189,13 @@ TEST_CASE("the handoff batch waits before it installs", "[updater]")
     // The wait has to come before the install, or it is decoration.
     CHECK(batch.find("PID eq 4321") < batch.find("/VERYSILENT"));
 
-    // Unattended, relaunches afterwards, and pinned to this copy's scope
-    // (C:\Apps is not Program Files, so per-user here).
+    // Unattended, machine-level whatever the copy's folder (C:\Apps is not
+    // Program Files), and relaunches afterwards.
     CHECK(batch.find("/VERYSILENT") != std::string::npos);
     CHECK(batch.find("/NORESTART") != std::string::npos);
-    CHECK(batch.find("/SUPPRESSMSGBOXES /CURRENTUSER") != std::string::npos);
-    CHECK(batch.find("start \"\" \"C:\\Apps\\MDBoss.exe\"") !=
-          std::string::npos);
+    CHECK(batch.find("/SUPPRESSMSGBOXES /ALLUSERS") != std::string::npos);
+    CHECK(batch.find("set \"_app=C:\\Apps\\MDBoss.exe\"") != std::string::npos);
+    CHECK(batch.find("start \"\" \"%_app%\"") != std::string::npos);
 
     // Relaunch after install, and cleanup after that.
     CHECK(batch.find("/VERYSILENT") < batch.find("start \"\""));
@@ -217,33 +216,75 @@ TEST_CASE("the handoff batch waits before it installs", "[updater]")
           std::string::npos);
 }
 
-TEST_CASE("a silent update keeps the scope it was installed with", "[updater]")
+TEST_CASE("a silent update is always machine-level", "[updater]")
 {
-    // The installer defaults to per-machine and /VERYSILENT takes the
-    // default, so a per-user copy updating without /CURRENTUSER would elevate
-    // and plant a second install in Program Files instead of updating itself.
-    const std::string pf = env_or_empty("ProgramFiles");
-    REQUIRE_FALSE(pf.empty());   // always set on Windows, where this runs
+    // House rule, 11 Oct 2026: installs go to Program Files only.  A per-user
+    // copy updating is moved there, never kept per-user.
+    CHECK(std::string(mdboss::kInstallScopeFlag) == "/ALLUSERS");
+    const std::string per_user = mdboss::installer_batch(
+        "C:\\t\\s.exe", "C:\\Users\\b\\Programs\\MD Boss Cpp\\MDBoss.exe", 7);
+    CHECK(per_user.find("/SUPPRESSMSGBOXES /ALLUSERS") != std::string::npos);
+    CHECK(per_user.find("/CURRENTUSER") == std::string::npos);
+}
 
-    const std::string inside = pf + "\\MD Boss Cpp\\MDBoss.exe";
-    CHECK(mdboss::install_scope_flag(inside) == "/ALLUSERS");
+TEST_CASE("the relaunch prefers the machine install the key records",
+          "[updater]")
+{
+    const std::string app = "C:\\Users\\b\\Programs\\MD Boss Cpp\\MDBoss.exe";
+    const std::string batch = mdboss::installer_batch(
+        "C:\\t\\s.exe", app, 7, mdboss::kMdBossUninstallKey);
 
-    // Case-insensitive, like the file system.
-    std::string upper = inside;
-    for (char& ch : upper) {
-        ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
-    }
-    CHECK(mdboss::install_scope_flag(upper) == "/ALLUSERS");
+    // The old copy is the fallback, then the recorded install wins.
+    const std::size_t fallback = batch.find("set \"_app=" + app + "\"");
+    const std::size_t lookup = batch.find(
+        "reg.exe query \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\"
+        "Uninstall\\{7C1B4E62-9E3A-4B21-8E37-2D5A9F0C41B8}_is1\" "
+        "/v InstallLocation /reg:64");
+    const std::size_t start = batch.find("start \"\" \"%_app%\"");
+    REQUIRE(fallback != std::string::npos);
+    REQUIRE(lookup != std::string::npos);
+    REQUIRE(start != std::string::npos);
+    CHECK(batch.find("/VERYSILENT") < fallback);   // looked up AFTER install
+    CHECK(fallback < lookup);
+    CHECK(lookup < start);
 
-    // A sibling folder sharing the prefix is not Program Files.
-    CHECK(mdboss::install_scope_flag(pf + "X\\MDBoss.exe") == "/CURRENTUSER");
-    CHECK(mdboss::install_scope_flag(
-              "C:\\Users\\b\\AppData\\Local\\Programs\\MD Boss Cpp\\"
-              "MDBoss.exe") == "/CURRENTUSER");
+    // Absolute System32 path, like every other tool in these batches, and
+    // the header line and a stale entry are both ignored.
+    CHECK(batch.find("%SystemRoot%\\System32\\reg.exe") != std::string::npos);
+    CHECK(batch.find("if \"%%a\"==\"REG_SZ\" if exist \"%%bMDBoss.exe\"") !=
+          std::string::npos);
 
-    // And the batch carries the answer.
-    const std::string batch = mdboss::installer_batch("C:\\t\\s.exe", inside, 7);
-    CHECK(batch.find("/SUPPRESSMSGBOXES /ALLUSERS") != std::string::npos);
+    // Anything that is not a plain key name is ignored, not spliced in.
+    const std::string hostile = mdboss::installer_batch(
+        "C:\\t\\s.exe", app, 7, "x\" & calc & \"");
+    CHECK(hostile.find("reg.exe") == std::string::npos);
+    CHECK(hostile.find("calc") == std::string::npos);
+}
+
+TEST_CASE("the uninstall key matches the installer's AppId", "[updater]")
+{
+    // A drifted key would make the lookup find nothing, and an update from a
+    // per-user copy would relaunch an exe the installer has just removed.
+    std::ifstream stream(std::filesystem::path{MDBOSS_REPO_DIR} /
+                             "installer-cpp.iss",
+                         std::ios::binary);
+    REQUIRE(stream.good());
+    const std::string iss((std::istreambuf_iterator<char>(stream)),
+                          std::istreambuf_iterator<char>());
+    std::string key = mdboss::kMdBossUninstallKey;
+    REQUIRE(key.size() > 4);
+    key.resize(key.size() - 4);   // drop "_is1"
+    const std::string line = "\nAppId={" + key;
+    const std::size_t at = iss.find(line);
+    REQUIRE(at != std::string::npos);
+    REQUIRE(at + line.size() < iss.size());
+    const char after = iss[at + line.size()];
+    CHECK((after == '\r' || after == '\n'));   // the whole GUID, not a prefix
+    // And the installer is machine-level only: the directive that would offer
+    // a per-user choice is absent as a setting (comments may still name it).
+    CHECK(iss.find("\nPrivilegesRequired=admin") != std::string::npos);
+    CHECK(iss.find("\nPrivilegesRequiredOverridesAllowed") ==
+          std::string::npos);
 }
 
 TEST_CASE("the batch gives up rather than waiting forever", "[updater]")
@@ -348,7 +389,8 @@ TEST_CASE("write the handoff batch for a live wait test",
     REQUIRE_FALSE(out.empty());
 
     const std::string batch = mdboss::installer_batch(
-        setup, exe, static_cast<unsigned long>(std::stoul(pid)));
+        setup, exe, static_cast<unsigned long>(std::stoul(pid)),
+        mdboss::kMdBossUninstallKey);
     std::ofstream stream(out, std::ios::binary | std::ios::trunc);
     REQUIRE(stream.good());
     stream.write(batch.data(), static_cast<std::streamsize>(batch.size()));

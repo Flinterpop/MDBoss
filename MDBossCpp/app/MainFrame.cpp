@@ -2317,9 +2317,12 @@ void MainFrame::hand_off_to_installer(const std::string& setup_path)
 {
     const std::string app_exe =
         std::string(wxStandardPaths::Get().GetExecutablePath().ToUTF8());
+    // The uninstall key lets the batch relaunch the Program Files copy when
+    // this one is an old per-user install the update is about to remove.
     const std::string text = installer_batch(
         setup_path, app_exe,
-        static_cast<unsigned long>(::GetCurrentProcessId()));
+        static_cast<unsigned long>(::GetCurrentProcessId()),
+        kMdBossUninstallKey);
     spawn_handoff_and_close(setup_path + ".cmd", text);
 }
 
@@ -2368,6 +2371,10 @@ void MainFrame::spawn_handoff_and_close(const std::string& batch_path,
     //
     // CREATE_NO_WINDOW keeps the console hidden; the batch still outlives us
     // because cmd.exe is not tied to this process's lifetime.
+    //
+    // CreateProcess, not ShellExecuteEx "runas", although the installer needs
+    // admin: the batch itself must stay unelevated so its relaunch runs as
+    // the user.  The installer elevates itself -- see installer_batch.
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};

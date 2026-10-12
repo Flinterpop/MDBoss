@@ -369,6 +369,15 @@ Three traps, all learned the hard way:
   build and letting it update itself. Unit tests pass while the handoff is
   broken; that is exactly how v1.1.2 shipped unable to update.
 
+## Installs are machine-level only
+
+Workspace rule, 11 Oct 2026: `installer-cpp.iss` installs into Program Files and nowhere else — `PrivilegesRequired=admin`, **no** `PrivilegesRequiredOverridesAllowed` line, `{autopf}`. There is no per-user choice, so the updater's batch always passes `/ALLUSERS` (`kInstallScopeFlag`); the old `install_scope_flag()`, which picked `/CURRENTUSER` for a copy outside Program Files, is gone. `test_updater.cpp` reads the `.iss` and fails if the override line comes back or the AppId drifts from `kMdBossUninstallKey`.
+
+- **Elevation comes from the installer, not the launch.** Inno's `Setup.exe` carries an `asInvoker` manifest (checked in the compiled exe) and raises its own UAC prompt, keeping the original process waiting, so the unelevated `cmd.exe` batch blocks on the install line exactly as before and `CreateProcess` stays. Elevating the batch with `ShellExecuteEx "runas"` would have relaunched MD Boss as the administrator. A declined prompt fails the line and the old copy relaunches.
+- **An old per-user copy is removed, and the relaunch follows the move.** `[Code]` uninstalls whatever it finds under this AppId in `HKLM32` (pre-v1.8.0, Program Files (x86)) and in `HKCU` (per-user, any build), then re-registers the Markdown handler as the original user if the removed copy had the `associate` task ticked — its uninstaller unregisters it. Because the per-user exe is then gone, the batch relaunches from the `InstallLocation` in the HKLM uninstall entry (`reg.exe query ... /reg:64`), falling back to the starting exe. DocBoss calls `installer_batch` with three arguments and so keeps relaunching `app_exe`.
+- **Known gap:** HKCU in an elevated Setup is the elevating account's hive. A standard user who elevates with another account's credentials keeps the per-user copy (it still works and is removable from their Apps and Features); Inno cannot read the original user's hive from there.
+- **Settings are not converted yet.** `config.json`, templates and favorites live in `%APPDATA%\MDBoss` (`user_data_dir()`), the preview stages under `%TEMP%\MDBoss`, and the registry is used only for the file association (HKCU, shell integration). Moving to a file beside the exe (portable) or `%ProgramData%\MDBoss` (installed) is a separate change: `AppIdentity.cpp` is pulled by DocBoss, and `%ProgramData%` would make the settings shared by every user of the machine.
+
 ## Editing files from PowerShell: don't
 
 `Get-Content | Set-Content -Encoding utf8` round-trips UTF-8 through the ANSI

@@ -33,14 +33,11 @@ OutputDir=installer
 OutputBaseFilename=MDBoss-Setup
 Compression=lzma2
 SolidCompression=yes
-; Ask per-user or per-machine at install time; per-machine (Program Files) is
-; the recommended default.  {autopf} follows the answer: Program Files when
-; elevated, %LOCALAPPDATA%\Programs when not.  A silent run takes the
-; per-machine default, so the in-app updater passes /CURRENTUSER or /ALLUSERS
-; to keep an update in the scope it is already installed in -- see
-; _install_scope_flag in app.py.
+; Machine-level only (house rule, 11 Oct 2026), the same as installer-cpp.iss:
+; Program Files, admin, no per-user choice.  Changed for consistency only --
+; this file is never built for release.  The frozen app.py's
+; _install_scope_flag still predates the rule and was deliberately not touched.
 PrivilegesRequired=admin
-PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
 
 ; One-dir build: the exe plus its _internal folder.

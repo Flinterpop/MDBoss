@@ -10,7 +10,7 @@
 ; Requires the app to be built first:
 ;   cmake --preset windows-static && cmake --build MDBossCpp\build --config Release
 ;
-; ISCC lives at the non-default %LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe.
+; ISCC lives at C:\bin\InnoSetup6\ISCC.exe (not on PATH); release.ps1 finds it.
 
 #define AppName "MD Boss (C++)"
 #define AppVersion "1.16.1"
@@ -31,13 +31,13 @@ OutputDir=installer
 OutputBaseFilename=MDBoss-Cpp-Setup
 Compression=lzma2
 SolidCompression=yes
-; Ask per-user or per-machine at install time; per-machine (Program Files) is
-; the recommended default, matching installer.iss.  A silent run takes the
-; per-machine default, so the in-app updater passes /CURRENTUSER or /ALLUSERS
-; to keep an update in the scope it is already installed in -- see
-; install_scope_flag in MDBossCpp\app\Updater.cpp.
+; Machine-level only (house rule, 11 Oct 2026): Program Files, admin, and no
+; per-user choice -- so no PrivilegesRequiredOverridesAllowed directive at
+; all.  Setup starts as the invoker and raises its own UAC prompt, which is
+; what lets the in-app updater run it from an unelevated batch; that batch
+; always passes /ALLUSERS (kInstallScopeFlag in MDBossCpp\app\Updater.h).
+; A copy installed per-user by an older build is removed by [Code] below.
 PrivilegesRequired=admin
-PrivilegesRequiredOverridesAllowed=dialog
 ; The app is x64.  Without these two, Inno runs in 32-bit mode and {autopf}
 ; resolves to Program Files (x86) -- which is where every build up to and
 ; including v1.8.0 installed an x64 exe.  x64compatible rather than x64 so an
@@ -80,9 +80,9 @@ Name: "associate"; Description: "&Register this build as the Markdown (.md) hand
 
 ; The registry layout lives in MDBossCpp\app\FileAssoc.cpp and is applied by
 ; the exe itself, so the installer and the in-app "File types…" command cannot
-; drift apart.  The keys are per-user (HKCU) whatever the install scope, so
-; runasoriginaluser matters: an elevated per-machine install would otherwise
-; write the elevating admin's hive, not the user's.
+; drift apart.  The keys are per-user (HKCU) although the install is
+; per-machine, so runasoriginaluser matters: the elevated install would
+; otherwise write the elevating admin's hive, not the user's.
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "--register-file-types"; \
     StatusMsg: "Registering Markdown file types..."; \
@@ -97,42 +97,72 @@ Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; \
 Filename: "{app}\{#AppExe}"; Parameters: "--unregister-file-types"; \
     Flags: runhidden waituntilterminated; RunOnceId: "UnregisterFileTypes"
 
-; Every build up to v1.8.0 installed in 32-bit mode, so its uninstall entry is
-; in the 32-bit registry view and this one -- now 64-bit -- cannot see it.
-; Without this, upgrading would leave the old copy in Program Files (x86)
-; complete with its own uninstaller and Start Menu shortcuts, while the new one
-; landed in Program Files: two installs, two update paths, one of them stale.
+; Two kinds of old copy this install replaces rather than sits beside, each
+; found by its uninstall entry under this same AppId:
+;
+;  * Per-machine, 32-bit view (HKLM32): every build up to v1.8.0 installed in
+;    32-bit mode, into Program Files (x86), where this 64-bit install cannot
+;    see it.
+;  * Per-user (HKCU): builds before the machine-only rule (11 Oct 2026) could
+;    install into the user's own profile.  HKCU\Software is shared by both
+;    registry views, so one lookup covers 32- and 64-bit builds alike.
+;
+; Left alone, either would stay complete with its own uninstaller, Start Menu
+; shortcuts and update path while the new copy landed in Program Files: two
+; installs, one of them stale.  Each is uninstalled silently first.
+;
+; HKCU here is the hive of the account Setup runs as.  When the user is an
+; administrator who accepts the UAC prompt, that is their own hive and the
+; per-user copy is found.  When a standard user elevates with ANOTHER
+; account's credentials, it is that account's hive, nothing is found, and the
+; per-user copy is left in place -- still working, still in that user's Apps
+; and Features, and removable from there.  Inno cannot read the original
+; user's hive from an elevated Setup, so that case is reported, not fixed.
+;
+; Uninstalling an old copy runs its --unregister-file-types, so a copy that
+; had registered as the Markdown handler would silently stop being one.  Its
+; recorded task list says whether it had; if so, the new exe registers again
+; after the install, as the original user (whose hive the keys belong in).
 [Code]
 const
-  LegacyKey =
+  UninstallKey =
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
     '{7C1B4E62-9E3A-4B21-8E37-2D5A9F0C41B8}_is1';
 
-function LegacyUninstaller(var Uninstaller: String): Boolean;
+var
+  ReRegisterFileTypes: Boolean;
+
+function OldUninstaller(const RootKey: Integer;
+                        var Uninstaller: String): Boolean;
 begin
-  // Per-machine first, then per-user: both were written to the 32-bit view.
-  Result := RegQueryStringValue(HKLM32, LegacyKey, 'UninstallString',
+  Result := RegQueryStringValue(RootKey, UninstallKey, 'UninstallString',
                                 Uninstaller);
-  if not Result then
-    Result := RegQueryStringValue(HKCU32, LegacyKey, 'UninstallString',
-                                  Uninstaller);
   if Result then
     Uninstaller := RemoveQuotes(Uninstaller);
   Result := Result and (Uninstaller <> '') and FileExists(Uninstaller);
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function OldCopyAssociated(const RootKey: Integer): Boolean;
+var
+  Tasks: String;
+begin
+  Result := RegQueryStringValue(RootKey, UninstallKey,
+                                'Inno Setup: Selected Tasks', Tasks) and
+            (Pos('associate', Lowercase(Tasks)) > 0);
+end;
+
+procedure RemoveOldCopy(const RootKey: Integer);
 var
   Uninstaller: String;
   ResultCode: Integer;
   Waited: Integer;
 begin
-  // Best effort, never fatal: returning a message here ABORTS the install, and
-  // failing to tidy up an old copy is not a reason to leave the user with no
-  // new one.
-  Result := '';
-  if not LegacyUninstaller(Uninstaller) then
+  // Best effort, never fatal: failing to tidy up an old copy is not a reason
+  // to leave the user with no new one.
+  if not OldUninstaller(RootKey, Uninstaller) then
     Exit;
+  if OldCopyAssociated(RootKey) then
+    ReRegisterFileTypes := True;
 
   if not Exec(Uninstaller, '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES', '',
               SW_HIDE, ewWaitUntilTerminated, ResultCode) then
@@ -140,13 +170,39 @@ begin
 
   // Inno's uninstaller re-launches itself from a temp copy, so the call above
   // returns before the work is done.  Wait for the entry to actually go, or
-  // the old uninstaller deletes the Start Menu group we are about to fill --
-  // both builds use the same group name.  Bounded: 60 x 500 ms, then give up
+  // the old uninstaller can delete the Start Menu group we are about to fill
+  // -- the builds share the group name.  Bounded: 60 x 500 ms, then give up
   // and install anyway.
   Waited := 0;
-  while (Waited < 60) and LegacyUninstaller(Uninstaller) do
+  while (Waited < 60) and OldUninstaller(RootKey, Uninstaller) do
   begin
     Sleep(500);
     Waited := Waited + 1;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  // Returning a message here ABORTS the install, so this always returns ''.
+  Result := '';
+  ReRegisterFileTypes := False;
+  RemoveOldCopy(HKLM32);
+  RemoveOldCopy(HKCU);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  // The [Run] entry already registers when the task is ticked; this covers
+  // the silent update, where it is not ticked by default.  As the original
+  // user, for the same reason the [Run] entry is runasoriginaluser.
+  if (CurStep = ssPostInstall) and ReRegisterFileTypes and
+     not WizardIsTaskSelected('associate') then
+  begin
+    if not ExecAsOriginalUser(ExpandConstant('{app}\{#AppExe}'),
+                              '--register-file-types', '', SW_HIDE,
+                              ewWaitUntilTerminated, ResultCode) then
+      Log('Could not re-register the Markdown file types.');
   end;
 end;
