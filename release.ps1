@@ -192,6 +192,16 @@ Remove-Item -Force -ErrorAction SilentlyContinue `
 Copy-Item HELP.md, README.md "$stage\MDBoss\"
 Compress-Archive -Force -Path "$stage\MDBoss" `
     -DestinationPath installer\MDBoss-Cpp-Portable.zip
+# Windows PowerShell 5.1's Compress-Archive names entries with BACKSLASHES; the
+# zip format says '/'. PowerShell 7 (pwsh) writes '/'. Refuse rather than ship one.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zr = [IO.Compression.ZipFile]::OpenRead((Resolve-Path installer\MDBoss-Cpp-Portable.zip).Path)
+try { $bad = @($zr.Entries | Where-Object { $_.FullName.Contains('\') }).Count }
+finally { $zr.Dispose() }
+if ($bad -gt 0) {
+    Remove-Item installer\MDBoss-Cpp-Portable.zip -Force
+    throw "$bad zip entries use '\' as the separator -- run this script under pwsh (PowerShell 7), not powershell.exe"
+}
 Remove-Item -Recurse -Force $stage
 
 # Every asset name is load-bearing: the in-app updater matches its own assets
