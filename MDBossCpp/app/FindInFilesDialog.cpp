@@ -14,6 +14,7 @@ namespace {
 constexpr int kColDocument = 0;
 constexpr int kColLine = 1;
 constexpr int kColText = 2;
+constexpr int kLineColumnWidth = 60;   // a line number's column
 
 }  // namespace
 
@@ -36,7 +37,7 @@ FindInFilesDialog::FindInFilesDialog(wxWindow* parent)
     list_ = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                            wxLC_REPORT | wxLC_SINGLE_SEL);
     list_->AppendColumn(L"Document", wxLIST_FORMAT_LEFT, 220);
-    list_->AppendColumn(L"Line", wxLIST_FORMAT_RIGHT, 60);
+    list_->AppendColumn(L"Line", wxLIST_FORMAT_RIGHT, kLineColumnWidth);
     list_->AppendColumn(L"Match", wxLIST_FORMAT_LEFT, 560);
 
     // The selected row's folder, which is the only place there is room for it:
@@ -191,6 +192,13 @@ void FindInFilesDialog::show_results(const DocumentSearch& results)
                            : wxString::FromUTF8(match.where));
         list_->SetItem(row, kColText, wxString::FromUTF8(match.text));
     }
+    // A host's `where` can be longer than a line number ("sheet 2, row 14"):
+    // widen the column to fit it, and go back to the usual width otherwise.
+    bool any_where = false;
+    for (const DocumentMatch& match : matches_) {   // bounded by the cap
+        any_where = any_where || !match.where.empty();
+    }
+    list_->SetColumnWidth(kColLine, any_where ? wxLIST_AUTOSIZE : kLineColumnWidth);
 
     // The list is indexed by row when a result is activated, so a row that
     // does not line up with a match opens the wrong document -- which would
