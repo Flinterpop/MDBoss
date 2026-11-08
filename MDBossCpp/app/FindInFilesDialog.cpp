@@ -150,16 +150,20 @@ void FindInFilesDialog::start_search()
     const unsigned generation = ++generation_;
     std::shared_ptr<std::atomic<bool>> alive = alive_;
     const SearchOptions options = options_;
+    // Copied, not read from the member on the worker: the host may replace it
+    // while a search is running.
+    const DocumentSearcher searcher = searcher_;
 
-    std::thread([this, paths, needle, options, generation, alive] {
+    std::thread([this, paths, needle, options, generation, alive, searcher] {
         DocumentSearch results;
         // Nothing may escape a detached thread: an uncaught exception is
         // std::terminate, a hard crash with no message.
         try {
-            results = search_documents(
-                paths, needle, options, [this, generation, alive] {
-                    return !alive->load() || generation != generation_.load();
-                });
+            const std::function<bool()> stop = [this, generation, alive] {
+                return !alive->load() || generation != generation_.load();
+            };
+            results = searcher ? searcher(paths, needle, options, stop)
+                               : search_documents(paths, needle, options, stop);
         } catch (...) {
             results = DocumentSearch{};
         }
@@ -181,7 +185,10 @@ void FindInFilesDialog::show_results(const DocumentSearch& results)
         const wxString full = wxString::FromUTF8(match.path);
         const long row = list_->InsertItem(static_cast<long>(i), wxEmptyString);
         list_->SetItem(row, kColDocument, wxFileName(full).GetFullName());
-        list_->SetItem(row, kColLine, wxString::Format(L"%d", match.line));
+        list_->SetItem(row, kColLine,
+                       match.where.empty()
+                           ? wxString::Format(L"%d", match.line)
+                           : wxString::FromUTF8(match.where));
         list_->SetItem(row, kColText, wxString::FromUTF8(match.text));
     }
 

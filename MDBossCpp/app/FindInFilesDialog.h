@@ -31,6 +31,14 @@
 
 namespace mdboss {
 
+// The search the dialog runs: search_documents() unless the host supplies
+// another.  Runs on a worker thread, so it must not touch any window; it must
+// poll `stop` and must honour the same per-document and total ceilings, since
+// the dialog shows whatever it returns.
+using DocumentSearcher = std::function<DocumentSearch(
+    const std::vector<std::string>& paths, const std::string& needle,
+    const SearchOptions& options, const std::function<bool()>& stop)>;
+
 class FindInFilesDialog : public wxDialog {
 public:
     explicit FindInFilesDialog(wxWindow* parent);
@@ -46,6 +54,13 @@ public:
     void set_documents(std::function<std::vector<std::string>()> provider)
     {
         documents_ = std::move(provider);
+    }
+    // Replace the search itself (DocBoss answers from its index, PDFs
+    // included).  An empty function restores search_documents().  Set it on
+    // the UI thread; each search copies it before its worker starts.
+    void set_searcher(DocumentSearcher searcher)
+    {
+        searcher_ = std::move(searcher);
     }
     // Activating a row.  The needle and options go with it so the frame can
     // find the match again in the document it opens -- the file may have
@@ -85,6 +100,7 @@ private:
     std::atomic<unsigned> generation_{0};
 
     std::function<std::vector<std::string>()> documents_;
+    DocumentSearcher searcher_;
     std::function<void(const DocumentMatch&, const std::string&,
                        const SearchOptions&)>
         on_open_match_;

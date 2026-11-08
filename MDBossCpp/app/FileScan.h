@@ -164,6 +164,11 @@ struct DocumentMatch {
     // select the match itself rather than merely the line it sits on.
     std::size_t offset = 0;
     std::string text;
+    // What the results list shows in its Line column.  Empty means the line
+    // number, which is all search_documents() produces; a host that plugs in
+    // its own searcher (FindInFilesDialog::set_searcher) and reaches files
+    // with no lines to speak of -- a PDF's page -- says where here instead.
+    std::string where;
 };
 
 // Ceilings for a corpus search (Rule of 10).  The per-document one is not
